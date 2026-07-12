@@ -140,12 +140,23 @@ type Notify = (kind: "success" | "error" | "warning", text: string) => void;
 
 function Channels({ channels, api, refresh, notify }: { channels: Channel[]; api: ApiClient; refresh: () => Promise<void>; notify: Notify }) {
   const [handle, setHandle] = useState("");
-  const [chats, setChats] = useState<TelegramChat[]>([]);
+  const [chats, setChats] = useState<TelegramChat[]>(() => { try { return JSON.parse(localStorage.getItem("egx.telegramChats") || "[]") as TelegramChat[]; } catch { return []; } });
+  const [loading, setLoading] = useState(false);
   const submit = (event: FormEvent) => { event.preventDefault(); void api.addChannel(handle).then(() => { setHandle(""); return refresh(); }).then(() => notify("success", "Channel added for analysis.")).catch((reason) => notify("error", displayError(reason))); };
-  const loadChats = () => { void api.telegramChats().then((items) => { setChats(items); notify(items.length ? "success" : "warning", items.length ? `${items.length} Telegram chats loaded.` : "No chats were found."); }).catch((reason) => notify("error", displayError(reason))); };
-  const addChat = (chat: TelegramChat) => { void api.addChannel(chat.id, chat.title).then(refresh).then(() => notify("success", `${chat.title} is selected for analysis.`)).catch((reason) => notify("error", displayError(reason))); };
-  const analyze = () => { const ids = channels.filter((channel) => channel.active).map((channel) => channel.id); if (!ids.length) return notify("warning", "Select at least one chat first."); void api.analyzeSelected(ids).then((result) => refresh().then(() => notify("success", `${result.messages_collected} messages collected and analyzed.`))).catch((reason) => notify("error", displayError(reason))); };
-  return <><form className="inline" onSubmit={submit}><input value={handle} onChange={(event) => setHandle(event.target.value)} placeholder="Telegram username, without @" required /><button>Add channel</button></form><button onClick={loadChats}>Load my Telegram chats</button>{chats.length > 0 && <div className="table"><table><thead><tr><th>Chat</th><th>Type</th><th /></tr></thead><tbody>{chats.map((chat) => <tr key={chat.id}><td>{chat.title}{chat.username ? ` (@${chat.username})` : ""}</td><td>{chat.kind}</td><td><button onClick={() => addChat(chat)}>Select</button></td></tr>)}</tbody></table></div>}<h3>Selected chats</h3><button onClick={analyze}>Analyze selected chats</button><Table rows={channels.map((channel) => ({ ...channel, active: <input type="checkbox" checked={channel.active} onChange={(event) => void api.setChannelActive(channel.id, event.target.checked).then(refresh).catch((reason) => notify("error", displayError(reason)))} /> }))} /></>;
+  const loadChats = () => { setLoading(true); void api.telegramChats().then((items) => { setChats(items); localStorage.setItem("egx.telegramChats", JSON.stringify(items)); notify(items.length ? "success" : "warning", items.length ? `${items.length} Telegram chats loaded.` : "No chats were found."); }).catch((reason) => notify("error", displayError(reason))).finally(() => setLoading(false)); };
+  const addChat = (chat: TelegramChat) => { setLoading(true); void api.selectTelegramChat(chat).then(refresh).then(() => notify("success", `${chat.title} is selected for analysis.`)).catch((reason) => notify("error", displayError(reason))).finally(() => setLoading(false)); };
+  const analyze = () => { const ids = channels.filter((channel) => channel.active).map((channel) => channel.id); if (!ids.length) return notify("warning", "Select at least one chat first."); setLoading(true); void api.analyzeSelected(ids).then((result) => refresh().then(() => notify("success", `${result.messages_collected} messages collected and analyzed.`))).catch((reason) => notify("error", displayError(reason))).finally(() => setLoading(false)); };
+  const selected = new Set(channels.map((channel) => channel.handle));
+  const selectedRows = channels.map((channel) => ({ ...channel, active: channel.active ? "Selected" : "Paused" }));
+  const chatRows = chats.map((chat) => ({ chat: `${chat.title}${chat.username ? ` (@${chat.username})` : ""}`, type: chat.kind, selection: <button disabled={loading || selected.has(chat.id)} onClick={() => addChat(chat)}>{selected.has(chat.id) ? "Selected" : "Select"}</button> }));
+  return <>
+    <form className="inline" onSubmit={submit}><input value={handle} onChange={(event) => setHandle(event.target.value)} placeholder="Telegram username, without @" required /><button disabled={loading}>Add channel</button></form>
+    <button onClick={loadChats} disabled={loading}>{loading ? "Loading chats..." : "Load my Telegram chats"}</button>
+    {chats.length > 0 && <Table rows={chatRows} />}
+    <h3>Selected chats ({channels.filter((channel) => channel.active).length})</h3>
+    <button onClick={analyze} disabled={loading}>{loading ? "Analyzing selected chats..." : "Analyze selected chats"}</button>
+    <Table rows={selectedRows} />
+  </>;
 }
 
 function Search({ api, onResult, notify }: { api: ApiClient; onResult: (rows: Array<Record<string, unknown>>) => void; notify: Notify }) {

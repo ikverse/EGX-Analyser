@@ -19,6 +19,7 @@ export class ApiClient {
   requestTelegramCode(phone: string) { return this.request<{ status: string }>("/telegram/request-code", { method: "POST", body: JSON.stringify({ phone }) }); }
   verifyTelegramCode(code: string, password?: string) { return this.request<{ authorized: boolean }>("/telegram/verify-code", { method: "POST", body: JSON.stringify({ code, password }) }); }
   telegramChats() { return this.request<TelegramChat[]>("/telegram/chats"); }
+  selectTelegramChat(chat: TelegramChat) { return this.request<Channel>("/telegram/chats/select", { method: "POST", body: JSON.stringify(chat) }); }
   runCollection() { return this.request<{ messages_collected: number }>("/collection/run", { method: "POST" }); }
   analyzeSelected(channel_ids: number[]) { return this.request<{ messages_collected: number }>("/collection/analyze-selected", { method: "POST", body: JSON.stringify({ channel_ids, analyze: true }) }); }
   addChannel(handle: string, title?: string) { return this.request<Channel>("/channels", { method: "POST", body: JSON.stringify({ handle, title }) }); }

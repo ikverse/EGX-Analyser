@@ -38,6 +38,13 @@ class ChannelCreate(BaseModel):
     title: str | None = Field(default=None, max_length=255)
 
 
+class TelegramChatSelect(BaseModel):
+    id: str = Field(min_length=1, max_length=255)
+    title: str = Field(min_length=1, max_length=255)
+    username: str = Field(default="", max_length=255)
+    kind: str = Field(default="channel", max_length=30)
+
+
 class ChannelUpdate(BaseModel):
     active: bool
 

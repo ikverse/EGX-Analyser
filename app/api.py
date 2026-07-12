@@ -8,7 +8,7 @@ from app.config_store import update_config
 from app.database import get_session
 from app.models import Channel, Message, Recommendation, Report, Stock
 from app.reports import ReportService
-from app.schemas import (ChannelCreate, ChannelUpdate, CollectionRequest, DailyReportRequest, MessageCreate, SearchRequest, SettingsUpdate,
+from app.schemas import (ChannelCreate, ChannelUpdate, CollectionRequest, DailyReportRequest, MessageCreate, SearchRequest, SettingsUpdate, TelegramChatSelect,
                          TelegramCodeRequest, TelegramCodeVerification)
 from app.services import AnalyticsService, MessageService, SearchService
 from app.telegram_auth import TelegramAuthenticator
@@ -142,6 +142,15 @@ async def create_channel(payload: ChannelCreate, session: AsyncSession = Depends
     channel.active = True
     await session.commit()
     return {"id": channel.id, "handle": channel.handle, "active": channel.active}
+
+
+@router.post("/telegram/chats/select")
+async def select_telegram_chat(payload: TelegramChatSelect, session: AsyncSession = Depends(get_session)) -> dict:
+    channel = await get_or_create_channel(session, payload.id)
+    channel.title = payload.title
+    channel.active = True
+    await session.commit()
+    return {"id": channel.id, "handle": channel.handle, "title": channel.title, "active": channel.active}
 
 
 @router.patch("/channels/{channel_id}")
