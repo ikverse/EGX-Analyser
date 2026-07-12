@@ -1,0 +1,67 @@
+[CmdletBinding()]
+param(
+    [switch]$Release
+)
+
+$ErrorActionPreference = "Stop"
+$root = Split-Path -Parent $PSScriptRoot
+$python = Join-Path $root ".venv\Scripts\python.exe"
+if (-not (Test-Path $python)) { throw "Create the Python environment first: scripts/bootstrap-windows.ps1" }
+if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { throw "Node.js 20+ is required to build the desktop installer." }
+if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) { throw "Rust is required to build the desktop installer." }
+
+$tauriConfig = Get-Content (Join-Path $root "desktop\src-tauri\tauri.conf.json") -Raw | ConvertFrom-Json
+$loadedDefaultSigningKey = $false
+$loadedDefaultSigningPassword = $false
+if ($tauriConfig.plugins.updater.pubkey -and -not $env:TAURI_SIGNING_PRIVATE_KEY) {
+    $defaultSigningKey = Join-Path $HOME ".tauri\egx-intelligence.key"
+    if (-not (Test-Path $defaultSigningKey)) {
+        throw "OTA updates are configured but the signing key is missing. Run scripts\enable-updater.ps1 or set TAURI_SIGNING_PRIVATE_KEY before building."
+    }
+    $env:TAURI_SIGNING_PRIVATE_KEY = $defaultSigningKey
+    $securePassword = Read-Host "Enter the update signing-key password" -AsSecureString
+    $passwordPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
+    try { $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($passwordPointer) }
+    finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($passwordPointer) }
+    if (-not $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD) { throw "An update signing-key password is required to build this application." }
+    $loadedDefaultSigningKey = $true
+    $loadedDefaultSigningPassword = $true
+}
+
+if ($Release) {
+    $updater = $tauriConfig.plugins.updater
+    if (-not $updater -or -not $updater.pubkey -or -not $updater.endpoints) {
+        throw "OTA updates are not configured. Run scripts\enable-updater.ps1 with your GitHub owner/repository first."
+    }
+    if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
+        throw "A release build requires TAURI_SIGNING_PRIVATE_KEY. Use scripts\build-release.ps1 so your signing key is loaded safely."
+    }
+}
+
+Push-Location $root
+try {
+    & $python -m pip install --no-build-isolation -e ".[dev]"
+    if ($LASTEXITCODE -ne 0) { throw "Could not install the local Python project into the existing virtual environment." }
+    & $python scripts/generate_desktop_icon.py
+    & $python -m PyInstaller --noconfirm --clean --onefile --name egx-intelligence-api --paths $root --collect-all app --hidden-import aiosqlite desktop/sidecar_server.py
+    $target = "x86_64-pc-windows-msvc"
+    $binDir = Join-Path $root "desktop\src-tauri\binaries"
+    New-Item -ItemType Directory -Force -Path $binDir | Out-Null
+    Copy-Item "dist\egx-intelligence-api.exe" "$binDir\egx-intelligence-api-$target.exe" -Force
+    Push-Location "desktop"
+    try {
+        npm install
+        if ($LASTEXITCODE -ne 0) { throw "Could not install desktop dependencies." }
+        $buildLog = Join-Path $root "desktop-build.log"
+        & cmd.exe /d /c "npm run tauri build > `"$buildLog`" 2>&1"
+        $buildExitCode = $LASTEXITCODE
+        Get-Content $buildLog
+        if ($buildExitCode -ne 0) { throw "Desktop build failed. See desktop-build.log for the exact cause." }
+    } finally { Pop-Location }
+} finally {
+    if ($loadedDefaultSigningKey) { Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY -ErrorAction SilentlyContinue }
+    if ($loadedDefaultSigningPassword) { Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD -ErrorAction SilentlyContinue }
+    Pop-Location
+}
+
+Write-Host "Installer created under desktop\src-tauri\target\release\bundle\nsis" -ForegroundColor Green

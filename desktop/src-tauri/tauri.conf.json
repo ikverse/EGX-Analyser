@@ -1,0 +1,56 @@
+{
+    "$schema":  "https://schema.tauri.app/config/2",
+    "productName":  "EGX Intelligence",
+    "version":  "0.1.0",
+    "identifier":  "com.egx.intelligence",
+    "build":  {
+                  "beforeDevCommand":  "npm run dev",
+                  "beforeBuildCommand":  "npm run build",
+                  "devUrl":  "http://localhost:1420",
+                  "frontendDist":  "../dist"
+              },
+    "app":  {
+                "windows":  [
+                                {
+                                    "label":  "main",
+                                    "title":  "EGX Intelligence",
+                                    "width":  1280,
+                                    "height":  820,
+                                    "minWidth":  960,
+                                    "minHeight":  640,
+                                    "resizable":  true
+                                }
+                            ]
+            },
+    "bundle":  {
+                   "active":  true,
+                   "targets":  [
+                                   "nsis"
+                               ],
+                   "createUpdaterArtifacts":  true,
+                   "externalBin":  [
+                                       "binaries/egx-intelligence-api"
+                                   ],
+                   "windows":  {
+                                   "webviewInstallMode":  {
+                                                              "type":  "downloadBootstrapper",
+                                                              "silent":  true
+                                                          },
+                                   "nsis":  {
+                                                "installMode":  "currentUser",
+                                                "displayLanguageSelector":  false
+                                            }
+                               }
+               },
+    "plugins":  {
+                    "updater":  {
+                                    "pubkey":  "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENDQzVBMDcyOEVDQzk5MzYKUldRMm1jeU9jcURGekc5dVEzZUUwMS9UZmhGVTRBNDZLL3BjWWJpczdHajVZUFRlY0R6bkNoc28K",
+                                    "endpoints":  [
+                                                      "https://github.com/ikverse/EGX-Analyser/releases/latest/download/latest.json"
+                                                  ],
+                                    "windows":  {
+                                                    "installMode":  "passive"
+                                                }
+                                }
+                }
+}
