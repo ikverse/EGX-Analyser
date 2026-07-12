@@ -11,9 +11,6 @@ permissions:
 jobs:
   release:
     runs-on: windows-latest
-    env:
-      TAURI_SIGNING_PRIVATE_KEY: ${{ runner.temp }}\\egx-intelligence.key
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -32,10 +29,16 @@ jobs:
           python -m pip install -e ".[dev]"
       - name: Restore the private update signing key
         shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY_CONTENT: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
-          [IO.File]::WriteAllText($env:TAURI_SIGNING_PRIVATE_KEY, '${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}')
+          $signingKeyPath = Join-Path $env:RUNNER_TEMP 'egx-intelligence.key'
+          [IO.File]::WriteAllText($signingKeyPath, $env:TAURI_SIGNING_PRIVATE_KEY_CONTENT)
+          "TAURI_SIGNING_PRIVATE_KEY=$signingKeyPath" | Add-Content -Path $env:GITHUB_ENV
       - name: Build signed update artifacts
         shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: powershell -ExecutionPolicy Bypass -File scripts/build-desktop.ps1 -Release
       - name: Create update manifest
         shell: pwsh
