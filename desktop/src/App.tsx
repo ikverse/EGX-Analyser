@@ -154,19 +154,23 @@ type Notify = (kind: "success" | "error" | "warning", text: string) => void;
 function Channels({ channels, api, refresh, notify }: { channels: Channel[]; api: ApiClient; refresh: () => Promise<boolean>; notify: Notify }) {
   const [handle, setHandle] = useState("");
   const [chats, setChats] = useState<TelegramChat[]>(() => { localStorage.removeItem("egx.telegramChats"); try { return JSON.parse(sessionStorage.getItem("egx.telegramChats") || "[]") as TelegramChat[]; } catch { return []; } });
+  const [selectedHandles, setSelectedHandles] = useState<string[]>(() => { try { return JSON.parse(sessionStorage.getItem("egx.selectedTelegramChats") || "[]") as string[]; } catch { return []; } });
   const [loading, setLoading] = useState(false);
   const submit = (event: FormEvent) => { event.preventDefault(); void api.addChannel(handle).then(() => { setHandle(""); return refresh(); }).then(() => notify("success", "Channel added for analysis.")).catch((reason) => notify("error", displayError(reason))); };
   const loadChats = () => { setLoading(true); void api.telegramChats().then((items) => { setChats(items); sessionStorage.setItem("egx.telegramChats", JSON.stringify(items)); notify(items.length ? "success" : "warning", items.length ? `${items.length} Telegram chats loaded for this session.` : "No chats were found."); }).catch((reason) => notify("error", displayError(reason))).finally(() => setLoading(false)); };
-  const addChat = (chat: TelegramChat) => { setLoading(true); void api.selectTelegramChat(chat).then(refresh).then(() => notify("success", `${chat.title} is selected for analysis.`)).catch((reason) => notify("error", displayError(reason))).finally(() => setLoading(false)); };
-  const analyze = () => { const ids = channels.filter((channel) => channel.active).map((channel) => channel.id); if (!ids.length) return notify("warning", "Select at least one chat first."); setLoading(true); void api.analyzeSelected(ids).then((result) => refresh().then(() => notify("success", `${result.messages_collected} messages collected and analyzed.`))).catch((reason) => notify("error", displayError(reason))).finally(() => setLoading(false)); };
-  const selected = new Set(channels.map((channel) => channel.handle));
-  const selectedRows = channels.map((channel) => ({ ...channel, active: channel.active ? "Selected" : "Paused" }));
-  const chatRows = chats.map((chat) => ({ chat: `${chat.title}${chat.username ? ` (@${chat.username})` : ""}`, type: chat.kind, selection: <button disabled={loading || selected.has(chat.id)} onClick={() => addChat(chat)}>{selected.has(chat.id) ? "Selected" : "Select"}</button> }));
+  const updateSelectedHandles = (handles: string[]) => { setSelectedHandles(handles); sessionStorage.setItem("egx.selectedTelegramChats", JSON.stringify(handles)); };
+  const addChat = (chat: TelegramChat) => { setLoading(true); void api.selectTelegramChat(chat).then((channel) => { updateSelectedHandles([...new Set([...selectedHandles, channel.handle])]); return refresh(); }).then(() => notify("success", `${chat.title} is selected for this session.`)).catch((reason) => notify("error", displayError(reason))).finally(() => setLoading(false)); };
+  const removeChat = (handle: string) => { updateSelectedHandles(selectedHandles.filter((item) => item !== handle)); notify("success", "Chat removed from this session."); };
+  const selected = new Set(selectedHandles);
+  const selectedChannels = channels.filter((channel) => selected.has(channel.handle));
+  const analyze = () => { const ids = selectedChannels.map((channel) => channel.id); if (!ids.length) return notify("warning", "Select at least one chat first."); setLoading(true); void api.analyzeSelected(ids).then((result) => refresh().then(() => notify("success", `${result.messages_collected} messages collected and analyzed.`))).catch((reason) => notify("error", displayError(reason))).finally(() => setLoading(false)); };
+  const selectedRows = selectedChannels.map((channel) => ({ ...channel, selection: <button className="secondary" onClick={() => removeChat(channel.handle)}>Remove</button> }));
+  const chatRows = chats.map((chat) => ({ chat: `${chat.title}${chat.username ? ` (@${chat.username})` : ""}`, type: chat.kind, selection: <button disabled={loading} onClick={() => selected.has(chat.id) ? removeChat(chat.id) : addChat(chat)}>{selected.has(chat.id) ? "Remove" : "Select"}</button> }));
   return <>
     <form className="inline" onSubmit={submit}><input value={handle} onChange={(event) => setHandle(event.target.value)} placeholder="Telegram username, without @" required /><button disabled={loading}>Add channel</button></form>
     <button onClick={loadChats} disabled={loading}>{loading ? "Loading chats..." : "Load my Telegram chats"}</button>
     {chats.length > 0 && <Table rows={chatRows} />}
-    <h3>Selected chats ({channels.filter((channel) => channel.active).length})</h3>
+    <h3>Selected chats ({selectedChannels.length})</h3>
     <button onClick={analyze} disabled={loading}>{loading ? "Analyzing selected chats..." : "Analyze selected chats"}</button>
     <Table rows={selectedRows} />
   </>;

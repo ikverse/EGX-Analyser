@@ -172,7 +172,7 @@ async def select_telegram_chat(payload: TelegramChatSelect, session: AsyncSessio
     try:
         channel = await get_or_create_channel(session, payload.id)
         channel.title = payload.title
-        channel.active = True
+        channel.active = False
         await session.commit()
         return {"id": channel.id, "handle": channel.handle, "title": channel.title, "active": channel.active}
     except Exception as error:

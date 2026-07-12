@@ -39,8 +39,13 @@ class LocalRuntime:
         if not settings.telegram_api_id or not settings.telegram_api_hash:
             return 0
         async with SessionLocal() as session:
-            statement = select(Channel).where(Channel.active.is_(True))
-            if channel_ids: statement = statement.where(Channel.id.in_(channel_ids))
+            statement = select(Channel)
+            if channel_ids is not None:
+                if not channel_ids:
+                    return 0
+                statement = statement.where(Channel.id.in_(channel_ids))
+            else:
+                statement = statement.where(Channel.active.is_(True))
             active = [channel.handle for channel in (await session.scalars(statement)).all()]
             if not active:
                 return 0

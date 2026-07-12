@@ -7,7 +7,7 @@ from openai import AuthenticationError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app import api
 from app.models import Base, Image, Recommendation
-from app.schemas import AnalysisResult, ExtractedRecommendation, MessageCreate
+from app.schemas import AnalysisResult, ExtractedRecommendation, MessageCreate, TelegramChatSelect
 from app.ai.service import analysis_output_schema
 from app.services import AnalyticsService, MessageService, SearchService
 from app.config_store import load_secrets_into_environment, update_config
@@ -47,6 +47,11 @@ async def test_channel_creation_normalizes_and_reuses_telegram_chat(session):
     second = await api.get_or_create_channel(session, "egxsignals")
     assert first.id == second.id
     assert first.handle == "egxsignals"
+
+
+async def test_selected_telegram_chat_is_not_persisted_as_active(session):
+    result = await api.select_telegram_chat(TelegramChatSelect(id="123", title="Signals"), session)
+    assert result["active"] is False
 
 
 async def test_consensus_counts_signals(session):
