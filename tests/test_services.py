@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app import api
 from app.models import Base, Image, Recommendation
 from app.schemas import AnalysisResult, ExtractedRecommendation, MessageCreate
+from app.ai.service import analysis_output_schema
 from app.services import AnalyticsService, MessageService, SearchService
 from app.config_store import load_secrets_into_environment, update_config
 from app.telegram_auth import TelegramAuthenticator
@@ -106,3 +107,12 @@ async def test_model_listing_masks_invalid_openai_key(monkeypatch):
 
     assert error.value.status_code == 401
     assert error.value.detail == "OpenAI rejected the saved API key. Replace it in Settings and save."
+
+
+def test_analysis_output_schema_is_strict_for_openai():
+    schema = analysis_output_schema()
+    assert schema["additionalProperties"] is False
+    assert set(schema["required"]) == set(schema["properties"])
+    recommendation = schema["$defs"]["ExtractedRecommendation"]
+    assert recommendation["additionalProperties"] is False
+    assert set(recommendation["required"]) == set(recommendation["properties"])

@@ -1,9 +1,29 @@
 import base64
 import json
 from pathlib import Path
+from typing import Any
 from openai import AsyncOpenAI
 from app.config import Settings
 from app.schemas import AnalysisResult
+
+
+def analysis_output_schema() -> dict[str, Any]:
+    schema = AnalysisResult.model_json_schema()
+
+    def make_strict(value: Any) -> None:
+        if isinstance(value, dict):
+            if value.get("type") == "object":
+                value["additionalProperties"] = False
+                if isinstance(value.get("properties"), dict):
+                    value["required"] = list(value["properties"])
+            for child in value.values():
+                make_strict(child)
+        elif isinstance(value, list):
+            for child in value:
+                make_strict(child)
+
+    make_strict(schema)
+    return schema
 
 
 class AIAnalysisService:
@@ -24,7 +44,7 @@ class AIAnalysisService:
             model=self.settings.openai_model,
             input=[{"role": "user", "content": content}],
             text={"format": {"type": "json_schema", "name": "analysis_result", "strict": True,
-                "schema": AnalysisResult.model_json_schema()}},
+                "schema": analysis_output_schema()}},
         )
         return AnalysisResult.model_validate(json.loads(response.output_text))
 

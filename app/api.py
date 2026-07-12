@@ -14,7 +14,7 @@ from app.schemas import (ChannelCreate, ChannelUpdate, CollectionRequest, DailyR
 from app.services import AnalyticsService, MessageService, SearchService
 from app.telegram_auth import TelegramAuthenticator
 from telethon import TelegramClient
-from openai import APIConnectionError, APIStatusError, AsyncOpenAI, AuthenticationError, RateLimitError
+from openai import APIConnectionError, APIStatusError, AsyncOpenAI, AuthenticationError, BadRequestError, RateLimitError
 
 router = APIRouter()
 telegram_authenticator = TelegramAuthenticator()
@@ -120,13 +120,19 @@ async def analyze_message(message_id: int, session: AsyncSession = Depends(get_s
 @router.post("/collection/run")
 async def run_collection() -> dict:
     from app.main import runtime
-    return {"messages_collected": await runtime.collect_once()}
+    try:
+        return {"messages_collected": await runtime.collect_once()}
+    except BadRequestError as error:
+        raise HTTPException(400, f"OpenAI rejected the analysis request: {error}") from error
 
 
 @router.post("/collection/analyze-selected")
 async def analyze_selected_channels(payload: CollectionRequest) -> dict:
     from app.main import runtime
-    return {"messages_collected": await runtime.collect_once(payload.channel_ids)}
+    try:
+        return {"messages_collected": await runtime.collect_once(payload.channel_ids)}
+    except BadRequestError as error:
+        raise HTTPException(400, f"OpenAI rejected the analysis request: {error}") from error
 
 
 @router.get("/messages")
