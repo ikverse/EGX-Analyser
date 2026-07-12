@@ -13,7 +13,7 @@ from app.schemas import (ChannelCreate, ChannelUpdate, MessageCreate, SearchRequ
 from app.services import AnalyticsService, MessageService, SearchService
 from app.telegram_auth import TelegramAuthenticator
 from telethon import TelegramClient
-from openai import AsyncOpenAI
+from openai import APIConnectionError, APIStatusError, AsyncOpenAI, AuthenticationError, RateLimitError
 
 router = APIRouter()
 telegram_authenticator = TelegramAuthenticator()
@@ -40,8 +40,16 @@ async def available_models() -> list[str]:
         raise HTTPException(400, "Save an OpenAI API key first")
     try:
         models = await AsyncOpenAI(api_key=settings.openai_api_key).models.list()
+    except AuthenticationError as error:
+        raise HTTPException(401, "OpenAI rejected the saved API key. Replace it in Settings and save.") from error
+    except RateLimitError as error:
+        raise HTTPException(429, "OpenAI rate limit reached. Try loading models again shortly.") from error
+    except APIConnectionError as error:
+        raise HTTPException(503, "Unable to connect to OpenAI. Check your internet connection and try again.") from error
+    except APIStatusError as error:
+        raise HTTPException(502, f"OpenAI could not load models (status {error.status_code}). Try again shortly.") from error
     except Exception as error:
-        raise HTTPException(502, f"Unable to load available OpenAI models: {error}") from error
+        raise HTTPException(502, "Unable to load available OpenAI models. Try again shortly.") from error
     allowed = [model.id for model in models.data if model.id.startswith("gpt-") and
                not any(term in model.id for term in ("audio", "realtime", "transcribe", "tts", "image", "chat"))]
     return sorted(set(allowed), reverse=True)

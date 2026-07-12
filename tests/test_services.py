@@ -1,7 +1,11 @@
 from datetime import datetime, timezone
 import os
 import pytest
+from fastapi import HTTPException
+from httpx import Request, Response
+from openai import AuthenticationError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from app import api
 from app.models import Base, Image, Recommendation
 from app.schemas import AnalysisResult, ExtractedRecommendation, MessageCreate
 from app.services import AnalyticsService, MessageService, SearchService
@@ -75,3 +79,22 @@ async def test_reset_telegram_session_removes_persisted_files(tmp_path):
         (tmp_path / f"telegram{suffix}").write_text("test", encoding="utf-8")
     await TelegramAuthenticator().reset_session(str(session_path))
     assert not list(tmp_path.glob("telegram.session*"))
+
+
+async def test_model_listing_masks_invalid_openai_key(monkeypatch):
+    class FailingModels:
+        async def list(self):
+            response = Response(401, request=Request("GET", "https://api.openai.com/v1/models"))
+            raise AuthenticationError("invalid key", response=response, body=None)
+
+    class FailingClient:
+        models = FailingModels()
+
+    monkeypatch.setattr(api, "get_settings", lambda: type("Settings", (), {"openai_api_key": "test-key"})())
+    monkeypatch.setattr(api, "AsyncOpenAI", lambda **_: FailingClient())
+
+    with pytest.raises(HTTPException) as error:
+        await api.available_models()
+
+    assert error.value.status_code == 401
+    assert error.value.detail == "OpenAI rejected the saved API key. Replace it in Settings and save."
