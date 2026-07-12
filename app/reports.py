@@ -1,4 +1,5 @@
 from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 from html import escape
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen.canvas import Canvas
@@ -15,7 +16,7 @@ class ReportService:
 
     async def generate_daily(self, report_mode: str = "calendar", report_date: datetime | None = None) -> Report:
         generated_at = report_date or datetime.now(timezone.utc)
-        cairo = timezone(timedelta(hours=2))
+        cairo = ZoneInfo("Africa/Cairo")
         local_day = generated_at.astimezone(cairo).date()
         start = datetime.combine(local_day, time(0, 0), tzinfo=cairo)
         end = start + timedelta(days=1)

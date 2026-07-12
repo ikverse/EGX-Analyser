@@ -16,6 +16,7 @@ log = structlog.get_logger()
 class LocalRuntime:
     def __init__(self) -> None:
         self._task: asyncio.Task[None] | None = None
+        self._collection_lock = asyncio.Lock()
 
     async def start(self) -> None:
         self._task = asyncio.create_task(self._run(), name="egx-local-collector")
@@ -28,6 +29,12 @@ class LocalRuntime:
             await self._task
 
     async def collect_once(self, channel_ids: list[int] | None = None) -> int:
+        if self._collection_lock.locked():
+            raise RuntimeError("A Telegram collection is already running")
+        async with self._collection_lock:
+            return await self._collect_once(channel_ids)
+
+    async def _collect_once(self, channel_ids: list[int] | None = None) -> int:
         settings = get_settings()
         if not settings.telegram_api_id or not settings.telegram_api_hash:
             return 0

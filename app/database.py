@@ -18,6 +18,8 @@ async def init_database() -> None:
     from app.models import Base
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
-        columns = (await connection.exec_driver_sql("PRAGMA table_info(recommendations)")).all()
-        if "target_2" not in {column[1] for column in columns}:
-            await connection.exec_driver_sql("ALTER TABLE recommendations ADD COLUMN target_2 FLOAT")
+        migrations = {"recommendations": {"target_2": "FLOAT"}, "channels": {"last_collected_message_id": "INTEGER", "last_collected_at": "DATETIME"}, "messages": {"processing_error": "TEXT"}}
+        for table, additions in migrations.items():
+            columns = {column[1] for column in (await connection.exec_driver_sql(f"PRAGMA table_info({table})")).all()}
+            for name, definition in additions.items():
+                if name not in columns: await connection.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
