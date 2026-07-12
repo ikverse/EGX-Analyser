@@ -35,5 +35,6 @@ $manifest = [ordered]@{
         }
     }
 }
-$manifest | ConvertTo-Json -Depth 8 | Set-Content $OutputPath -Encoding utf8
+$manifestJson = $manifest | ConvertTo-Json -Depth 8
+[System.IO.File]::WriteAllText($OutputPath, $manifestJson, [System.Text.UTF8Encoding]::new($false))
 Write-Host "Update manifest written to $OutputPath" -ForegroundColor Green
