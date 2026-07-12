@@ -24,13 +24,14 @@ if (-not $OutputPath) { $OutputPath = Join-Path $root "release\latest.json" }
 
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $OutputPath) | Out-Null
 $installerName = Split-Path -Leaf $InstallerPath
+$installerUrlName = [System.Uri]::EscapeDataString($installerName)
 $manifest = [ordered]@{
     version = $Version
     notes = $ReleaseNotes
     pub_date = (Get-Date).ToUniversalTime().ToString("o")
     platforms = [ordered]@{
         "windows-x86_64" = [ordered]@{
-            url = "https://github.com/$Repository/releases/download/v$Version/$installerName"
+            url = "https://github.com/$Repository/releases/download/v$Version/$installerUrlName"
             signature = (Get-Content $signaturePath -Raw).Trim()
         }
     }
