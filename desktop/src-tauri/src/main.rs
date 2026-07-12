@@ -11,6 +11,17 @@ fn restart_app(app: tauri::AppHandle) {
     app.restart();
 }
 
+fn stop_local_engine(app: &tauri::AppHandle) {
+    let engine = app.state::<LocalEngine>();
+    let child = {
+        let mut guard = engine.0.lock().expect("engine lock poisoned");
+        guard.take()
+    };
+    if let Some(child) = child {
+        let _ = child.kill();
+    }
+}
+
 fn main() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -25,15 +36,8 @@ fn main() {
         .expect("error while building EGX Intelligence");
 
     app.run(|app, event| {
-        if let RunEvent::Exit = event {
-            let engine = app.state::<LocalEngine>();
-            let child = {
-                let mut guard = engine.0.lock().expect("engine lock poisoned");
-                guard.take()
-            };
-            if let Some(child) = child {
-                let _ = child.kill();
-            }
+        if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
+            stop_local_engine(app);
         }
     });
 }

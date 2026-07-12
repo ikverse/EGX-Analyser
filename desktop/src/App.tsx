@@ -22,6 +22,7 @@ export default function App() {
   const [rows, setRows] = useState<Array<Record<string, unknown>>>([]);
   const [settings, setSettings] = useState<SettingsStatus | null>(null);
   const [error, setError] = useState("");
+  const [engineStarting, setEngineStarting] = useState(true);
   const [toast, setToast] = useState<Toast>(null);
   const [availableUpdate, setAvailableUpdate] = useState<UpdateCandidate | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
@@ -30,17 +31,20 @@ export default function App() {
   const api = useMemo(() => new ApiClient(), []);
 
   const notify = (kind: NonNullable<Toast>["kind"], text: string) => setToast({ kind, text });
-  const refresh = async () => {
+  const refresh = async (showFailure = true): Promise<boolean> => {
     try {
       const [nextChannels, nextConsensus, nextSettings] = await Promise.all([api.channels(), api.consensus(), api.settings()]);
       setChannels(nextChannels);
       setConsensus(nextConsensus);
       setSettings(nextSettings);
       setConnected(true);
+      setEngineStarting(false);
       setError("");
+      return true;
     } catch (reason) {
       setConnected(false);
-      setError(displayError(reason));
+      if (showFailure) setError(displayError(reason));
+      return false;
     }
   };
 
@@ -91,7 +95,16 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  useEffect(() => { void refresh(); }, [api]);
+  useEffect(() => {
+    let cancelled = false;
+    let retryTimer: number | undefined;
+    const waitForEngine = async () => {
+      const ready = await refresh(false);
+      if (!ready && !cancelled) retryTimer = window.setTimeout(waitForEngine, 500);
+    };
+    void waitForEngine();
+    return () => { cancelled = true; if (retryTimer) window.clearTimeout(retryTimer); };
+  }, [api]);
   useEffect(() => {
     if (!connected) return;
     const timer = window.setTimeout(() => void checkForUpdates(false), 1200);
@@ -103,7 +116,7 @@ export default function App() {
   }, [api, connected, page]);
 
   if (!connected) {
-    return <main className="login"><h1>EGX Intelligence</h1><p>{error || "Starting your local intelligence workspace…"}</p><button onClick={() => void refresh()}>Try again</button></main>;
+    return <main className="login"><h1>EGX Intelligence</h1><p>{engineStarting ? "Starting your local intelligence workspace…" : error || "Restarting the local intelligence workspace…"}</p><span>Waiting for the local engine to become ready.</span></main>;
   }
 
   return <>
@@ -127,7 +140,7 @@ export default function App() {
   </>;
 }
 
-function Dashboard({ channels, consensus, api, refresh, notify }: { channels: Channel[]; consensus: Consensus[]; api: ApiClient; refresh: () => Promise<void>; notify: Notify }) {
+function Dashboard({ channels, consensus, api, refresh, notify }: { channels: Channel[]; consensus: Consensus[]; api: ApiClient; refresh: () => Promise<boolean>; notify: Notify }) {
   return <><div className="metrics"><Metric value={consensus.length} label="Stocks discussed" /><Metric value={consensus.filter((item) => item.sentiment === "BUY").length} label="Buy consensus" /><Metric value={channels.filter((item) => item.active).length} label="Active channels" /></div><button onClick={() => void api.runCollection().then(refresh).then(() => notify("success", "Telegram check completed.")).catch((reason) => notify("error", displayError(reason)))}>Check Telegram now</button><Table rows={consensus as unknown as Array<Record<string, unknown>>} /></>;
 }
 
@@ -138,7 +151,7 @@ function Reports({ api, rows, setRows, notify }: { api: ApiClient; rows: Array<R
 
 type Notify = (kind: "success" | "error" | "warning", text: string) => void;
 
-function Channels({ channels, api, refresh, notify }: { channels: Channel[]; api: ApiClient; refresh: () => Promise<void>; notify: Notify }) {
+function Channels({ channels, api, refresh, notify }: { channels: Channel[]; api: ApiClient; refresh: () => Promise<boolean>; notify: Notify }) {
   const [handle, setHandle] = useState("");
   const [chats, setChats] = useState<TelegramChat[]>(() => { try { return JSON.parse(localStorage.getItem("egx.telegramChats") || "[]") as TelegramChat[]; } catch { return []; } });
   const [loading, setLoading] = useState(false);
@@ -178,7 +191,7 @@ function ModelSelector({ api, configured, selected, onChange, notify }: { api: A
   return <label>Analysis model<div className="model-row"><select value={selected} onChange={(event) => onChange(event.target.value)}><option value={selected}>{selected || "Choose a model"}</option>{models.filter((model) => model !== selected).map((model) => <option key={model} value={model}>{model}</option>)}</select><button type="button" onClick={() => void load(true)} disabled={!configured || loading}>{loading ? "Loading…" : "Load available models"}</button></div></label>;
 }
 
-function Settings({ api, status, onSaved, notify, checkingUpdate, onCheckForUpdates }: { api: ApiClient; status: SettingsStatus | null; onSaved: () => Promise<void>; notify: Notify; checkingUpdate: boolean; onCheckForUpdates: () => void }) {
+function Settings({ api, status, onSaved, notify, checkingUpdate, onCheckForUpdates }: { api: ApiClient; status: SettingsStatus | null; onSaved: () => Promise<boolean>; notify: Notify; checkingUpdate: boolean; onCheckForUpdates: () => void }) {
   const [values, setValues] = useState<SettingsInput>({ openai_model: status?.openai_model || "gpt-5.5" });
   const [phone, setPhone] = useState(""); const [code, setCode] = useState(""); const [password, setPassword] = useState(""); const [codeSent, setCodeSent] = useState(false);
   const [editingOpenAi, setEditingOpenAi] = useState(false); const [editingTelegram, setEditingTelegram] = useState(false);

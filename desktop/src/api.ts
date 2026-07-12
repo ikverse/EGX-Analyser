@@ -7,15 +7,34 @@ export type SettingsInput = { openai_api_key?: string; openai_model?: string; te
 export type TelegramChat = { id: string; title: string; username: string; kind: string };
 export type DiagnosticEntry = { timestamp?: string; level: string; event: string; request_id?: string; method?: string; path?: string; status_code?: number; duration_ms?: number; error_type?: string };
 
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number, readonly requestId?: string) { super(message); this.name = "ApiError"; }
+}
+
+async function responseError(path: string, response: Response): Promise<ApiError> {
+  const requestId = response.headers.get("X-EGX-Request-ID") || undefined;
+  let detail = response.statusText || "Unexpected server response";
+  try {
+    const payload = await response.json() as { detail?: unknown };
+    if (typeof payload.detail === "string") detail = payload.detail;
+  } catch {
+    const text = await response.text();
+    if (text) detail = text;
+  }
+  const reference = requestId ? ` Reference: ${requestId}.` : "";
+  return new ApiError(`${path} returned ${response.status}: ${detail}.${reference}`, response.status, requestId);
+}
+
 export class ApiClient {
   async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     let response: Response;
     try {
       response = await fetch(`${baseUrl}${path}`, { ...init, headers: { "Content-Type": "application/json", ...init.headers } });
-    } catch {
-      throw new Error("The local engine did not respond. Restart EGX Intelligence and try again.");
+    } catch (error) {
+      const reason = error instanceof Error && error.message ? ` (${error.message})` : "";
+      throw new Error(`Could not reach the local engine while calling ${path}.${reason} It may still be starting.`);
     }
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) throw await responseError(path, response);
     return response.json() as Promise<T>;
   }
   channels() { return this.request<Channel[]>("/channels"); }
