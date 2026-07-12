@@ -9,6 +9,7 @@ class ExtractedRecommendation(BaseModel):
     signal: Signal
     entry: float | None = None
     target: float | None = None
+    target_2: float | None = None
     stop_loss: float | None = None
     reason: str | None = None
     risk_level: str | None = None
@@ -39,6 +40,16 @@ class ChannelCreate(BaseModel):
 
 class ChannelUpdate(BaseModel):
     active: bool
+
+
+class CollectionRequest(BaseModel):
+    channel_ids: list[int] = Field(min_length=1)
+    analyze: bool = True
+
+
+class DailyReportRequest(BaseModel):
+    report_mode: str = Field(default="calendar", pattern="^(calendar|session)$")
+    report_date: datetime | None = None
 
 
 class SearchRequest(BaseModel):

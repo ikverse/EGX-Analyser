@@ -1,6 +1,6 @@
 [package]
 name = "egx-intelligence"
-version = "0.1.6"
+version = "0.1.7"
 description = "Egyptian stock intelligence desktop application"
 authors = ["EGX Intelligence"]
 edition = "2021"

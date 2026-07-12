@@ -20,11 +20,12 @@ export class ApiClient {
   verifyTelegramCode(code: string, password?: string) { return this.request<{ authorized: boolean }>("/telegram/verify-code", { method: "POST", body: JSON.stringify({ code, password }) }); }
   telegramChats() { return this.request<TelegramChat[]>("/telegram/chats"); }
   runCollection() { return this.request<{ messages_collected: number }>("/collection/run", { method: "POST" }); }
+  analyzeSelected(channel_ids: number[]) { return this.request<{ messages_collected: number }>("/collection/analyze-selected", { method: "POST", body: JSON.stringify({ channel_ids, analyze: true }) }); }
   addChannel(handle: string, title?: string) { return this.request<Channel>("/channels", { method: "POST", body: JSON.stringify({ handle, title }) }); }
   setChannelActive(id: number, active: boolean) { return this.request<Channel>(`/channels/${id}`, { method: "PATCH", body: JSON.stringify({ active }) }); }
   consensus() { return this.request<Consensus[]>("/analytics/consensus"); }
   recommendations() { return this.request<Array<Record<string, unknown>>>("/recommendations"); }
   reports() { return this.request<Array<Record<string, unknown>>>("/reports"); }
-  generateReport() { return this.request<Record<string, unknown>>("/reports/daily", { method: "POST" }); }
+  generateReport(report_mode: "calendar" | "session") { return this.request<Record<string, unknown>>("/reports/daily", { method: "POST", body: JSON.stringify({ report_mode }) }); }
   search(query: string) { return this.request<Array<Record<string, unknown>>>("/search", { method: "POST", body: JSON.stringify({ query }) }); }
 }

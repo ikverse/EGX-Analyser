@@ -14,8 +14,9 @@ from app.telegram_auth import TelegramAuthenticator
 
 
 class FakeAnalyzer:
-    async def analyze(self, text: str, image_paths: list[str]) -> AnalysisResult:
+    async def analyze(self, text: str, image_paths: list[str], transcripts: list[str] | None = None) -> AnalysisResult:
         assert image_paths == ["chart.jpg"]
+        assert transcripts == []
         return AnalysisResult(recommendations=[ExtractedRecommendation(
             company_name="Commercial International Bank", ticker="CIB", signal="BUY", confidence=.91
         )], image_observations=["RSI bullish"])

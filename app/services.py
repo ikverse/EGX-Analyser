@@ -4,7 +4,7 @@ from math import sqrt
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.service import AIAnalysisService
-from app.models import Embedding, Image, Message, Recommendation, Signal
+from app.models import Embedding, Image, Media, Message, Recommendation, Signal
 from app.repositories import StockRepository, get_or_create_channel
 from app.schemas import MessageCreate
 
@@ -37,7 +37,9 @@ class MessageService:
         images = (await self.session.scalars(
             select(Image).where(Image.message_id == message.id)
         )).all()
-        result = await self.analyzer.analyze(message.text, [image.path for image in images])
+        media = (await self.session.scalars(select(Media).where(Media.message_id == message.id))).all()
+        transcripts = [item.transcript for item in media if item.transcript]
+        result = await self.analyzer.analyze(message.text, [image.path for image in images], transcripts)
         await self.session.execute(delete(Recommendation).where(Recommendation.message_id == message.id))
         stocks = StockRepository(self.session)
         created: list[Recommendation] = []
@@ -45,7 +47,7 @@ class MessageService:
             stock = await stocks.resolve(item.ticker, item.company_name)
             recommendation = Recommendation(message_id=message.id, stock_id=stock.id if stock else None,
                 signal=item.signal.value, company_name=item.company_name, ticker_raw=item.ticker, entry=item.entry,
-                target=item.target, stop_loss=item.stop_loss, reason=item.reason, risk_level=item.risk_level,
+                target=item.target, target_2=item.target_2, stop_loss=item.stop_loss, reason=item.reason, risk_level=item.risk_level,
                 time_horizon=item.time_horizon, indicators=item.indicators, confidence=item.confidence)
             self.session.add(recommendation)
             created.append(recommendation)

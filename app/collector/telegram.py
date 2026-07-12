@@ -1,9 +1,9 @@
 from datetime import timezone
 from sqlalchemy import select
 from telethon import TelegramClient
-from telethon.tl.types import MessageMediaPhoto
+from telethon.tl.types import DocumentAttributeAudio, MessageMediaDocument, MessageMediaPhoto
 from app.config import Settings
-from app.models import Image
+from app.models import Image, Media
 from app.schemas import MessageCreate
 from app.services import MessageService
 
@@ -32,6 +32,22 @@ class TelegramCollector:
                         if image is None:
                             service.session.add(Image(message_id=message.id, path=str(filename), mime_type="image/jpeg"))
                             await service.session.flush()
+                    elif isinstance(remote.media, MessageMediaDocument) and remote.document:
+                        attributes = remote.document.attributes or []
+                        if any(isinstance(attribute, DocumentAttributeAudio) for attribute in attributes):
+                            folder = self.settings.storage_root / "audio" / handle / remote.date.strftime("%Y/%m/%d")
+                            folder.mkdir(parents=True, exist_ok=True)
+                            filename = folder / f"{remote.id}_{remote.document.id}.ogg"
+                            if not filename.exists():
+                                await client.download_media(remote, file=str(filename))
+                            media = await service.session.scalar(select(Media).where(Media.path == str(filename)))
+                            if media is None:
+                                media = Media(message_id=message.id, path=str(filename), mime_type="audio/ogg", kind="audio")
+                                service.session.add(media)
+                                await service.session.flush()
+                            if service.analyzer is not None and media.processed_at is None:
+                                media.transcript = await service.analyzer.transcribe(media.path)
+                                media.processed_at = remote.date.astimezone(timezone.utc)
                     if service.analyzer is not None and message.processed_at is None:
                         await service.analyze(message)
                     count += 1

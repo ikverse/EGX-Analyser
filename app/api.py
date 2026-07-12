@@ -8,7 +8,7 @@ from app.config_store import update_config
 from app.database import get_session
 from app.models import Channel, Message, Recommendation, Report, Stock
 from app.reports import ReportService
-from app.schemas import (ChannelCreate, ChannelUpdate, MessageCreate, SearchRequest, SettingsUpdate,
+from app.schemas import (ChannelCreate, ChannelUpdate, CollectionRequest, DailyReportRequest, MessageCreate, SearchRequest, SettingsUpdate,
                          TelegramCodeRequest, TelegramCodeVerification)
 from app.services import AnalyticsService, MessageService, SearchService
 from app.telegram_auth import TelegramAuthenticator
@@ -116,6 +116,12 @@ async def run_collection() -> dict:
     return {"messages_collected": await runtime.collect_once()}
 
 
+@router.post("/collection/analyze-selected")
+async def analyze_selected_channels(payload: CollectionRequest) -> dict:
+    from app.main import runtime
+    return {"messages_collected": await runtime.collect_once(payload.channel_ids)}
+
+
 @router.get("/messages")
 async def list_messages(session: AsyncSession = Depends(get_session), limit: int = 50) -> list[dict]:
     messages = (await session.scalars(select(Message).order_by(Message.published_at.desc()).limit(min(limit, 100)))).all()
@@ -164,8 +170,8 @@ async def consensus(session: AsyncSession = Depends(get_session)) -> list[dict]:
 
 
 @router.post("/reports/daily")
-async def create_report(session: AsyncSession = Depends(get_session)) -> dict:
-    report = await ReportService(session, get_settings()).generate_daily(); await session.commit()
+async def create_report(payload: DailyReportRequest = DailyReportRequest(), session: AsyncSession = Depends(get_session)) -> dict:
+    report = await ReportService(session, get_settings()).generate_daily(payload.report_mode, payload.report_date); await session.commit()
     return {"id": report.id, "markdown_path": report.markdown_path, "html_path": report.html_path, "pdf_path": report.pdf_path}
 
 

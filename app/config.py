@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     telegram_session: str = "egx_collector"
     telegram_channels: str = ""
     storage_root: Path = Path("storage")
+    report_language: str = "bilingual"
+    egx_session_start: str = "10:00"
+    egx_session_end: str = "14:30"
     @property
     def channels(self) -> list[str]:
         return [item.strip().lstrip("@") for item in self.telegram_channels.split(",") if item.strip()]

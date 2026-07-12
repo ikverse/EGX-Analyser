@@ -27,14 +27,14 @@ class LocalRuntime:
         with suppress(asyncio.CancelledError):
             await self._task
 
-    async def collect_once(self) -> int:
+    async def collect_once(self, channel_ids: list[int] | None = None) -> int:
         settings = get_settings()
         if not settings.telegram_api_id or not settings.telegram_api_hash:
             return 0
         async with SessionLocal() as session:
-            active = [channel.handle for channel in (await session.scalars(
-                select(Channel).where(Channel.active.is_(True))
-            )).all()]
+            statement = select(Channel).where(Channel.active.is_(True))
+            if channel_ids: statement = statement.where(Channel.id.in_(channel_ids))
+            active = [channel.handle for channel in (await session.scalars(statement)).all()]
             if not active:
                 return 0
             analyzer = AIAnalysisService(settings) if settings.openai_api_key else None

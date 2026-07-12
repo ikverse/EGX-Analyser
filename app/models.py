@@ -48,6 +48,7 @@ class Message(Base):
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     channel: Mapped[Channel] = relationship(back_populates="messages")
     images: Mapped[list["Image"]] = relationship(back_populates="message", cascade="all, delete-orphan")
+    media: Mapped[list["Media"]] = relationship(back_populates="message", cascade="all, delete-orphan")
     recommendations: Mapped[list["Recommendation"]] = relationship(back_populates="message", cascade="all, delete-orphan")
 
 
@@ -62,6 +63,18 @@ class Image(Base):
     message: Mapped[Message] = relationship(back_populates="images")
 
 
+class Media(Base):
+    __tablename__ = "media"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    message_id: Mapped[int] = mapped_column(ForeignKey("messages.id"), index=True)
+    path: Mapped[str] = mapped_column(String(1024), unique=True)
+    mime_type: Mapped[str | None] = mapped_column(String(100))
+    kind: Mapped[str] = mapped_column(String(30))
+    transcript: Mapped[str | None] = mapped_column(Text)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    message: Mapped[Message] = relationship(back_populates="media")
+
+
 class Recommendation(Base):
     __tablename__ = "recommendations"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -72,6 +85,7 @@ class Recommendation(Base):
     ticker_raw: Mapped[str | None] = mapped_column(String(30))
     entry: Mapped[float | None] = mapped_column(Float)
     target: Mapped[float | None] = mapped_column(Float)
+    target_2: Mapped[float | None] = mapped_column(Float)
     stop_loss: Mapped[float | None] = mapped_column(Float)
     reason: Mapped[str | None] = mapped_column(Text)
     risk_level: Mapped[str | None] = mapped_column(String(30))
