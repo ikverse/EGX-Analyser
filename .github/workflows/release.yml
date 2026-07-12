@@ -51,9 +51,17 @@ jobs:
           Copy-Item $installer.FullName $safeInstaller
           Copy-Item "$($installer.FullName).sig" "$safeInstaller.sig"
           powershell -ExecutionPolicy Bypass -File scripts/new-update-manifest.ps1 -Repository '${{ github.repository }}' -Version $version -ReleaseNotes 'See this release for changes.' -InstallerPath $safeInstaller
+      - name: Read descriptive release title
+        id: release_title
+        shell: pwsh
+        run: |
+          $title = git tag -l $env:GITHUB_REF_NAME --format="%(contents:subject)"
+          if (-not $title) { $title = "EGX Intelligence $env:GITHUB_REF_NAME" }
+          "title=$title" | Add-Content -Path $env:GITHUB_OUTPUT
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
+          name: ${{ steps.release_title.outputs.title }}
           generate_release_notes: true
           files: |
             release/egx-intelligence-*-setup.exe

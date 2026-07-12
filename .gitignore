@@ -1,10 +1,12 @@
 /.env
 /.venv/
 /.pytest_cache/
+__pycache__/
 /build/
 /dist/
 /work/
 /outputs/
+/.test-app-data/
 /github-upload/
 *.egg-info/
 desktop-build.log

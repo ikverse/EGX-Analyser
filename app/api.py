@@ -6,6 +6,7 @@ from app.ai.service import AIAnalysisService
 from app.config import get_settings
 from app.config_store import update_config
 from app.database import get_session
+from app.diagnostics import diagnostics_path, logger, recent_entries
 from app.models import Channel, Message, Recommendation, Report, Stock
 from app.reports import ReportService
 from app.schemas import (ChannelCreate, ChannelUpdate, CollectionRequest, DailyReportRequest, MessageCreate, SearchRequest, SettingsUpdate, TelegramChatSelect,
@@ -21,6 +22,12 @@ telegram_authenticator = TelegramAuthenticator()
 
 @router.get("/health", tags=["system"])
 async def health() -> dict[str, str]: return {"status": "ok"}
+
+
+@router.get("/diagnostics/recent", tags=["system"])
+async def diagnostics(limit: int = 50) -> dict[str, object]:
+    """Return locally stored, secret-free API diagnostics for troubleshooting."""
+    return {"path": str(diagnostics_path()), "entries": recent_entries(min(max(limit, 1), 100))}
 
 
 @router.get("/settings")
@@ -146,11 +153,19 @@ async def create_channel(payload: ChannelCreate, session: AsyncSession = Depends
 
 @router.post("/telegram/chats/select")
 async def select_telegram_chat(payload: TelegramChatSelect, session: AsyncSession = Depends(get_session)) -> dict:
-    channel = await get_or_create_channel(session, payload.id)
-    channel.title = payload.title
-    channel.active = True
-    await session.commit()
-    return {"id": channel.id, "handle": channel.handle, "title": channel.title, "active": channel.active}
+    try:
+        channel = await get_or_create_channel(session, payload.id)
+        channel.title = payload.title
+        channel.active = True
+        await session.commit()
+        return {"id": channel.id, "handle": channel.handle, "title": channel.title, "active": channel.active}
+    except Exception as error:
+        await session.rollback()
+        logger().exception(
+            "telegram_chat_selection_failed",
+            extra={"error_type": type(error).__name__, "path": "/telegram/chats/select"},
+        )
+        raise HTTPException(500, "Unable to save this Telegram chat. Restart the local engine and try again.") from error
 
 
 @router.patch("/channels/{channel_id}")

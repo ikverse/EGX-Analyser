@@ -5,10 +5,16 @@ export type Consensus = { company: string; sentiment: string; confidence: number
 export type SettingsStatus = { openai_configured: boolean; telegram_configured: boolean; telegram_authorized: boolean; openai_model: string; telegram_session: string };
 export type SettingsInput = { openai_api_key?: string; openai_model?: string; telegram_api_id?: number; telegram_api_hash?: string; telegram_session?: string };
 export type TelegramChat = { id: string; title: string; username: string; kind: string };
+export type DiagnosticEntry = { timestamp?: string; level: string; event: string; request_id?: string; method?: string; path?: string; status_code?: number; duration_ms?: number; error_type?: string };
 
 export class ApiClient {
   async request<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const response = await fetch(`${baseUrl}${path}`, { ...init, headers: { "Content-Type": "application/json", ...init.headers } });
+    let response: Response;
+    try {
+      response = await fetch(`${baseUrl}${path}`, { ...init, headers: { "Content-Type": "application/json", ...init.headers } });
+    } catch {
+      throw new Error("The local engine did not respond. Restart EGX Intelligence and try again.");
+    }
     if (!response.ok) throw new Error(await response.text());
     return response.json() as Promise<T>;
   }
@@ -19,6 +25,7 @@ export class ApiClient {
   requestTelegramCode(phone: string) { return this.request<{ status: string }>("/telegram/request-code", { method: "POST", body: JSON.stringify({ phone }) }); }
   verifyTelegramCode(code: string, password?: string) { return this.request<{ authorized: boolean }>("/telegram/verify-code", { method: "POST", body: JSON.stringify({ code, password }) }); }
   telegramChats() { return this.request<TelegramChat[]>("/telegram/chats"); }
+  diagnostics() { return this.request<{ path: string; entries: DiagnosticEntry[] }>("/diagnostics/recent"); }
   selectTelegramChat(chat: TelegramChat) { return this.request<Channel>("/telegram/chats/select", { method: "POST", body: JSON.stringify(chat) }); }
   runCollection() { return this.request<{ messages_collected: number }>("/collection/run", { method: "POST" }); }
   analyzeSelected(channel_ids: number[]) { return this.request<{ messages_collected: number }>("/collection/analyze-selected", { method: "POST", body: JSON.stringify({ channel_ids, analyze: true }) }); }
