@@ -25,8 +25,9 @@ jobs:
         shell: pwsh
         run: |
           npm install --prefix desktop
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
+          .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
       - name: Restore the private update signing key
         shell: pwsh
         env:
