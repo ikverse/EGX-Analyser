@@ -53,9 +53,9 @@ class ReportService:
         directory.mkdir(parents=True, exist_ok=True)
         message_count = len({message.id for _, message, _ in rows})
         recommendation_count = len(rows)
-        signals = dict((await self.session.execute(
-            select(Recommendation.signal, func.count()).group_by(Recommendation.signal)
-        )).all())
+        signals: dict[str, int] = {}
+        for recommendation, _, _ in rows:
+            signals[recommendation.signal] = signals.get(recommendation.signal, 0) + 1
         lines = [f"# EGX Daily Intelligence | تقرير EGX اليومي - {stamp}", "", f"## Overview | ملخص ({report_mode})", f"- Messages | الرسائل: {message_count}", f"- Recommendations | التوصيات: {recommendation_count}", "", "## Consolidated suggestions | الاقتراحات المجمعة"]
         for item in consensus:
             lines += [f"### {item['ticker']} — {item['company']} | {item['signal']} | Priority {item['priority']}", f"- AI suggestion | اقتراح الذكاء: Entry {item['entry'] or '—'} | TP1 {item['tp1'] or '—'} | TP2 {item['tp2'] or '—'} | Stop {item['stop'] or '—'}", f"- Agreement | التكرار: {item['channel_count']} channels | Confidence {item['confidence']:.0%}", "- Original channel levels | مستويات القنوات:"]
