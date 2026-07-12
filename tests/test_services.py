@@ -41,6 +41,13 @@ async def test_message_ingestion_is_idempotent(session):
     assert first.id == second.id
 
 
+async def test_channel_creation_normalizes_and_reuses_telegram_chat(session):
+    first = await api.get_or_create_channel(session, "@EGXSignals")
+    second = await api.get_or_create_channel(session, "egxsignals")
+    assert first.id == second.id
+    assert first.handle == "egxsignals"
+
+
 async def test_consensus_counts_signals(session):
     message = await MessageService(session).ingest(MessageCreate(channel_handle="signals", telegram_message_id=1, published_at=datetime.now(timezone.utc)))
     session.add_all([Recommendation(message_id=message.id, company_name="CIB", signal="BUY", confidence=.9, indicators=[]), Recommendation(message_id=message.id, company_name="CIB", signal="BUY", confidence=.8, indicators=[]), Recommendation(message_id=message.id, company_name="CIB", signal="SELL", confidence=.7, indicators=[])])

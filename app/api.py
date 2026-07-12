@@ -141,6 +141,16 @@ async def list_channels(session: AsyncSession = Depends(get_session)) -> list[di
              "analyst_score": item.analyst_score} for item in (await session.scalars(select(Channel))).all()]
 
 
+async def get_or_create_channel(session: AsyncSession, handle: str) -> Channel:
+    normalized_handle = handle.strip().lstrip("@").lower()
+    channel = await session.scalar(select(Channel).where(Channel.handle == normalized_handle))
+    if channel is None:
+        channel = Channel(handle=normalized_handle, title=normalized_handle, active=True)
+        session.add(channel)
+        await session.flush()
+    return channel
+
+
 @router.post("/channels")
 async def create_channel(payload: ChannelCreate, session: AsyncSession = Depends(get_session)) -> dict:
     channel = await get_or_create_channel(session, payload.handle)
