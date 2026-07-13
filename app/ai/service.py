@@ -15,11 +15,14 @@ class AnalysisOutcome:
     raw_response: str
 
 
-_OUTPUT_CONTRACT = """Return only one JSON object with exactly these top-level arrays:
-- recommendations: each actionable trade must include company_name, ticker, signal (BUY, SELL, or HOLD), entry, target, target_2, stop_loss, reason, risk_level, time_horizon, indicators, and confidence from 0 to 1.
-- stock_mentions: every detected EGX code must include ticker, company_name, context, table_data, and confidence from 0 to 1.
-- image_observations: text observations from images.
-Use ticker, never code. Use signal, never action. A ticker is an EGX trading code such as COMI, not an Arabic or English company name. Use null when an optional value is unavailable. Do not create a recommendation unless there is an explicit trade signal."""
+_OUTPUT_CONTRACT = """Return only one JSON object in this consolidated EGX report structure:
+- analysis_period: string describing the covered dates.
+- top_consolidated_recommendations: ranked array. Each item has stock_code, stock_name_en, stock_name_ar, mention_count, rank, status, analysis_summary_ar, and data_points.
+- data_points: array for each stock. Each item has date, source, buy_price, target_1, target_2, stop_loss, support, resistance, expected_return_pct, and risk_pct.
+- achieved_targets: array with stock_code, stock_name_en, status_ar, date, and source.
+- text_based_categories: object with most_important_stocks, trading_stocks, and watchlist_stocks arrays. Each array item has stock_code, stock_name_en, and stock_name_ar.
+- daily_breakdown: object keyed by date; each item has total_mentions and top_stock_of_day.
+Use English EGX ticker codes in stock_code. Keep unavailable values as null. Do not invent price levels or targets."""
 
 
 def analysis_output_schema() -> dict[str, Any]:
@@ -62,6 +65,8 @@ def _signal(value: Any) -> str | None:
 def _analysis_result_from_payload(payload: Any) -> AnalysisResult:
     if not isinstance(payload, dict):
         raise ValueError("The AI provider did not return a JSON object")
+    if isinstance(payload.get("top_consolidated_recommendations"), list):
+        return _analysis_result_from_consolidated_payload(payload)
     mentions: list[dict[str, Any]] = []
     for item in payload.get("stock_mentions", []):
         if not isinstance(item, dict):
@@ -95,6 +100,44 @@ def _analysis_result_from_payload(payload: Any) -> AnalysisResult:
                                           "image_observations": observations})
 
 
+def _analysis_result_from_consolidated_payload(payload: dict[str, Any]) -> AnalysisResult:
+    recommendations: list[dict[str, Any]] = []
+    mentions: list[dict[str, Any]] = []
+    for rank_item in payload.get("top_consolidated_recommendations", []):
+        if not isinstance(rank_item, dict):
+            continue
+        ticker = str(rank_item.get("stock_code") or "").strip().upper()
+        if not ticker:
+            continue
+        company_name = str(rank_item.get("stock_name_en") or ticker).strip()
+        mention_count = rank_item.get("mention_count")
+        summary = rank_item.get("analysis_summary_ar")
+        data_points = rank_item.get("data_points") if isinstance(rank_item.get("data_points"), list) else []
+        mentions.append({
+            "ticker": ticker, "company_name": company_name, "context": summary,
+            "table_data": {
+                "rank": str(rank_item.get("rank") or ""), "status": str(rank_item.get("status") or ""),
+                "mention_count": str(mention_count or ""), "stock_name_ar": str(rank_item.get("stock_name_ar") or ""),
+                "data_points": json.dumps(data_points, ensure_ascii=False),
+            },
+            "confidence": _confidence(min(1.0, 0.5 + _number(mention_count or 0) / 10)),
+        })
+        signal = "BUY" if str(rank_item.get("status") or "").lower() == "active" else "HOLD"
+        for point in data_points or [{}]:
+            if not isinstance(point, dict):
+                continue
+            recommendations.append({
+                "company_name": company_name, "ticker": ticker, "signal": signal,
+                "entry": _number(point.get("buy_price")), "target": _number(point.get("target_1")),
+                "target_2": _number(point.get("target_2")), "stop_loss": _number(point.get("stop_loss")),
+                "reason": summary, "risk_level": f"{point.get('risk_pct')}%" if point.get("risk_pct") is not None else None,
+                "time_horizon": point.get("date"), "indicators": [],
+                "confidence": _confidence(min(1.0, 0.5 + _number(mention_count or 0) / 10)),
+            })
+    return AnalysisResult.model_validate({"recommendations": recommendations, "stock_mentions": mentions,
+                                          "image_observations": []})
+
+
 class AIAnalysisService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -118,11 +161,7 @@ class AIAnalysisService:
             for image_path in image_paths:
                 encoded = base64.b64encode(Path(image_path).read_bytes()).decode()
                 content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded}"}})
-            response_format: dict[str, object] = {"type": "json_schema", "json_schema": {
-                "name": "analysis_result", "strict": True, "schema": analysis_output_schema(),
-            }}
-            if self.settings.ai_provider == "qwen":
-                response_format = {"type": "json_object"}
+            response_format: dict[str, object] = {"type": "json_object"}
             response = await self.client.chat.completions.create(
                 model=self.settings.openai_model,
                 messages=[{"role": "user", "content": content}],
@@ -139,8 +178,7 @@ class AIAnalysisService:
         response = await self.client.responses.create(
             model=self.settings.openai_model,
             input=[{"role": "user", "content": content}],
-            text={"format": {"type": "json_schema", "name": "analysis_result", "strict": True,
-                "schema": analysis_output_schema()}},
+            text={"format": {"type": "json_object"}},
         )
         return AnalysisOutcome(
             result=_analysis_result_from_payload(json.loads(response.output_text)), raw_response=response.output_text

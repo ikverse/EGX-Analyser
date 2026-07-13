@@ -1,5 +1,6 @@
 from datetime import datetime, time, timedelta, timezone
 from html import escape
+import json
 import os
 from pathlib import Path
 from statistics import median
@@ -145,6 +146,9 @@ class ReportService:
                                            "occurrences": len(mentions), "details": details})
         stock_code_summary.sort(key=lambda item: (-item["occurrences"], item["ticker"]))
         stock_code_details.sort(key=lambda item: (item["ticker"], item["channel"]))
+        consolidated_source = _consolidated_source_output(message_rows)
+        if consolidated_source is not None:
+            consensus, stock_code_summary, stock_code_details = _source_driven_tables(consolidated_source)
         channel_results = []
         for channel in channels:
             texts = texts_by_channel.get(channel.id, [])
@@ -166,6 +170,37 @@ class ReportService:
             f"- Recommendations: {len(recommendation_rows)}", "", "## Chat relevance",
         ]
         lines += [f"- {item['channel']}: {item['status']} | Messages {item['messages']} | Recommendations {item['recommendations']}" for item in channel_results]
+        if consolidated_source is not None:
+            lines += ["", "## Qwen consolidated analysis", f"- Analysis period: {consolidated_source.get('analysis_period') or report_mode}"]
+            lines += ["", "| Rank | Code | Company (EN) | Company (AR) | Mentions | Status | Source | Buy | Target 1 | Target 2 | Stop loss |", "| ---: | --- | --- | --- | ---: | --- | --- | ---: | ---: | ---: | ---: |"]
+            for item in consolidated_source.get("top_consolidated_recommendations", []):
+                if not isinstance(item, dict):
+                    continue
+                points = item.get("data_points") if isinstance(item.get("data_points"), list) else []
+                for point in points or [{}]:
+                    point = point if isinstance(point, dict) else {}
+                    lines.append(
+                        f"| {item.get('rank') or '-'} | {item.get('stock_code') or '-'} | {item.get('stock_name_en') or '-'} | {item.get('stock_name_ar') or '-'} | "
+                        f"{item.get('mention_count') or 0} | {item.get('status') or '-'} | {point.get('source') or '-'} | "
+                        f"{point.get('buy_price') or '-'} | {point.get('target_1') or '-'} | {point.get('target_2') or '-'} | {point.get('stop_loss') or '-'} |"
+                    )
+                if item.get("analysis_summary_ar"):
+                    lines.append(f"- {item.get('stock_code')}: {item['analysis_summary_ar']}")
+            lines += ["", "## Achieved targets"]
+            for item in consolidated_source.get("achieved_targets", []):
+                if isinstance(item, dict):
+                    lines.append(f"- {item.get('stock_code') or '-'} | {item.get('stock_name_en') or '-'} | {item.get('status_ar') or '-'} | {item.get('date') or '-'} | {item.get('source') or '-'}")
+            lines += ["", "## Text-based categories"]
+            categories = consolidated_source.get("text_based_categories")
+            if isinstance(categories, dict):
+                for name, stocks in categories.items():
+                    lines.append(f"- {name}: {_category_labels(stocks)}")
+            lines += ["", "## Daily breakdown"]
+            daily = consolidated_source.get("daily_breakdown")
+            if isinstance(daily, dict):
+                for day, values in sorted(daily.items()):
+                    values = values if isinstance(values, dict) else {}
+                    lines.append(f"- {day}: mentions {values.get('total_mentions') or 0} | top stock {values.get('top_stock_of_day') or '-'}")
         lines += ["", "## EGX code details by channel", "| Code | Company | Channel | Occurrences | Extracted chat/table details |", "| --- | --- | --- | ---: | --- |"]
         for item in stock_code_details:
             details = "; ".join(
@@ -230,6 +265,7 @@ class ReportService:
             "mode": report_mode, "consensus": consensus, "message_count": len(message_rows),
             "recommendation_count": len(recommendation_rows), "channel_results": channel_results,
             "stock_code_summary": stock_code_summary, "stock_code_details": stock_code_details,
+            "consolidated_source": consolidated_source,
             "original_ai_response_text_path": str(raw_text_path),
             "original_ai_response_pdf_path": str(raw_pdf_path),
         })
@@ -238,8 +274,9 @@ class ReportService:
         return report
 
 
-def _median(values: list[float]) -> float | None:
-    return median(values) if values else None
+def _median(values: list[float | None]) -> float | None:
+    numeric = [value for value in values if value is not None]
+    return median(numeric) if numeric else None
 
 
 def _wrap_pdf_line(value: str, width: int) -> list[str]:
@@ -261,3 +298,77 @@ def _raw_pdf_font() -> str:
         pdfmetrics.registerFont(TTFont(font_name, str(font_path)))
         return font_name
     return "Courier"
+
+
+def _consolidated_source_output(message_rows: list[tuple[Message, Channel]]) -> dict | None:
+    candidates: list[dict] = []
+    for message, _ in message_rows:
+        if not message.ai_response_raw:
+            continue
+        try:
+            payload = json.loads(message.ai_response_raw)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict) and isinstance(payload.get("top_consolidated_recommendations"), list):
+            candidates.append(payload)
+    return max(candidates, key=lambda item: len(item["top_consolidated_recommendations"]), default=None)
+
+
+def _source_driven_tables(payload: dict) -> tuple[list[dict], list[dict], list[dict]]:
+    consensus: list[dict] = []
+    summaries: list[dict] = []
+    details: list[dict] = []
+    for item in payload.get("top_consolidated_recommendations", []):
+        if not isinstance(item, dict) or not item.get("stock_code"):
+            continue
+        ticker = str(item["stock_code"]).upper()
+        company = str(item.get("stock_name_en") or ticker)
+        company_ar = str(item.get("stock_name_ar") or "")
+        points = [point for point in item.get("data_points", []) if isinstance(point, dict)]
+        by_source: dict[str, int] = {}
+        per_source: dict[str, list[dict[str, str]]] = {}
+        for point in points:
+            source = str(point.get("source") or "Unspecified")
+            by_source[source] = by_source.get(source, 0) + 1
+            detail = {str(key): str(value) for key, value in point.items() if value is not None}
+            per_source.setdefault(source, []).append(detail)
+        summary = item.get("analysis_summary_ar")
+        if summary:
+            for source_details in per_source.values():
+                for detail in source_details:
+                    detail["analysis_summary_ar"] = str(summary)
+        summaries.append({"ticker": ticker, "company": company, "company_ar": company_ar, "occurrences": int(item.get("mention_count") or len(points)),
+                          "by_chat": by_source, "data_samples": [{"channel": source, "data": values[0]} for source, values in per_source.items() if values]})
+        for source, source_details in per_source.items():
+            details.append({"ticker": ticker, "company": company, "company_ar": company_ar, "channel": source,
+                            "occurrences": len(source_details), "details": source_details})
+        signal = "BUY" if str(item.get("status") or "").lower() == "active" else "HOLD"
+        consensus.append({"ticker": ticker, "company": company, "signal": signal, "priority": float(item.get("rank") or 999),
+                          "channel_count": len(by_source), "entry": _median([_as_number(point.get("buy_price")) for point in points]),
+                          "tp1": _median([_as_number(point.get("target_1")) for point in points]),
+                          "tp2": _median([_as_number(point.get("target_2")) for point in points]),
+                          "stop": _median([_as_number(point.get("stop_loss")) for point in points]),
+                          "confidence": min(1.0, 0.5 + min(float(item.get("mention_count") or 0), 5) / 10), "evidence": []})
+    return sorted(consensus, key=lambda item: item["priority"]), summaries, details
+
+
+def _as_number(value: object) -> float | None:
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _category_labels(stocks: object) -> str:
+    if not isinstance(stocks, list):
+        return "-"
+    labels = []
+    for item in stocks:
+        if isinstance(item, dict):
+            code = item.get("stock_code") or "-"
+            name_en = item.get("stock_name_en") or ""
+            name_ar = item.get("stock_name_ar") or ""
+            labels.append(f"{code} ({name_en} {name_ar})".strip())
+        else:
+            labels.append(str(item))
+    return ", ".join(labels) or "-"

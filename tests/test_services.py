@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 import io
+import json
 import os
 from pathlib import Path
 import pytest
@@ -20,6 +21,21 @@ from app.collector.telegram import is_promotional_message
 from app.reports import ReportService
 from app.analysis_trace import export_analysis_trace
 from app.repositories import StockRepository
+
+
+QWEN_CONSOLIDATED_OUTPUT = {
+    "analysis_period": "Last 3 Days",
+    "top_consolidated_recommendations": [{
+        "stock_code": "MFPC", "stock_name_en": "Mobaco", "stock_name_ar": "موبكو", "mention_count": 3, "rank": 1, "status": "active",
+        "data_points": [{"date": "2026-07-12", "source": "CFI", "buy_price": 37.25, "target_1": 38.7,
+                         "target_2": 40.0, "stop_loss": 35.55, "support": None, "resistance": None,
+                         "expected_return_pct": 3.18, "risk_pct": -1.84}],
+        "analysis_summary_ar": "توصية شراء قوية",
+    }],
+    "achieved_targets": [{"stock_code": "EFII", "stock_name_en": "E-Finance", "status_ar": "تم تحقيق المستهدف", "date": "2026-07-12", "source": "CFI"}],
+    "text_based_categories": {"most_important_stocks": [{"stock_code": "MFPC", "stock_name_en": "Mobaco", "stock_name_ar": "موبكو"}], "trading_stocks": [{"stock_code": "MFPC", "stock_name_en": "Mobaco", "stock_name_ar": "موبكو"}], "watchlist_stocks": [{"stock_code": "EFII", "stock_name_en": "E-Finance", "stock_name_ar": "إي فاينانس"}]},
+    "daily_breakdown": {"2026-07-12": {"total_mentions": 3, "top_stock_of_day": "MFPC"}},
+}
 
 
 class FakeAnalyzer:
@@ -108,6 +124,14 @@ async def test_stock_code_only_analysis_is_not_repeated(session):
     await service.analyze(message, force=True)
     assert analyzer.calls == 2
     assert len((await session.scalars(StockMention.__table__.select())).all()) == 1
+
+
+def test_qwen_consolidated_output_normalizes_to_recommendations():
+    result = _analysis_result_from_payload(QWEN_CONSOLIDATED_OUTPUT)
+    assert result.stock_mentions[0].ticker == "MFPC"
+    assert result.stock_mentions[0].table_data["stock_name_ar"] == "موبكو"
+    assert result.recommendations[0].entry == 37.25
+    assert result.recommendations[0].target_2 == 40.0
 
 
 def test_local_settings_encrypt_secrets(monkeypatch, tmp_path):
@@ -240,6 +264,20 @@ async def test_selected_chat_report_marks_non_stock_context(session, tmp_path):
     raw_pdf_path = Path(report.summary["original_ai_response_pdf_path"])
     assert raw_text_path.exists() and raw_pdf_path.exists()
     assert stock_message.ai_response_raw in raw_text_path.read_text(encoding="utf-8")
+
+
+async def test_report_uses_qwen_consolidated_source(session, tmp_path):
+    message = await MessageService(session).ingest(MessageCreate(
+        channel_handle="signals", telegram_message_id=15, text="MFPC", published_at=datetime.now(timezone.utc)
+    ))
+    message.ai_response_raw = json.dumps(QWEN_CONSOLIDATED_OUTPUT, ensure_ascii=False)
+    await session.flush()
+    report = await ReportService(session, type("Settings", (), {"storage_root": tmp_path})()).generate_selected_chat_report(
+        [message.channel_id], datetime.now(timezone.utc) - timedelta(days=1), datetime.now(timezone.utc) + timedelta(minutes=1), 1
+    )
+    assert report.summary["consolidated_source"]["analysis_period"] == "Last 3 Days"
+    assert report.summary["stock_code_details"][0]["channel"] == "CFI"
+    assert "Qwen consolidated analysis" in Path(report.markdown_path).read_text(encoding="utf-8")
 
 
 async def test_analysis_trace_saves_message_text_and_images(session, tmp_path):
