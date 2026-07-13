@@ -748,7 +748,7 @@ function Recommendations({ rows }: { rows: Array<Record<string, unknown>> }) {
 
 function Search({ api, onResult, showError }: {
   api: ApiClient; onResult: (rows: Array<Record<string, unknown>>) => void;
-  showError: ShowError;
+  notify: Notify; showError: ShowError;
 }) {
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
