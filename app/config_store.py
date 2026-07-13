@@ -44,17 +44,19 @@ def _write_public(values: dict[str, str]) -> None:
 def _protect(value: str) -> str:
     if os.name != "nt":
         return value
-    script = """Add-Type -AssemblyName System.Security;$value=[Console]::In.ReadToEnd();$bytes=[Text.Encoding]::UTF8.GetBytes($value);$protected=[Security.Cryptography.ProtectedData]::Protect($bytes,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser);[Convert]::ToBase64String($protected)"""
-    return subprocess.run(["powershell", "-NoProfile", "-Command", script], input=value, text=True,
-                          capture_output=True, check=True).stdout.strip()
+    script = """Add-Type -AssemblyName System.Security;[Console]::InputEncoding=[Text.Encoding]::UTF8;[Console]::OutputEncoding=[Text.Encoding]::UTF8;$value=[Console]::In.ReadToEnd();$bytes=[Text.Encoding]::UTF8.GetBytes($value);$protected=[Security.Cryptography.ProtectedData]::Protect($bytes,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser);[Convert]::ToBase64String($protected)"""
+    result = subprocess.run(["powershell", "-NoProfile", "-Command", script], input=value.encode("utf-8"),
+                            capture_output=True, check=True)
+    return result.stdout.decode("utf-8").strip()
 
 
 def _unprotect(value: str) -> str:
     if os.name != "nt":
         return value
-    script = """Add-Type -AssemblyName System.Security;$value=[Console]::In.ReadToEnd();$bytes=[Convert]::FromBase64String($value);$plain=[Security.Cryptography.ProtectedData]::Unprotect($bytes,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser);[Text.Encoding]::UTF8.GetString($plain)"""
-    return subprocess.run(["powershell", "-NoProfile", "-Command", script], input=value, text=True,
-                          capture_output=True, check=True).stdout.rstrip("\r\n")
+    script = """Add-Type -AssemblyName System.Security;[Console]::InputEncoding=[Text.Encoding]::UTF8;[Console]::OutputEncoding=[Text.Encoding]::UTF8;$value=[Console]::In.ReadToEnd();$bytes=[Convert]::FromBase64String($value);$plain=[Security.Cryptography.ProtectedData]::Unprotect($bytes,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser);[Text.Encoding]::UTF8.GetString($plain)"""
+    result = subprocess.run(["powershell", "-NoProfile", "-Command", script], input=value.encode("utf-8"),
+                            capture_output=True, check=True)
+    return result.stdout.decode("utf-8").rstrip("\r\n")
 
 
 def load_secrets_into_environment() -> None:

@@ -115,12 +115,12 @@ def test_local_settings_encrypt_secrets(monkeypatch, tmp_path):
     monkeypatch.setenv("EGX_CONFIG_FILE", str(config_file))
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     update_config({"OPENAI_API_KEY": "test-secret", "OPENAI_MODEL": "gpt-5.5",
-                   "ANALYSIS_INSTRUCTIONS": "Prioritize EGX tables.\nKeep channel context."})
+                   "ANALYSIS_INSTRUCTIONS": "Prioritize EGX tables.\nحلل أسهم EGX مع سياق القناة."})
     assert "test-secret" not in config_file.read_text(encoding="utf-8")
     assert (tmp_path / "secrets.json").exists()
     load_secrets_into_environment()
     assert os.environ["OPENAI_API_KEY"] == "test-secret"
-    assert os.environ["ANALYSIS_INSTRUCTIONS"] == "Prioritize EGX tables.\nKeep channel context."
+    assert os.environ["ANALYSIS_INSTRUCTIONS"] == "Prioritize EGX tables.\nحلل أسهم EGX مع سياق القناة."
 
 
 @pytest.mark.asyncio

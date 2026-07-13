@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from datetime import datetime, timezone
 from pathlib import Path
+import subprocess
 import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -125,7 +126,11 @@ async def update_settings(payload: SettingsUpdate) -> dict[str, object]:
         or (payload.telegram_api_hash is not None and payload.telegram_api_hash != current.telegram_api_hash)
     )
     values = {key.upper(): str(value) for key, value in payload.model_dump(exclude_none=True).items()}
-    update_config(values)
+    try:
+        update_config(values)
+    except (OSError, UnicodeError, ValueError, subprocess.SubprocessError) as error:
+        logger.error("settings_update_failed", error_type=type(error).__name__)
+        raise HTTPException(500, "Settings could not be encrypted and saved. Try again after restarting the app.") from error
     get_settings.cache_clear()
     if telegram_credentials_changed:
         await telegram_authenticator.reset_session(current.telegram_session)
