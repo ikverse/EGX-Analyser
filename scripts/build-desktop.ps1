@@ -43,11 +43,17 @@ try {
     & $python -m pip install --no-build-isolation -e ".[dev]"
     if ($LASTEXITCODE -ne 0) { throw "Could not install the local Python project into the existing virtual environment." }
     & $python scripts/generate_desktop_icon.py
-    & $python -m PyInstaller --noconfirm --clean --onefile --windowed --name egx-intelligence-api --paths $root --collect-all app --hidden-import aiosqlite desktop/sidecar_server.py
-    $target = "x86_64-pc-windows-msvc"
-    $binDir = Join-Path $root "desktop\src-tauri\binaries"
-    New-Item -ItemType Directory -Force -Path $binDir | Out-Null
-    Copy-Item "dist\egx-intelligence-api.exe" "$binDir\egx-intelligence-api-$target.exe" -Force
+
+    # Build the sidecar as --onedir (avoids %TEMP% self-extraction that triggers
+    # Windows Defender ASR "Block executable files" rule).
+    & $python -m PyInstaller --noconfirm --clean egx-intelligence-api.spec
+    if ($LASTEXITCODE -ne 0) { throw "PyInstaller build failed. Check the output above." }
+
+    # Copy the entire onedir folder into Tauri's resources directory.
+    $sidecarsDir = Join-Path $root "desktop\src-tauri\sidecar"
+    if (Test-Path $sidecarsDir) { Remove-Item $sidecarsDir -Recurse -Force }
+    Copy-Item "dist\egx-intelligence-api" $sidecarsDir -Recurse -Force
+    Write-Host "Sidecar folder copied to $sidecarsDir" -ForegroundColor Green
     Push-Location "desktop\src-tauri"
     try {
         Write-Host "Running cargo check..." -ForegroundColor Cyan

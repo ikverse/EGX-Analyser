@@ -1,14 +1,18 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::process::Child;
 use std::sync::Mutex;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
 use tauri::{Manager, RunEvent, WindowEvent};
-use tauri_plugin_shell::process::CommandChild;
-use tauri_plugin_shell::ShellExt;
 
-struct LocalEngine(Mutex<Option<CommandChild>>);
+// Wraps the spawned sidecar process. Using std::process::Child instead of
+// tauri_plugin_shell::CommandChild so we can launch the --onedir executable
+// directly from the resource directory without the externalBin mechanism
+// (which requires a single-file exe and triggers the Windows Defender ASR
+// "Block executable files from running" rule via %TEMP% self-extraction).
+struct LocalEngine(Mutex<Option<Child>>);
 
 #[tauri::command]
 fn restart_app(app: tauri::AppHandle) {
@@ -18,12 +22,10 @@ fn restart_app(app: tauri::AppHandle) {
 
 #[cfg(windows)]
 fn terminate_orphaned_engines() {
-    for image_name in ["egx-intelligence-api.exe", "egx-intelligence-api-x86_64-pc-windows-msvc.exe"] {
-        let _ = std::process::Command::new("taskkill")
-            .args(["/IM", image_name, "/T", "/F"])
-            .creation_flags(0x0800_0000)
-            .status();
-    }
+    let _ = std::process::Command::new("taskkill")
+        .args(["/IM", "egx-intelligence-api.exe", "/T", "/F"])
+        .creation_flags(0x0800_0000)
+        .status();
 }
 
 fn stop_local_engine(app: &tauri::AppHandle) {
@@ -32,12 +34,12 @@ fn stop_local_engine(app: &tauri::AppHandle) {
         let mut guard = engine.0.lock().expect("engine lock poisoned");
         guard.take()
     };
-    if let Some(child) = child {
-        let process_id = child.pid();
+    if let Some(mut child) = child {
+        let pid = child.id();
         #[cfg(windows)]
         {
             let _ = std::process::Command::new("taskkill")
-                .args(["/PID", &process_id.to_string(), "/T", "/F"])
+                .args(["/PID", &pid.to_string(), "/T", "/F"])
                 .creation_flags(0x0800_0000)
                 .status();
         }
@@ -47,10 +49,25 @@ fn stop_local_engine(app: &tauri::AppHandle) {
     terminate_orphaned_engines();
 }
 
-fn start_local_engine(app: &tauri::App) -> Result<CommandChild, Box<dyn std::error::Error>> {
+fn start_local_engine(app: &tauri::App) -> Result<Child, Box<dyn std::error::Error>> {
     #[cfg(windows)]
     terminate_orphaned_engines();
-    let (_events, child) = app.shell().sidecar("egx-intelligence-api")?.spawn()?;
+
+    // Resolve the sidecar folder from the Tauri resource directory.
+    // build-desktop.ps1 copies dist/egx-intelligence-api/ → src-tauri/sidecar/
+    // and tauri.conf.json bundles it as resources: { "sidecar/**/*": "sidecar/" }
+    let resource_dir = app.path().resource_dir()?;
+    let exe = resource_dir
+        .join("sidecar")
+        .join("egx-intelligence-api.exe");
+
+    let child = std::process::Command::new(&exe)
+        .current_dir(exe.parent().unwrap_or(&resource_dir))
+        // No console window
+        #[cfg(windows)]
+        .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+        .spawn()?;
+
     Ok(child)
 }
 

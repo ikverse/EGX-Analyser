@@ -1,4 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
+# --onedir build: produces dist/egx-intelligence-api/ folder.
+# The folder is bundled as a Tauri resource, avoiding the %TEMP% self-extraction
+# that triggers Windows Defender ASR rule "Block executable files from running
+# unless they meet a prevalence, age, or trusted list criteria".
 import os
 from PyInstaller.utils.hooks import collect_all
 
@@ -7,7 +11,6 @@ binaries = []
 hiddenimports = ['aiosqlite']
 tmp_ret = collect_all('app')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-
 
 a = Analysis(
     ['desktop\\sidecar_server.py'],
@@ -27,14 +30,12 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
     name='egx-intelligence-api',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
@@ -43,4 +44,14 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name='egx-intelligence-api',
 )
