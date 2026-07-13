@@ -665,6 +665,22 @@ function AnalysisResultTable({ summary, details, channelResults, reportHtmlPath,
                         );
                       })
                     )}
+                    {/* Notes row — spans all columns, shown once per stock */}
+                    {(() => {
+                      const notes = stock.sources.find((s) => s.notes)?.notes;
+                      if (!notes) return null;
+                      const colSpan = 2 + PRICE_FIELDS.length;
+                      return (
+                        <tr style={{ background: "#0a1628", borderTop: "2px solid #26364d" }}>
+                          <td style={{ ...tdStyle, paddingTop: ".65rem", paddingBottom: ".65rem", color: "#94a3b8", fontWeight: 600, whiteSpace: "nowrap", fontSize: ".8rem" }}>
+                            Notes
+                          </td>
+                          <td colSpan={colSpan} style={{ ...tdStyle, color: "#cbd5e1", fontSize: ".83rem", lineHeight: 1.6, paddingTop: ".65rem", paddingBottom: ".65rem" }}>
+                            {notes}
+                          </td>
+                        </tr>
+                      );
+                    })()}
                   </tbody>
                 </table>
               </div>

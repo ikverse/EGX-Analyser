@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
-from app.models import Channel, Message, Recommendation, Report, Stock, StockMention
+from app.models import Channel, Image, Media, Message, Recommendation, Report, Stock, StockMention
 
 try:
     import arabic_reshaper
@@ -73,6 +73,14 @@ class ReportService:
             .outerjoin(Stock, StockMention.stock_id == Stock.id)
             .where(*filters)
         )).all()
+        message_ids = [msg.id for msg, _ in message_rows]
+        image_rows: list[tuple] = []
+        if message_ids:
+            image_rows = (await self.session.execute(
+                select(Image, Message)
+                .join(Message, Image.message_id == Message.id)
+                .where(Image.message_id.in_(message_ids))
+            )).all()
         ids = channel_ids or sorted({channel.id for _, channel in message_rows})
         channels = (await self.session.scalars(select(Channel).where(Channel.id.in_(ids)))).all() if ids else []
 
@@ -134,6 +142,7 @@ class ReportService:
             stock_code_summary.append({"ticker": ticker, "company": company,
                                        "occurrences": len(items), "by_chat": channel_counts,
                                        "data_samples": data_samples})
+            ticker_notes = _collect_ticker_notes(ticker, items, recommendation_rows, image_rows)
             for channel_name, mentions in details_by_channel.items():
                 details = []
                 for mention in mentions:
@@ -143,7 +152,8 @@ class ReportService:
                     if detail:
                         details.append(detail)
                 stock_code_details.append({"ticker": ticker, "company": company, "channel": channel_name,
-                                           "occurrences": len(mentions), "details": details})
+                                           "occurrences": len(mentions), "details": details,
+                                           "notes": ticker_notes})
         stock_code_summary.sort(key=lambda item: (-item["occurrences"], item["ticker"]))
         stock_code_details.sort(key=lambda item: (item["ticker"], item["channel"]))
         consolidated_source = _consolidated_source_output(message_rows)
@@ -342,11 +352,21 @@ def _source_driven_tables(payload: dict) -> tuple[list[dict], list[dict], list[d
             for source_details in per_source.values():
                 for detail in source_details:
                     detail["analysis_summary_ar"] = str(summary)
+        # Build a combined notes string for this ticker from all available text
+        note_parts: list[str] = []
+        if summary:
+            note_parts.append(str(summary))
+        for point in points:
+            for key in ("context", "reason", "notes", "comment", "ملاحظات", "تعليق"):
+                val = point.get(key)
+                if val and str(val).strip() and str(val).strip() not in note_parts:
+                    note_parts.append(str(val).strip())
+        ticker_notes = " · ".join(note_parts)
         summaries.append({"ticker": ticker, "company": company, "company_ar": company_ar, "occurrences": int(item.get("mention_count") or len(points)),
                           "by_chat": by_source, "data_samples": [{"channel": source, "data": values[0]} for source, values in per_source.items() if values]})
         for source, source_details in per_source.items():
             details.append({"ticker": ticker, "company": company, "company_ar": company_ar, "channel": source,
-                            "occurrences": len(source_details), "details": source_details})
+                            "occurrences": len(source_details), "details": source_details, "notes": ticker_notes})
         signal = "BUY" if str(item.get("status") or "").lower() == "active" else "HOLD"
         consensus.append({"ticker": ticker, "company": company, "signal": signal, "priority": float(item.get("rank") or 999),
                           "channel_count": len(by_source), "entry": _median([_as_number(point.get("buy_price")) for point in points]),
@@ -362,6 +382,46 @@ def _as_number(value: object) -> float | None:
         return float(value) if value is not None else None
     except (TypeError, ValueError):
         return None
+
+
+def _collect_ticker_notes(
+    ticker: str,
+    mention_items: list[tuple],  # (StockMention, Message, Channel, Stock|None)
+    rec_items: list[tuple],      # (Recommendation, Message, Channel)
+    image_rows: list[tuple],     # (Image, Message) for messages in window
+) -> str:
+    """Combine all human-readable notes about a ticker into one clean string."""
+    seen: set[str] = set()
+    parts: list[str] = []
+
+    def add(text: str | None) -> None:
+        if not text:
+            return
+        text = text.strip()
+        if text and text not in seen and text.lower() not in ("none", "null", "-"):
+            seen.add(text)
+            parts.append(text)
+
+    # 1. Mention context (surrounding text where ticker appeared)
+    for mention, _, channel, _ in mention_items:
+        add(mention.context)
+
+    # 2. Recommendation reason / AI reasoning
+    for rec, _, _ in rec_items:
+        if (rec.ticker_raw or "").upper() == ticker or (rec.company_name or "").upper() == ticker:
+            add(rec.reason)
+
+    # 3. Image observations and OCR for messages that mention this ticker
+    mention_message_ids = {msg.id for _, msg, _, _ in mention_items}
+    for image, message in image_rows:
+        if message.id not in mention_message_ids:
+            continue
+        if image.vision_analysis:
+            for obs in image.vision_analysis.get("observations") or []:
+                add(str(obs))
+        add(image.ocr_text)
+
+    return " · ".join(parts)
 
 
 def _category_labels(stocks: object) -> str:

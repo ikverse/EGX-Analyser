@@ -259,8 +259,13 @@ async def test_selected_chat_report_marks_non_stock_context(session, tmp_path):
     assert report.summary["stock_code_summary"][0]["ticker"] == "CIB"
     assert report.summary["stock_code_summary"][0]["by_chat"]["stocks"] == 1
     details = report.summary["stock_code_details"]
-    assert details == [{"ticker": "CIB", "company": "Commercial International Bank", "channel": "stocks",
-                        "occurrences": 1, "details": [{"price": "92.5", "target": "100", "context": "CIB row"}]}]
+    assert len(details) == 1
+    assert details[0]["ticker"] == "CIB"
+    assert details[0]["company"] == "Commercial International Bank"
+    assert details[0]["channel"] == "stocks"
+    assert details[0]["occurrences"] == 1
+    assert details[0]["details"] == [{"price": "92.5", "target": "100", "context": "CIB row"}]
+    assert "CIB row" in (details[0].get("notes") or "")
     raw_text_path = Path(report.summary["original_ai_response_text_path"])
     raw_pdf_path = Path(report.summary["original_ai_response_pdf_path"])
     assert raw_text_path.exists() and raw_pdf_path.exists()

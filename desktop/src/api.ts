@@ -15,6 +15,7 @@ export type StockSourceRow = {
   channel: string;
   occurrences: number;
   details: Array<Record<string, string>>;
+  notes?: string;
 };
 
 export type StockSummaryRow = {
