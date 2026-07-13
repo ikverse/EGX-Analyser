@@ -31,6 +31,7 @@ class AIAnalysisService:
         self.settings = settings
         self.prompt = (Path(__file__).parent / "prompts" / "recommendation.md").read_text(encoding="utf-8")
         base_url = {
+            "qwen": settings.qwen_base_url,
             "openrouter": "https://openrouter.ai/api/v1",
             "huggingface": "https://router.huggingface.co/v1",
         }.get(settings.ai_provider)
@@ -46,12 +47,15 @@ class AIAnalysisService:
             for image_path in image_paths:
                 encoded = base64.b64encode(Path(image_path).read_bytes()).decode()
                 content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded}"}})
+            response_format: dict[str, object] = {"type": "json_schema", "json_schema": {
+                "name": "analysis_result", "strict": True, "schema": analysis_output_schema(),
+            }}
+            if self.settings.ai_provider == "qwen":
+                response_format = {"type": "json_object"}
             response = await self.client.chat.completions.create(
                 model=self.settings.openai_model,
                 messages=[{"role": "user", "content": content}],
-                response_format={"type": "json_schema", "json_schema": {
-                    "name": "analysis_result", "strict": True, "schema": analysis_output_schema(),
-                }},
+                response_format=response_format,
             )
             output = response.choices[0].message.content or "{}"
             output = output.removeprefix("```json").removesuffix("```").strip()

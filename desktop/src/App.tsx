@@ -197,14 +197,15 @@ function ModelSelector({ api, configured, selected, onChange, notify }: { api: A
 }
 
 function CloudSettings({ api, status, onSaved, notify, checkingUpdate, onCheckForUpdates }: { api: ApiClient; status: SettingsStatus | null; onSaved: () => Promise<boolean>; notify: Notify; checkingUpdate: boolean; onCheckForUpdates: () => void }) {
-  const [values, setValues] = useState<SettingsInput>({ ai_provider: status?.ai_provider || "openrouter", openai_model: status?.openai_model || "openrouter/free" });
+  const [values, setValues] = useState<SettingsInput>({ ai_provider: status?.ai_provider || "qwen", openai_model: status?.openai_model || "qwen3-vl-plus" });
   const [editingProviderKey, setEditingProviderKey] = useState(false);
   const [editingTelegram, setEditingTelegram] = useState(false);
   const [phone, setPhone] = useState(""); const [code, setCode] = useState(""); const [password, setPassword] = useState(""); const [codeSent, setCodeSent] = useState(false);
   const [diagnostics, setDiagnostics] = useState<DiagnosticEntry[]>([]); const [loadingDiagnostics, setLoadingDiagnostics] = useState(false);
   const [appVersion, setAppVersion] = useState("");
-  const provider = values.ai_provider || status?.ai_provider || "openrouter";
-  const providerDetails: Record<AiProvider, { label: string; placeholder: string; key: "openrouter_api_key" | "huggingface_api_key" | "openai_api_key" }> = {
+  const provider = values.ai_provider || status?.ai_provider || "qwen";
+  const providerDetails: Record<AiProvider, { label: string; placeholder: string; key: "qwen_api_key" | "openrouter_api_key" | "huggingface_api_key" | "openai_api_key" }> = {
+    qwen: { label: "Qwen Cloud", placeholder: "sk-...", key: "qwen_api_key" },
     openrouter: { label: "OpenRouter", placeholder: "sk-or-...", key: "openrouter_api_key" },
     huggingface: { label: "Hugging Face", placeholder: "hf_...", key: "huggingface_api_key" },
     openai: { label: "OpenAI", placeholder: "sk-...", key: "openai_api_key" },
@@ -220,7 +221,7 @@ function CloudSettings({ api, status, onSaved, notify, checkingUpdate, onCheckFo
     }).catch((reason) => notify("error", `Could not save settings: ${displayError(reason)}`));
   };
   const chooseProvider = (next: AiProvider) => {
-    const defaultModel = next === "openrouter" ? "openrouter/free" : "";
+    const defaultModel = next === "qwen" ? "qwen3-vl-plus" : next === "openrouter" ? "openrouter/free" : "";
     setValues((current) => ({ ...current, ai_provider: next, openai_model: defaultModel }));
     setEditingProviderKey(false);
   };
@@ -231,9 +232,10 @@ function CloudSettings({ api, status, onSaved, notify, checkingUpdate, onCheckFo
   return <div className="settings">
     <form onSubmit={save}>
       <p>Cloud provider keys are encrypted and stored only on this computer. No AI model is downloaded locally.</p>
-      <label>AI provider<select value={provider} onChange={(event) => chooseProvider(event.target.value as AiProvider)}><option value="openrouter">OpenRouter — free models available</option><option value="huggingface">Hugging Face Inference Providers</option><option value="openai">OpenAI</option></select></label>
+      <label>AI provider<select value={provider} onChange={(event) => chooseProvider(event.target.value as AiProvider)}><option value="qwen">Qwen Cloud — default for Arabic and charts</option><option value="openrouter">OpenRouter — free models available</option><option value="huggingface">Hugging Face Inference Providers</option><option value="openai">OpenAI</option></select></label>
       <div className="credential-header"><div><strong>{currentProvider.label}</strong><span>{status?.ai_provider === provider && status.ai_configured ? "API key saved" : "API key not configured"}</span></div><button type="button" className="secondary" onClick={replaceKey}>{editingProviderKey ? "Cancel" : status?.ai_provider === provider && status.ai_configured ? "Replace API key" : "Add API key"}</button></div>
       {editingProviderKey && <label>New {currentProvider.label} API key<input type="password" autoComplete="new-password" placeholder={currentProvider.placeholder} value={values[currentProvider.key] || ""} onChange={(event) => setValues((current) => ({ ...current, [currentProvider.key]: event.target.value }))} required /></label>}
+      {provider === "qwen" && <label>Qwen Cloud endpoint<input type="url" value={values.qwen_base_url || "https://dashscope.aliyuncs.com/compatible-mode/v1"} onChange={(event) => setValues((current) => ({ ...current, qwen_base_url: event.target.value }))} required /><span className="credential-note">Use your Alibaba Cloud Model Studio regional compatible-mode endpoint when your API key is not for Beijing.</span></label>}
       <ModelSelector api={api} configured={Boolean(status?.ai_provider === provider && status.ai_configured)} selected={values.openai_model || ""} onChange={(openai_model) => setValues((current) => ({ ...current, openai_model }))} notify={notify} />
       <div className="credential-header"><div><strong>Telegram</strong><span>{status?.telegram_configured ? "API credentials saved" : "API credentials not configured"}</span></div><button type="button" className="secondary" onClick={() => { if (editingTelegram) setValues(({ telegram_api_id, telegram_api_hash, ...current }) => current); setEditingTelegram((current) => !current); }}>{editingTelegram ? "Cancel" : status?.telegram_configured ? "Replace Telegram credentials" : "Add Telegram credentials"}</button></div>
       {editingTelegram && <><label>New Telegram API ID<input type="number" placeholder="From my.telegram.org" value={values.telegram_api_id || ""} onChange={(event) => setValues((current) => ({ ...current, telegram_api_id: Number(event.target.value) || undefined }))} required /></label><label>New Telegram API hash<input type="password" autoComplete="new-password" placeholder="API hash" value={values.telegram_api_hash || ""} onChange={(event) => setValues((current) => ({ ...current, telegram_api_hash: event.target.value }))} required /></label><p className="credential-note">Changing Telegram credentials signs this computer out of Telegram. Connect it again below after saving.</p></>}

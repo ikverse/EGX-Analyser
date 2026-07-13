@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openrouter_api_key: str | None = None
     huggingface_api_key: str | None = None
+    qwen_api_key: str | None = None
+    qwen_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     ai_provider: str = ""
     openai_model: str = "openrouter/free"
     telegram_api_id: int | None = None
@@ -33,6 +35,7 @@ class Settings(BaseSettings):
             "openai": self.openai_api_key,
             "openrouter": self.openrouter_api_key,
             "huggingface": self.huggingface_api_key,
+            "qwen": self.qwen_api_key,
         }.get(self.ai_provider)
 
 
@@ -41,5 +44,5 @@ def get_settings() -> Settings:
     load_secrets_into_environment()
     settings = Settings()
     if not settings.ai_provider:
-        settings.ai_provider = "openai" if settings.openai_api_key else "openrouter"
+        settings.ai_provider = "openai" if settings.openai_api_key else "qwen"
     return settings

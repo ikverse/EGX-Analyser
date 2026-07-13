@@ -2,9 +2,9 @@ const baseUrl = "http://127.0.0.1:8000";
 
 export type Channel = { id: number; handle: string; title?: string; active: boolean; analyst_score?: number };
 export type Consensus = { company: string; sentiment: string; confidence: number; buy_count: number; sell_count: number; hold_count: number };
-export type AiProvider = "openrouter" | "huggingface" | "openai";
+export type AiProvider = "qwen" | "openrouter" | "huggingface" | "openai";
 export type SettingsStatus = { openai_configured: boolean; ai_configured: boolean; ai_provider: AiProvider; telegram_configured: boolean; telegram_authorized: boolean; openai_model: string; telegram_session: string };
-export type SettingsInput = { ai_provider?: AiProvider; openai_api_key?: string; openrouter_api_key?: string; huggingface_api_key?: string; openai_model?: string; telegram_api_id?: number; telegram_api_hash?: string; telegram_session?: string };
+export type SettingsInput = { ai_provider?: AiProvider; openai_api_key?: string; openrouter_api_key?: string; huggingface_api_key?: string; qwen_api_key?: string; qwen_base_url?: string; openai_model?: string; telegram_api_id?: number; telegram_api_hash?: string; telegram_session?: string };
 export type TelegramChat = { id: string; title: string; username: string; kind: string };
 export type DiagnosticEntry = { timestamp?: string; level: string; event: string; request_id?: string; method?: string; path?: string; status_code?: number; duration_ms?: number; error_type?: string };
 

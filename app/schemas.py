@@ -68,7 +68,9 @@ class SettingsUpdate(BaseModel):
     openai_api_key: str | None = None
     openrouter_api_key: str | None = None
     huggingface_api_key: str | None = None
-    ai_provider: str | None = Field(default=None, pattern="^(openrouter|huggingface|openai)$")
+    qwen_api_key: str | None = None
+    qwen_base_url: str | None = Field(default=None, pattern="^https://.+")
+    ai_provider: str | None = Field(default=None, pattern="^(qwen|openrouter|huggingface|openai)$")
     openai_model: str | None = None
     telegram_api_id: int | None = None
     telegram_api_hash: str | None = None

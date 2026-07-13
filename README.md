@@ -4,7 +4,7 @@ Production-oriented multimodal intelligence for Egyptian-stock Telegram channels
 
 ## Start
 
-1. Copy `.env.example` to `.env`, then set Telegram credentials and one cloud AI provider key. OpenRouter, Hugging Face Inference Providers, and OpenAI are supported; the desktop Settings page can discover the compatible models dynamically.
+1. Copy `.env.example` to `.env`, then set Telegram credentials and one cloud AI provider key. Qwen Cloud is the default, with OpenRouter, Hugging Face Inference Providers, and OpenAI also supported; the desktop Settings page can discover the compatible models dynamically.
 2. On Windows, run `powershell -ExecutionPolicy Bypass -File scripts/bootstrap-windows.ps1` once to install Python, Docker Desktop, and project packages. Pass `-SkipDocker` if Docker is already installed.
 3. Run `docker compose up --build`.
 4. Open `http://localhost:8501`; the API docs are at `http://localhost:8000/docs`.
@@ -25,4 +25,4 @@ For a normal Windows application with an icon, native window, and installer, see
 
 ## Cloud AI providers
 
-The desktop app does not download AI models. Choose **OpenRouter**, **Hugging Face Inference Providers**, or **OpenAI** in Settings, save the matching API key, then select from the models the provider exposes. OpenRouter includes `openrouter/free` for its available free models. Audio transcription and semantic embedding search currently use OpenAI when those features are required; text and image recommendation analysis works with every listed cloud provider.
+The desktop app does not download AI models. **Qwen Cloud** is the default provider and uses `qwen3-vl-plus` for Arabic text and chart-image analysis through Alibaba Cloud Model Studio. Its default endpoint is `https://dashscope.aliyuncs.com/compatible-mode/v1`; change it only when your Qwen key belongs to another region. OpenRouter, Hugging Face Inference Providers, and OpenAI remain available. Audio transcription and semantic embedding search currently use OpenAI when those features are required; text and image recommendation analysis works with every listed cloud provider.

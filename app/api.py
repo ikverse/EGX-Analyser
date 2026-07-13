@@ -51,6 +51,7 @@ async def available_models() -> list[str]:
         raise HTTPException(400, f"Save a {provider.title()} API key first")
     if provider != "openai":
         catalog_url = {
+            "qwen": f"{settings.qwen_base_url.rstrip('/')}/models",
             "openrouter": "https://openrouter.ai/api/v1/models",
             "huggingface": "https://router.huggingface.co/v1/models",
         }[provider]
@@ -72,7 +73,7 @@ async def available_models() -> list[str]:
             parameters = model.get("supported_parameters") or []
             if "image" in modalities and any(item in parameters for item in ("response_format", "structured_outputs")):
                 compatible.append(model["id"])
-        preferred = ["openrouter/free"] if provider == "openrouter" else []
+        preferred = {"qwen": ["qwen3-vl-plus"], "openrouter": ["openrouter/free"]}.get(provider, [])
         return preferred + sorted(set(model for model in compatible if model not in preferred))
     try:
         models = await AsyncOpenAI(api_key=settings.openai_api_key).models.list()
