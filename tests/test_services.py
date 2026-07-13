@@ -9,7 +9,7 @@ from openai import AuthenticationError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app import api
 from app.models import Base, Image, Recommendation, StockMention
-from app.schemas import AnalysisResult, ExtractedRecommendation, MessageCreate, TelegramChatSelect
+from app.schemas import AnalysisResult, ExtractedRecommendation, ExtractedStockMention, MessageCreate, TelegramChatSelect
 from app.ai.service import analysis_output_schema
 from app.services import AnalyticsService, MessageService, SearchService
 from app.config_store import load_secrets_into_environment, update_config
@@ -33,6 +33,18 @@ class FakeAnalyzer:
 
     async def embed(self, content: str) -> list[float]:
         return [1.0, 0.0, 0.0] if "CIB" in content else [0.0, 1.0, 0.0]
+
+
+class StockMentionOnlyAnalyzer:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def analyze(self, text: str, image_paths: list[str], transcripts: list[str] | None = None) -> AnalysisResult:
+        self.calls += 1
+        return AnalysisResult(stock_mentions=[ExtractedStockMention(ticker="COMI", company_name="CIB", confidence=.8)])
+
+    async def embed(self, content: str) -> list[float]:
+        return []
 
 
 @pytest.fixture
@@ -82,6 +94,18 @@ async def test_analysis_is_idempotent_and_persists_embedding(session):
     second = await service.analyze(message)
     assert len(first) == len(second) == 1
     assert (await SearchService(session, FakeAnalyzer()).search("CIB outlook", 5))[0]["id"] == message.id
+
+
+async def test_stock_code_only_analysis_is_not_repeated(session):
+    message = await MessageService(session).ingest(MessageCreate(
+        channel_handle="signals", telegram_message_id=10, text="COMI table", published_at=datetime.now(timezone.utc)
+    ))
+    analyzer = StockMentionOnlyAnalyzer()
+    service = MessageService(session, analyzer)
+    await service.analyze(message)
+    await service.analyze(message)
+    assert analyzer.calls == 1
+    assert len((await session.scalars(StockMention.__table__.select())).all()) == 1
 
 
 def test_local_settings_encrypt_secrets(monkeypatch, tmp_path):

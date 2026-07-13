@@ -32,7 +32,10 @@ class MessageService:
         existing = (await self.session.scalars(
             select(Recommendation).where(Recommendation.message_id == message.id)
         )).all()
-        if message.processed_at and existing:
+        existing_mentions = (await self.session.scalars(
+            select(StockMention).where(StockMention.message_id == message.id)
+        )).all()
+        if message.processed_at and (existing or existing_mentions):
             return list(existing)
         images = (await self.session.scalars(
             select(Image).where(Image.message_id == message.id)

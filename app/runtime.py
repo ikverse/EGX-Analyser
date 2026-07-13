@@ -30,27 +30,27 @@ class LocalRuntime:
         with suppress(asyncio.CancelledError):
             await self._task
 
-    async def collect_once(self, channel_ids: list[int] | None = None, since: datetime | None = None) -> int:
+    async def collect_once(self, channel_ids: list[int] | None = None, since: datetime | None = None) -> dict[str, int]:
         if self._collection_lock.locked():
             raise RuntimeError("A Telegram collection is already running")
         async with self._collection_lock:
             return await self._collect_once(channel_ids, since)
 
-    async def _collect_once(self, channel_ids: list[int] | None = None, since: datetime | None = None) -> int:
+    async def _collect_once(self, channel_ids: list[int] | None = None, since: datetime | None = None) -> dict[str, int]:
         settings = get_settings()
         if not settings.telegram_api_id or not settings.telegram_api_hash:
-            return 0
+            return {"messages_in_window": 0, "messages_analyzed": 0, "messages_already_saved": 0}
         async with SessionLocal() as session:
             statement = select(Channel)
             if channel_ids is not None:
                 if not channel_ids:
-                    return 0
+                    return {"messages_in_window": 0, "messages_analyzed": 0, "messages_already_saved": 0}
                 statement = statement.where(Channel.id.in_(channel_ids))
             else:
                 statement = statement.where(Channel.active.is_(True))
             active = [channel.handle for channel in (await session.scalars(statement)).all()]
             if not active:
-                return 0
+                return {"messages_in_window": 0, "messages_analyzed": 0, "messages_already_saved": 0}
             analyzer = AIAnalysisService(settings) if settings.ai_api_key else None
             count = await TelegramCollector(settings).collect_once(MessageService(session, analyzer), active, since)
             await session.commit()
@@ -59,9 +59,9 @@ class LocalRuntime:
     async def _run(self) -> None:
         while True:
             try:
-                count = await self.collect_once()
-                if count:
-                    log.info("telegram_collection_complete", messages=count)
+                summary = await self.collect_once()
+                if summary["messages_in_window"]:
+                    log.info("telegram_collection_complete", **summary)
             except Exception as error:
                 log.exception("telegram_collection_failed", error=str(error))
             await asyncio.sleep(60)

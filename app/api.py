@@ -189,7 +189,8 @@ async def analyze_message(message_id: int, session: AsyncSession = Depends(get_s
 async def run_collection() -> dict:
     from app.main import runtime
     try:
-        return {"messages_collected": await runtime.collect_once()}
+        summary = await runtime.collect_once()
+        return {"messages_collected": summary["messages_analyzed"], **summary}
     except BadRequestError as error:
         raise HTTPException(400, f"The selected AI provider rejected the analysis request: {error}") from error
 
@@ -200,7 +201,7 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
     from app.runtime import selected_analysis_start
     window_start = selected_analysis_start(payload.lookback_days)
     try:
-        messages_collected = await runtime.collect_once(payload.channel_ids, since=window_start)
+        collection = await runtime.collect_once(payload.channel_ids, since=window_start)
         trace = await export_analysis_trace(
             session, get_settings().storage_root, payload.channel_ids, window_start, datetime.now(timezone.utc)
         )
@@ -209,7 +210,8 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
         )
         await session.commit()
         channel_results = report.summary["channel_results"]
-        return {"messages_collected": messages_collected, "window_start": window_start, "lookback_days": payload.lookback_days,
+        return {"messages_collected": collection["messages_analyzed"], **collection,
+                "window_start": window_start, "lookback_days": payload.lookback_days,
                 "report": {"id": report.id, "markdown_path": report.markdown_path, "html_path": report.html_path,
                            "pdf_path": report.pdf_path}, "channel_results": channel_results,
                 "stock_code_summary": report.summary["stock_code_summary"],

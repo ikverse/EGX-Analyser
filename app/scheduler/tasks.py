@@ -24,7 +24,7 @@ async def _collect() -> int:
             MessageService(session, analyzer), active_channels or settings.channels
         )
         await session.commit()
-        return result
+        return result["messages_analyzed"]
 
 
 @celery_app.task(name="app.scheduler.tasks.collect_telegram", autoretry_for=(ConnectionError,), retry_backoff=True, max_retries=5)

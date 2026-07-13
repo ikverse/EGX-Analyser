@@ -28,17 +28,19 @@ class TelegramCollector:
     def __init__(self, settings: Settings) -> None: self.settings = settings
 
     async def collect_once(self, service: MessageService, channel_handles: list[str] | None = None,
-                           since: datetime | None = None) -> int:
+                           since: datetime | None = None) -> dict[str, int]:
         if not self.settings.telegram_api_id or not self.settings.telegram_api_hash:
             raise RuntimeError("Telegram credentials are required")
-        count = 0
+        summary = {"messages_in_window": 0, "messages_analyzed": 0, "messages_already_saved": 0}
         async with TelegramClient(self.settings.telegram_session, self.settings.telegram_api_id, self.settings.telegram_api_hash) as client:
             cutoff = since.astimezone(timezone.utc) if since is not None else None
             for handle in channel_handles if channel_handles is not None else self.settings.channels:
                 channel = await service.session.scalar(select(Channel).where(Channel.handle == handle.lower().lstrip("@")))
                 entity_reference: str | int = int(handle) if handle.lstrip("-").isdigit() else handle
                 entity = await client.get_entity(entity_reference)
-                min_id = channel.last_collected_message_id if channel and channel.last_collected_message_id else 0
+                # A user-selected date window must include messages that were collected
+                # previously. The checkpoint is only appropriate for background polling.
+                min_id = 0 if cutoff is not None else (channel.last_collected_message_id if channel and channel.last_collected_message_id else 0)
                 latest_message_id = min_id
                 async for remote in client.iter_messages(entity, limit=None if cutoff else 250, min_id=min_id):
                     if not remote.date: continue
@@ -48,6 +50,7 @@ class TelegramCollector:
                     latest_message_id = max(latest_message_id, remote.id)
                     if is_promotional_message(remote.message or ""):
                         continue
+                    summary["messages_in_window"] += 1
                     message = await service.ingest(MessageCreate(channel_handle=handle, telegram_message_id=remote.id,
                         published_at=published_at, text=remote.message or "", views=remote.views))
                     if isinstance(remote.media, MessageMediaPhoto):
@@ -80,8 +83,10 @@ class TelegramCollector:
                                 media.processed_at = remote.date.astimezone(timezone.utc)
                     if service.analyzer is not None and message.processed_at is None:
                         await service.analyze(message)
-                    count += 1
+                        summary["messages_analyzed"] += 1
+                    else:
+                        summary["messages_already_saved"] += 1
                 if channel and latest_message_id > min_id:
                     channel.last_collected_message_id = latest_message_id
                     channel.last_collected_at = datetime.now(timezone.utc)
-        return count
+        return summary
