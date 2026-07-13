@@ -16,6 +16,7 @@ from app.content_updates import ContentUpdateService, generate_seed, public_key_
 from app.engine_updates import EngineUpdateService
 from app.telegram_auth import TelegramAuthenticator
 from app.runtime import selected_analysis_start
+from app.collector.telegram import is_promotional_message
 
 
 class FakeAnalyzer:
@@ -177,3 +178,8 @@ def test_engine_patch_stages_only_the_sidecar(tmp_path):
 def test_selected_analysis_starts_three_days_before_request():
     requested_at = datetime(2026, 7, 13, 12, tzinfo=timezone.utc)
     assert selected_analysis_start(requested_at) == datetime(2026, 7, 10, 12, tzinfo=timezone.utc)
+
+
+def test_promotional_messages_are_skipped_without_hiding_trade_posts():
+    assert is_promotional_message("إعلان: اشترك في قناتنا المدفوعة للحصول على خصم")
+    assert not is_promotional_message("اشترك معنا: شراء CIB دخول 92 هدف 100")

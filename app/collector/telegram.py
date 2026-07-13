@@ -7,6 +7,22 @@ from app.models import Channel, Image, Media
 from app.schemas import MessageCreate
 from app.services import MessageService
 
+_PROMOTIONAL_TERMS = (
+    "advertisement", "sponsored", "promotion", "promo code", "discount", "subscribe", "join our channel",
+    "اعلان", "إعلان", "اشترك", "اشتراك", "خصم", "كوبون", "عرض خاص", "قناة مدفوعة", "دورة تدريبية",
+)
+_TRADING_TERMS = (
+    "buy", "sell", "target", "entry", "stop loss", "support", "resistance",
+    "شراء", "بيع", "هدف", "دخول", "وقف", "دعم", "مقاومة",
+)
+
+
+def is_promotional_message(text: str) -> bool:
+    """Skip obvious standalone promotions while preserving posts with trade details."""
+    normalized = " ".join(text.lower().split())
+    return bool(normalized and any(term in normalized for term in _PROMOTIONAL_TERMS)
+                and not any(term in normalized for term in _TRADING_TERMS))
+
 
 class TelegramCollector:
     def __init__(self, settings: Settings) -> None: self.settings = settings
@@ -29,6 +45,9 @@ class TelegramCollector:
                     published_at = remote.date.astimezone(timezone.utc)
                     if cutoff is not None and published_at < cutoff:
                         break
+                    latest_message_id = max(latest_message_id, remote.id)
+                    if is_promotional_message(remote.message or ""):
+                        continue
                     message = await service.ingest(MessageCreate(channel_handle=handle, telegram_message_id=remote.id,
                         published_at=published_at, text=remote.message or "", views=remote.views))
                     if isinstance(remote.media, MessageMediaPhoto):
@@ -61,8 +80,6 @@ class TelegramCollector:
                                 media.processed_at = remote.date.astimezone(timezone.utc)
                     if service.analyzer is not None and message.processed_at is None:
                         await service.analyze(message)
-                    if channel:
-                        latest_message_id = max(latest_message_id, remote.id)
                     count += 1
                 if channel and latest_message_id > min_id:
                     channel.last_collected_message_id = latest_message_id
