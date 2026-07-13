@@ -1,8 +1,9 @@
 import { FormEvent, isValidElement, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import { check } from "@tauri-apps/plugin-updater";
 
-import { ApiClient, Channel, Consensus, DiagnosticEntry, SettingsInput, SettingsStatus, TelegramChat } from "./api";
+import { AiProvider, ApiClient, Channel, Consensus, DiagnosticEntry, SettingsInput, SettingsStatus, TelegramChat } from "./api";
 
 type Page = "Dashboard" | "Channels" | "Recommendations" | "Reports" | "Search" | "Settings";
 type Toast = { kind: "success" | "error" | "warning"; text: string } | null;
@@ -133,7 +134,7 @@ export default function App() {
         {page === "Recommendations" && <Table rows={rows} />}
         {page === "Reports" && <Reports api={api} rows={rows} setRows={setRows} notify={notify} />}
         {page === "Search" && <Search api={api} onResult={setRows} notify={notify} />}
-        {page === "Settings" && <Settings api={api} status={settings} onSaved={refresh} notify={notify} checkingUpdate={checkingUpdate} onCheckForUpdates={() => void checkForUpdates(true)} />}
+        {page === "Settings" && <CloudSettings api={api} status={settings} onSaved={refresh} notify={notify} checkingUpdate={checkingUpdate} onCheckForUpdates={() => void checkForUpdates(true)} />}
       </section>
     </main>
     {toast && <div className={`toast ${toast.kind}`} role="status"><strong>{toast.kind}</strong><span>{toast.text}</span><button onClick={() => setToast(null)} aria-label="Dismiss">×</button></div>}
@@ -185,7 +186,7 @@ function ModelSelector({ api, configured, selected, onChange, notify }: { api: A
   const [models, setModels] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const load = async (announce: boolean) => {
-    if (!configured) { if (announce) notify("warning", "Save an OpenAI API key first."); return; }
+    if (!configured) { if (announce) notify("warning", "Save an API key for the selected provider first."); return; }
     setLoading(true);
     try { const loaded = await api.models(); setModels(loaded); if (announce) notify(loaded.length ? "success" : "warning", loaded.length ? `${loaded.length} available models loaded.` : "No compatible analysis models are available to this API key."); }
     catch (reason) { notify("error", `Could not load models: ${displayError(reason)}`); }
@@ -193,6 +194,57 @@ function ModelSelector({ api, configured, selected, onChange, notify }: { api: A
   };
   useEffect(() => { void load(false); }, [api, configured]);
   return <label>Analysis model<div className="model-row"><select value={selected} onChange={(event) => onChange(event.target.value)}><option value={selected}>{selected || "Choose a model"}</option>{models.filter((model) => model !== selected).map((model) => <option key={model} value={model}>{model}</option>)}</select><button type="button" onClick={() => void load(true)} disabled={!configured || loading}>{loading ? "Loading…" : "Load available models"}</button></div></label>;
+}
+
+function CloudSettings({ api, status, onSaved, notify, checkingUpdate, onCheckForUpdates }: { api: ApiClient; status: SettingsStatus | null; onSaved: () => Promise<boolean>; notify: Notify; checkingUpdate: boolean; onCheckForUpdates: () => void }) {
+  const [values, setValues] = useState<SettingsInput>({ ai_provider: status?.ai_provider || "openrouter", openai_model: status?.openai_model || "openrouter/free" });
+  const [editingProviderKey, setEditingProviderKey] = useState(false);
+  const [editingTelegram, setEditingTelegram] = useState(false);
+  const [phone, setPhone] = useState(""); const [code, setCode] = useState(""); const [password, setPassword] = useState(""); const [codeSent, setCodeSent] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<DiagnosticEntry[]>([]); const [loadingDiagnostics, setLoadingDiagnostics] = useState(false);
+  const [appVersion, setAppVersion] = useState("");
+  const provider = values.ai_provider || status?.ai_provider || "openrouter";
+  const providerDetails: Record<AiProvider, { label: string; placeholder: string; key: "openrouter_api_key" | "huggingface_api_key" | "openai_api_key" }> = {
+    openrouter: { label: "OpenRouter", placeholder: "sk-or-...", key: "openrouter_api_key" },
+    huggingface: { label: "Hugging Face", placeholder: "hf_...", key: "huggingface_api_key" },
+    openai: { label: "OpenAI", placeholder: "sk-...", key: "openai_api_key" },
+  };
+  const currentProvider = providerDetails[provider];
+  useEffect(() => { void getVersion().then(setAppVersion).catch(() => setAppVersion("Unknown")); }, []);
+  useEffect(() => { if (status) setValues((current) => ({ ...current, ai_provider: status.ai_provider, openai_model: status.openai_model })); }, [status]);
+  const save = (event: FormEvent) => {
+    event.preventDefault();
+    void api.saveSettings(values).then(onSaved).then(() => {
+      setValues((current) => ({ ai_provider: current.ai_provider, openai_model: current.openai_model }));
+      setEditingProviderKey(false); setEditingTelegram(false); notify("success", "Settings saved securely on this computer.");
+    }).catch((reason) => notify("error", `Could not save settings: ${displayError(reason)}`));
+  };
+  const chooseProvider = (next: AiProvider) => {
+    const defaultModel = next === "openrouter" ? "openrouter/free" : "";
+    setValues((current) => ({ ...current, ai_provider: next, openai_model: defaultModel }));
+    setEditingProviderKey(false);
+  };
+  const replaceKey = () => {
+    if (editingProviderKey) setValues((current) => ({ ...current, [currentProvider.key]: undefined }));
+    setEditingProviderKey((current) => !current);
+  };
+  return <div className="settings">
+    <form onSubmit={save}>
+      <p>Cloud provider keys are encrypted and stored only on this computer. No AI model is downloaded locally.</p>
+      <label>AI provider<select value={provider} onChange={(event) => chooseProvider(event.target.value as AiProvider)}><option value="openrouter">OpenRouter — free models available</option><option value="huggingface">Hugging Face Inference Providers</option><option value="openai">OpenAI</option></select></label>
+      <div className="credential-header"><div><strong>{currentProvider.label}</strong><span>{status?.ai_provider === provider && status.ai_configured ? "API key saved" : "API key not configured"}</span></div><button type="button" className="secondary" onClick={replaceKey}>{editingProviderKey ? "Cancel" : status?.ai_provider === provider && status.ai_configured ? "Replace API key" : "Add API key"}</button></div>
+      {editingProviderKey && <label>New {currentProvider.label} API key<input type="password" autoComplete="new-password" placeholder={currentProvider.placeholder} value={values[currentProvider.key] || ""} onChange={(event) => setValues((current) => ({ ...current, [currentProvider.key]: event.target.value }))} required /></label>}
+      <ModelSelector api={api} configured={Boolean(status?.ai_provider === provider && status.ai_configured)} selected={values.openai_model || ""} onChange={(openai_model) => setValues((current) => ({ ...current, openai_model }))} notify={notify} />
+      <div className="credential-header"><div><strong>Telegram</strong><span>{status?.telegram_configured ? "API credentials saved" : "API credentials not configured"}</span></div><button type="button" className="secondary" onClick={() => { if (editingTelegram) setValues(({ telegram_api_id, telegram_api_hash, ...current }) => current); setEditingTelegram((current) => !current); }}>{editingTelegram ? "Cancel" : status?.telegram_configured ? "Replace Telegram credentials" : "Add Telegram credentials"}</button></div>
+      {editingTelegram && <><label>New Telegram API ID<input type="number" placeholder="From my.telegram.org" value={values.telegram_api_id || ""} onChange={(event) => setValues((current) => ({ ...current, telegram_api_id: Number(event.target.value) || undefined }))} required /></label><label>New Telegram API hash<input type="password" autoComplete="new-password" placeholder="API hash" value={values.telegram_api_hash || ""} onChange={(event) => setValues((current) => ({ ...current, telegram_api_hash: event.target.value }))} required /></label><p className="credential-note">Changing Telegram credentials signs this computer out of Telegram. Connect it again below after saving.</p></>}
+      <button>Save settings</button>
+    </form>
+    <article className="app-version"><h3>EGX Intelligence</h3><p>Version {appVersion || "Loading…"}</p></article>
+    <form className="update-settings" onSubmit={(event) => { event.preventDefault(); onCheckForUpdates(); }}><h3>Application updates</h3><p>Checks for a signed EGX Intelligence update and keeps your local data unchanged.</p><button disabled={checkingUpdate}>{checkingUpdate ? "Checking…" : "Check for updates"}</button></form>
+    <article className="diagnostics"><h3>Diagnostics</h3><p>Stores local request results and error traces. API keys, codes, and passwords are never logged.</p><button type="button" className="secondary" disabled={loadingDiagnostics} onClick={() => { setLoadingDiagnostics(true); void api.diagnostics().then((result) => { setDiagnostics(result.entries); notify("success", "Recent diagnostics loaded."); }).catch((reason) => notify("error", `Could not load diagnostics: ${displayError(reason)}`)).finally(() => setLoadingDiagnostics(false)); }}>{loadingDiagnostics ? "Loading diagnostics…" : "View recent diagnostics"}</button>{diagnostics.length > 0 && <pre>{diagnostics.map((entry) => `${entry.timestamp || ""} ${entry.level} ${entry.event} ${entry.method || ""} ${entry.path || ""} ${entry.status_code || ""} ${entry.error_type || ""}`).join("\n")}</pre>}</article>
+    {!status?.telegram_authorized && <form onSubmit={(event) => { event.preventDefault(); void api.requestTelegramCode(phone).then(() => { setCodeSent(true); notify("success", "Telegram code sent. Enter it below."); }).catch((reason) => notify("error", `Could not send Telegram code: ${displayError(reason)}`)); }}><h3>Connect Telegram</h3><label>Phone number<input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+201..." required /></label><button>Send code</button></form>}
+    {!status?.telegram_authorized && codeSent && <form onSubmit={(event) => { event.preventDefault(); void api.verifyTelegramCode(code, password || undefined).then(() => onSaved()).then(() => notify("success", "Telegram connected and saved for future launches.")).catch((reason) => notify("error", `Telegram connection failed: ${displayError(reason)}`)); }}><label>Verification code<input value={code} onChange={(event) => setCode(event.target.value)} required /></label><label>Two-step password (only if enabled)<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label><button>Verify code</button></form>}
+  </div>;
 }
 
 function Settings({ api, status, onSaved, notify, checkingUpdate, onCheckForUpdates }: { api: ApiClient; status: SettingsStatus | null; onSaved: () => Promise<boolean>; notify: Notify; checkingUpdate: boolean; onCheckForUpdates: () => void }) {

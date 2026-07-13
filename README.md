@@ -4,7 +4,7 @@ Production-oriented multimodal intelligence for Egyptian-stock Telegram channels
 
 ## Start
 
-1. Copy `.env.example` to `.env`, then set Telegram credentials and `OPENAI_API_KEY`.
+1. Copy `.env.example` to `.env`, then set Telegram credentials and one cloud AI provider key. OpenRouter, Hugging Face Inference Providers, and OpenAI are supported; the desktop Settings page can discover the compatible models dynamically.
 2. On Windows, run `powershell -ExecutionPolicy Bypass -File scripts/bootstrap-windows.ps1` once to install Python, Docker Desktop, and project packages. Pass `-SkipDocker` if Docker is already installed.
 3. Run `docker compose up --build`.
 4. Open `http://localhost:8501`; the API docs are at `http://localhost:8000/docs`.
@@ -22,3 +22,7 @@ The application produces research signals, not investment advice. Validate all e
 ## Desktop application
 
 For a normal Windows application with an icon, native window, and installer, see `docs/DESKTOP.md`. Once installed, it runs a bundled local API engine and does not require Docker or a browser.
+
+## Cloud AI providers
+
+The desktop app does not download AI models. Choose **OpenRouter**, **Hugging Face Inference Providers**, or **OpenAI** in Settings, save the matching API key, then select from the models the provider exposes. OpenRouter includes `openrouter/free` for its available free models. Audio transcription and semantic embedding search currently use OpenAI when those features are required; text and image recommendation analysis works with every listed cloud provider.

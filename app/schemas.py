@@ -66,6 +66,9 @@ class SearchRequest(BaseModel):
 
 class SettingsUpdate(BaseModel):
     openai_api_key: str | None = None
+    openrouter_api_key: str | None = None
+    huggingface_api_key: str | None = None
+    ai_provider: str | None = Field(default=None, pattern="^(openrouter|huggingface|openai)$")
     openai_model: str | None = None
     telegram_api_id: int | None = None
     telegram_api_hash: str | None = None

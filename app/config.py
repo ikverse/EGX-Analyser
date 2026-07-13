@@ -11,7 +11,10 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./stock_intelligence.db"
     redis_url: str = "redis://localhost:6379/0"
     openai_api_key: str | None = None
-    openai_model: str = "gpt-5.5"
+    openrouter_api_key: str | None = None
+    huggingface_api_key: str | None = None
+    ai_provider: str = ""
+    openai_model: str = "openrouter/free"
     telegram_api_id: int | None = None
     telegram_api_hash: str | None = None
     telegram_session: str = "egx_collector"
@@ -24,8 +27,19 @@ class Settings(BaseSettings):
     def channels(self) -> list[str]:
         return [item.strip().lstrip("@") for item in self.telegram_channels.split(",") if item.strip()]
 
+    @property
+    def ai_api_key(self) -> str | None:
+        return {
+            "openai": self.openai_api_key,
+            "openrouter": self.openrouter_api_key,
+            "huggingface": self.huggingface_api_key,
+        }.get(self.ai_provider)
+
 
 @lru_cache
 def get_settings() -> Settings:
     load_secrets_into_environment()
-    return Settings()
+    settings = Settings()
+    if not settings.ai_provider:
+        settings.ai_provider = "openai" if settings.openai_api_key else "openrouter"
+    return settings

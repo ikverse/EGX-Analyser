@@ -104,7 +104,9 @@ async def test_model_listing_masks_invalid_openai_key(monkeypatch):
     class FailingClient:
         models = FailingModels()
 
-    monkeypatch.setattr(api, "get_settings", lambda: type("Settings", (), {"openai_api_key": "test-key"})())
+    monkeypatch.setattr(api, "get_settings", lambda: type("Settings", (), {
+        "ai_provider": "openai", "ai_api_key": "test-key", "openai_api_key": "test-key"
+    })())
     monkeypatch.setattr(api, "AsyncOpenAI", lambda **_: FailingClient())
 
     with pytest.raises(HTTPException) as error:

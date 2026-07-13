@@ -48,7 +48,10 @@ class TelegramCollector:
                                 service.session.add(media)
                                 await service.session.flush()
                             if service.analyzer is not None and media.processed_at is None:
-                                media.transcript = await service.analyzer.transcribe(media.path)
+                                try:
+                                    media.transcript = await service.analyzer.transcribe(media.path)
+                                except RuntimeError:
+                                    media.transcript = None
                                 media.processed_at = remote.date.astimezone(timezone.utc)
                     if service.analyzer is not None and message.processed_at is None:
                         await service.analyze(message)

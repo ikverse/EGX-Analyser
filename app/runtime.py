@@ -49,7 +49,7 @@ class LocalRuntime:
             active = [channel.handle for channel in (await session.scalars(statement)).all()]
             if not active:
                 return 0
-            analyzer = AIAnalysisService(settings) if settings.openai_api_key else None
+            analyzer = AIAnalysisService(settings) if settings.ai_api_key else None
             count = await TelegramCollector(settings).collect_once(MessageService(session, analyzer), active)
             await session.commit()
             return count

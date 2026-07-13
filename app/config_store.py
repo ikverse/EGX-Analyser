@@ -4,7 +4,12 @@ import os
 from pathlib import Path
 import subprocess
 
-SECRET_KEYS = {"OPENAI_API_KEY", "TELEGRAM_API_HASH"}
+SECRET_KEYS = {
+    "OPENAI_API_KEY",
+    "OPENROUTER_API_KEY",
+    "HUGGINGFACE_API_KEY",
+    "TELEGRAM_API_HASH",
+}
 
 
 def config_path() -> Path:

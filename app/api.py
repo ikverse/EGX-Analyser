@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pathlib import Path
+import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.service import AIAnalysisService
@@ -35,6 +36,8 @@ async def settings_status() -> dict[str, object]:
     settings = get_settings()
     session_path = f"{settings.telegram_session}.session"
     return {"openai_configured": bool(settings.openai_api_key),
+            "ai_configured": bool(settings.ai_api_key),
+            "ai_provider": settings.ai_provider,
             "telegram_configured": bool(settings.telegram_api_id and settings.telegram_api_hash),
             "telegram_authorized": Path(session_path).exists(),
             "openai_model": settings.openai_model, "telegram_session": settings.telegram_session}
@@ -43,8 +46,34 @@ async def settings_status() -> dict[str, object]:
 @router.get("/models")
 async def available_models() -> list[str]:
     settings = get_settings()
-    if not settings.openai_api_key:
-        raise HTTPException(400, "Save an OpenAI API key first")
+    provider = settings.ai_provider
+    if not settings.ai_api_key:
+        raise HTTPException(400, f"Save a {provider.title()} API key first")
+    if provider != "openai":
+        catalog_url = {
+            "openrouter": "https://openrouter.ai/api/v1/models",
+            "huggingface": "https://router.huggingface.co/v1/models",
+        }[provider]
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                response = await client.get(catalog_url, headers={"Authorization": f"Bearer {settings.ai_api_key}"})
+                response.raise_for_status()
+            catalog = response.json().get("data", [])
+        except httpx.HTTPStatusError as error:
+            status = error.response.status_code
+            message = "rejected the saved API key" if status in (401, 403) else f"could not load models (status {status})"
+            raise HTTPException(status if status < 500 else 502, f"{provider.title()} {message}. Try again shortly.") from error
+        except httpx.HTTPError as error:
+            raise HTTPException(503, f"Unable to connect to {provider.title()}. Check your internet connection and try again.") from error
+        compatible = []
+        for model in catalog:
+            architecture = model.get("architecture") or {}
+            modalities = architecture.get("input_modalities") or model.get("input_modalities") or []
+            parameters = model.get("supported_parameters") or []
+            if "image" in modalities and any(item in parameters for item in ("response_format", "structured_outputs")):
+                compatible.append(model["id"])
+        preferred = ["openrouter/free"] if provider == "openrouter" else []
+        return preferred + sorted(set(model for model in compatible if model not in preferred))
     try:
         models = await AsyncOpenAI(api_key=settings.openai_api_key).models.list()
     except AuthenticationError as error:
@@ -123,7 +152,7 @@ async def run_collection() -> dict:
     try:
         return {"messages_collected": await runtime.collect_once()}
     except BadRequestError as error:
-        raise HTTPException(400, f"OpenAI rejected the analysis request: {error}") from error
+        raise HTTPException(400, f"The selected AI provider rejected the analysis request: {error}") from error
 
 
 @router.post("/collection/analyze-selected")
@@ -132,7 +161,7 @@ async def analyze_selected_channels(payload: CollectionRequest) -> dict:
     try:
         return {"messages_collected": await runtime.collect_once(payload.channel_ids)}
     except BadRequestError as error:
-        raise HTTPException(400, f"OpenAI rejected the analysis request: {error}") from error
+        raise HTTPException(400, f"The selected AI provider rejected the analysis request: {error}") from error
 
 
 @router.get("/messages")
@@ -223,5 +252,5 @@ async def reports(session: AsyncSession = Depends(get_session)) -> list[dict]:
 @router.post("/search")
 async def search(payload: SearchRequest, session: AsyncSession = Depends(get_session)) -> list[dict]:
     settings = get_settings()
-    analyzer = AIAnalysisService(settings) if settings.openai_api_key else None
+    analyzer = AIAnalysisService(settings) if settings.ai_api_key else None
     return await SearchService(session, analyzer).search(payload.query, payload.limit)

@@ -54,14 +54,18 @@ class MessageService:
         message.processed_at = datetime.now(timezone.utc)
         content = "\n".join([message.text, *(image.ocr_text or "" for image in images)]).strip()
         if content:
-            vector = await self.analyzer.embed(content)
-            embedding = await self.session.scalar(
-                select(Embedding).where(Embedding.message_id == message.id)
-            )
-            if embedding is None:
-                self.session.add(Embedding(message_id=message.id, content=content, vector=vector))
-            else:
-                embedding.content, embedding.vector = content, vector
+            try:
+                vector = await self.analyzer.embed(content)
+            except RuntimeError:
+                vector = []
+            if vector:
+                embedding = await self.session.scalar(
+                    select(Embedding).where(Embedding.message_id == message.id)
+                )
+                if embedding is None:
+                    self.session.add(Embedding(message_id=message.id, content=content, vector=vector))
+                else:
+                    embedding.content, embedding.vector = content, vector
         for image in images:
             image.vision_analysis = {"observations": result.image_observations}
         await self.session.flush()
