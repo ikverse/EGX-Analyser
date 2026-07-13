@@ -8,7 +8,6 @@ export type SettingsInput = { ai_provider?: AiProvider; openai_api_key?: string;
 export type TelegramChat = { id: string; title: string; username: string; kind: string };
 export type DiagnosticEntry = { timestamp?: string; level: string; event: string; request_id?: string; method?: string; path?: string; status_code?: number; duration_ms?: number; error_type?: string };
 export type ContentUpdateStatus = { enabled: boolean; version: string | null; source: string };
-export type EngineUpdateStatus = { version: string; source: string };
 export type SelectedAnalysisResult = { messages_collected: number; messages_in_window: number; messages_analyzed: number; messages_reanalyzed: number; messages_already_saved: number; window_start: string; lookback_days: number; report: { id: number; markdown_path: string; html_path: string; pdf_path: string }; trace: { directory: string; text_path: string; images_path: string; message_count: number; image_count: number }; channel_results: Array<{ channel: string; status: string; messages: number; recommendations: number; stock_codes: number }>; stock_code_summary: Array<{ ticker: string; company: string; occurrences: number; by_chat: Record<string, number>; data_samples: Array<{ channel: string; data: Record<string, string>; context?: string }> }>; stock_code_details: Array<{ ticker: string; company: string; channel: string; occurrences: number; details: Array<Record<string, string>> }>; not_stock_related: string[] };
 
 export class ApiError extends Error {
@@ -51,8 +50,6 @@ export class ApiClient {
   diagnostics() { return this.request<{ path: string; entries: DiagnosticEntry[] }>("/diagnostics/recent"); }
   contentUpdates() { return this.request<ContentUpdateStatus>("/content-updates"); }
   checkContentUpdates() { return this.request<{ updated: boolean; version: string }>("/content-updates/check", { method: "POST" }); }
-  engineUpdates() { return this.request<EngineUpdateStatus>("/engine-updates"); }
-  checkEngineUpdates() { return this.request<{ updated: boolean; version: string; restart_required: boolean }>("/engine-updates/check", { method: "POST" }); }
   selectTelegramChat(chat: TelegramChat) { return this.request<Channel>("/telegram/chats/select", { method: "POST", body: JSON.stringify(chat) }); }
   runCollection() { return this.request<{ messages_collected: number }>("/collection/run", { method: "POST" }); }
   analyzeSelected(channel_ids: number[], lookback_days: number) { return this.request<SelectedAnalysisResult>("/collection/analyze-selected", { method: "POST", body: JSON.stringify({ channel_ids, analyze: true, lookback_days }) }); }
