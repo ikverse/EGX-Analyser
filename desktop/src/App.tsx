@@ -1,4 +1,5 @@
 import { FormEvent, isValidElement, useCallback, useEffect, useMemo, useState } from "react";
+import type React from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { check } from "@tauri-apps/plugin-updater";
@@ -6,6 +7,7 @@ import { check } from "@tauri-apps/plugin-updater";
 import {
   AiProvider, ApiClient, Channel, Consensus, ContentUpdateStatus,
   DiagnosticEntry, SelectedAnalysisResult, SettingsInput, SettingsStatus, TelegramChat,
+  StockSourceRow, StockSummaryRow,
 } from "./api";
 
 type Page = "Dashboard" | "Channels" | "Recommendations" | "Reports" | "Search" | "Settings";
@@ -482,37 +484,213 @@ function Channels({ channels, api, refresh, notify, showError }: {
       <Table rows={selectedRows} />
 
       {lastAnalysis && (
-        <section>
-          <h3>Original AI response export</h3>
-          <p>PDF: {lastAnalysis.report.original_ai_response_pdf_path}</p>
-          <p>Text: {lastAnalysis.report.original_ai_response_text_path}</p>
-          <h3>Latest analysis report</h3>
-          <p>Report PDF: {lastAnalysis.report.pdf_path}</p>
-          <p>Trace messages: {lastAnalysis.trace.text_path}</p>
-          <p>Trace images: {lastAnalysis.trace.images_path}</p>
-          <h3>EGX code details by channel</h3>
-          <Table rows={lastAnalysis.stock_code_details.map((item) => ({
-            code: item.ticker,
-            company: item.company,
-            channel: item.channel,
-            occurrences: item.occurrences,
-            extracted_details: item.details.map((detail) =>
-              Object.entries(detail).map(([k, v]) => `${k}=${v}`).join(", ")
-            ).join(" | ") || "—",
-          }))} />
-          <h3>EGX code summary</h3>
-          <Table rows={lastAnalysis.stock_code_summary.map((item) => ({
-            code: item.ticker,
-            company: item.company,
-            occurrences: item.occurrences,
-            per_chat: Object.entries(item.by_chat).map(([chat, count]) => `${chat}: ${count}`).join(" | "),
-          }))} />
-          <Table rows={lastAnalysis.channel_results} />
-        </section>
+        <AnalysisResultTable
+          summary={lastAnalysis.stock_code_summary}
+          details={lastAnalysis.stock_code_details}
+          channelResults={lastAnalysis.channel_results}
+          reportHtmlPath={lastAnalysis.report.html_path}
+          reportPdfPath={lastAnalysis.report.pdf_path}
+          aiResponsePdfPath={lastAnalysis.report.original_ai_response_pdf_path}
+          aiResponseTextPath={lastAnalysis.report.original_ai_response_text_path}
+          tracePath={lastAnalysis.trace.text_path}
+        />
       )}
     </>
   );
 }
+
+// ── Analysis result table ─────────────────────────────────────────────────────
+
+const PRICE_FIELDS: Array<{ key: string; label: string }> = [
+  { key: "buy_price",           label: "Entry" },
+  { key: "target_1",            label: "TP1" },
+  { key: "target_2",            label: "TP2" },
+  { key: "stop_loss",           label: "Stop" },
+  { key: "support",             label: "Support" },
+  { key: "resistance",          label: "Resistance" },
+  { key: "expected_return_pct", label: "Return %" },
+  { key: "risk_pct",            label: "Risk %" },
+  { key: "date",                label: "Date" },
+];
+
+function num(v: string | undefined): string {
+  if (!v || v === "None" || v === "null") return "—";
+  const n = parseFloat(v);
+  return isNaN(n) ? v : String(n);
+}
+
+function AnalysisResultTable({ summary, details, channelResults, reportHtmlPath, reportPdfPath, aiResponsePdfPath, aiResponseTextPath, tracePath }: {
+  summary: StockSummaryRow[];
+  details: StockSourceRow[];
+  channelResults: Array<{ channel: string; status: string; messages: number; recommendations: number; stock_codes: number }>;
+  reportHtmlPath: string;
+  reportPdfPath: string;
+  aiResponsePdfPath: string;
+  aiResponseTextPath: string;
+  tracePath: string;
+}) {
+  const [expanded, setExpanded] = useState<Set<string>>(() => {
+    const s = new Set<string>();
+    summary.forEach((item) => s.add(item.ticker));
+    return s;
+  });
+
+  const toggle = (ticker: string) =>
+    setExpanded((prev) => { const next = new Set(prev); next.has(ticker) ? next.delete(ticker) : next.add(ticker); return next; });
+
+  // Group details by ticker preserving sort order from summary
+  const byTicker = new Map<string, StockSourceRow[]>();
+  details.forEach((row) => {
+    const rows = byTicker.get(row.ticker) ?? [];
+    rows.push(row);
+    byTicker.set(row.ticker, rows);
+  });
+
+  // Merge summary (has occurrences + company_ar) with details groups
+  const stocks = summary.map((s) => ({ ...s, sources: byTicker.get(s.ticker) ?? [] }));
+
+  const fileLink = (path: string, label: string, color = "#70c96a") => (
+    <a href={`file:///${path.replace(/\\/g, "/")}`} target="_blank" rel="noreferrer"
+      style={{ color, fontSize: ".82rem", marginRight: "1.25rem", textDecoration: "none", borderBottom: `1px solid ${color}44` }}>
+      {label}
+    </a>
+  );
+
+  const statusColor: Record<string, string> = {
+    recommendations_found: "#86efac", stock_codes_found: "#86efac",
+    stock_related_no_recommendations: "#fde68a", not_stock_related: "#94a3b8", no_recent_messages: "#475569",
+  };
+
+  return (
+    <div style={{ marginTop: "1.5rem" }}>
+
+      {/* ── report links ── */}
+      <div style={{ background: "#0f1e33", border: "1px solid #26364d", borderRadius: "10px", padding: "1rem 1.25rem", marginBottom: "1.25rem", display: "flex", flexWrap: "wrap", alignItems: "center", gap: ".5rem" }}>
+        <span style={{ color: "#94a3b8", fontSize: ".82rem", marginRight: ".5rem" }}>Reports:</span>
+        {fileLink(reportHtmlPath, "HTML report")}
+        {fileLink(reportPdfPath, "PDF report")}
+        {fileLink(aiResponsePdfPath, "Original AI response PDF", "#94a3b8")}
+        {fileLink(aiResponseTextPath, "Original AI response text", "#94a3b8")}
+        {fileLink(tracePath, "Analysis trace", "#94a3b8")}
+      </div>
+
+      {/* ── channel status ── */}
+      {channelResults.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: ".5rem", marginBottom: "1.25rem" }}>
+          {channelResults.map((cr) => (
+            <span key={cr.channel} style={{ background: "#111c2e", border: "1px solid #26364d", borderRadius: "6px", padding: ".3rem .7rem", fontSize: ".78rem", color: statusColor[cr.status] ?? "#94a3b8" }}>
+              {cr.channel} · {cr.messages} msg · {cr.recommendations} rec · {cr.stock_codes} codes
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* ── no results ── */}
+      {stocks.length === 0 && (
+        <p style={{ color: "#94a3b8", fontStyle: "italic" }}>No EGX stock codes were found in this analysis window.</p>
+      )}
+
+      {/* ── one card per EGX stock ── */}
+      {stocks.map((stock) => {
+        const open = expanded.has(stock.ticker);
+        return (
+          <div key={stock.ticker} style={{ background: "#111c2e", border: "1px solid #26364d", borderRadius: "10px", marginBottom: ".85rem", overflow: "hidden" }}>
+
+            {/* card header — click to expand/collapse */}
+            <button
+              onClick={() => toggle(stock.ticker)}
+              style={{ width: "100%", background: "transparent", border: "none", padding: ".85rem 1.1rem", display: "flex", alignItems: "center", gap: ".75rem", cursor: "pointer", textAlign: "left" }}
+            >
+              <span style={{ color: "#94a3b8", fontSize: ".85rem", minWidth: "16px" }}>{open ? "▾" : "▸"}</span>
+              <span style={{ color: "#86efac", fontWeight: 700, fontSize: "1rem", minWidth: "56px" }}>{stock.ticker}</span>
+              <span style={{ color: "#e5e7eb", fontWeight: 600 }}>{stock.company}</span>
+              {stock.company_ar && (
+                <span style={{ color: "#94a3b8", fontSize: ".9rem", direction: "rtl", marginLeft: "auto" }}>{stock.company_ar}</span>
+              )}
+              <span style={{
+                background: stock.occurrences >= 3 ? "#1a3d24" : stock.occurrences === 2 ? "#2e2a14" : "#172033",
+                color: stock.occurrences >= 3 ? "#86efac" : stock.occurrences === 2 ? "#fde68a" : "#94a3b8",
+                borderRadius: "20px", padding: ".15rem .65rem", fontSize: ".78rem", fontWeight: 700,
+                marginLeft: stock.company_ar ? "1rem" : "auto", whiteSpace: "nowrap",
+              }}>
+                {stock.occurrences} mention{stock.occurrences !== 1 ? "s" : ""}
+              </span>
+            </button>
+
+            {/* source rows table */}
+            {open && stock.sources.length > 0 && (
+              <div style={{ overflowX: "auto", borderTop: "1px solid #26364d" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: ".83rem" }}>
+                  <thead>
+                    <tr style={{ background: "#0f1e33" }}>
+                      <th style={thStyle}>Source / Channel</th>
+                      {PRICE_FIELDS.map((f) => (
+                        <th key={f.key} style={{ ...thStyle, textAlign: "right" }}>{f.label}</th>
+                      ))}
+                      <th style={thStyle}>Arabic summary</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stock.sources.map((src, si) =>
+                      src.details.length === 0 ? (
+                        <tr key={si} style={si % 2 === 0 ? evenRow : oddRow}>
+                          <td style={tdStyle}><strong style={{ color: "#86efac" }}>{src.channel}</strong></td>
+                          {PRICE_FIELDS.map((f) => <td key={f.key} style={{ ...tdStyle, textAlign: "right", color: "#475569" }}>—</td>)}
+                          <td style={tdStyle} />
+                        </tr>
+                      ) : src.details.map((detail, di) => {
+                        const arabicSummary = detail["analysis_summary_ar"] || "";
+                        const isFirst = di === 0;
+                        return (
+                          <tr key={`${si}-${di}`} style={(si + di) % 2 === 0 ? evenRow : oddRow}>
+                            {isFirst ? (
+                              <td style={{ ...tdStyle, verticalAlign: "top" }} rowSpan={src.details.length}>
+                                <strong style={{ color: "#86efac" }}>{src.channel}</strong>
+                                {src.occurrences > 1 && (
+                                  <span style={{ color: "#475569", fontSize: ".75rem", display: "block" }}>
+                                    {src.occurrences} entries
+                                  </span>
+                                )}
+                              </td>
+                            ) : null}
+                            {PRICE_FIELDS.map((f) => (
+                              <td key={f.key} style={{ ...tdStyle, textAlign: "right", color: f.key === "risk_pct" && detail[f.key] ? "#fca5a5" : f.key.startsWith("target") || f.key === "expected_return_pct" ? "#86efac" : "#e5e7eb" }}>
+                                {f.key === "date" ? (detail[f.key] ? String(detail[f.key]).slice(0, 10) : "—") : num(detail[f.key])}
+                              </td>
+                            ))}
+                            <td style={{ ...tdStyle, direction: "rtl", textAlign: "right", color: "#94a3b8", fontSize: ".8rem", maxWidth: "220px" }}>
+                              {arabicSummary || ""}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {open && stock.sources.length === 0 && (
+              <p style={{ color: "#475569", fontSize: ".82rem", padding: ".75rem 1.1rem", margin: 0 }}>
+                No structured price data extracted for this code.
+              </p>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const thStyle: React.CSSProperties = {
+  padding: ".55rem .75rem", color: "#94a3b8", fontWeight: 600,
+  borderBottom: "1px solid #26364d", whiteSpace: "nowrap", textAlign: "left",
+};
+const tdStyle: React.CSSProperties = {
+  padding: ".5rem .75rem", borderBottom: "1px solid #1e2d42", verticalAlign: "middle",
+};
+const evenRow: React.CSSProperties = { background: "#111c2e" };
+const oddRow: React.CSSProperties  = { background: "#0f1a2e" };
 
 // ── Recommendations ───────────────────────────────────────────────────────────
 
