@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     qwen_api_key: str | None = None
     qwen_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     content_pack_manifest_url: str = "https://raw.githubusercontent.com/ikverse/EGX-Analyser/main/remote-content/content-pack.json"
+    engine_pack_manifest_url: str = "https://raw.githubusercontent.com/ikverse/EGX-Analyser/main/remote-engine/engine-pack.json"
+    engine_version: str = "1.0.0"
     ai_provider: str = ""
     openai_model: str = "openrouter/free"
     telegram_api_id: int | None = None

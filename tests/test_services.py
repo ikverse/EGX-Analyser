@@ -13,6 +13,7 @@ from app.ai.service import analysis_output_schema
 from app.services import AnalyticsService, MessageService, SearchService
 from app.config_store import load_secrets_into_environment, update_config
 from app.content_updates import ContentUpdateService, generate_seed, public_key_from_seed, sign_bytes, verify_bytes
+from app.engine_updates import EngineUpdateService
 from app.telegram_auth import TelegramAuthenticator
 
 
@@ -153,3 +154,20 @@ def test_content_pack_installs_prompt_and_aliases(tmp_path):
     assert manager.active_version() == "1.0.0"
     assert manager.file_path("recommendation.md").read_text(encoding="utf-8") == "Updated prompt"
     assert manager.stock_aliases()["cib arabic"] == "CIB"
+
+
+def test_engine_patch_stages_only_the_sidecar(tmp_path):
+    import zipfile
+
+    settings = type("Settings", (), {
+        "storage_root": tmp_path / "storage", "engine_pack_manifest_url": "https://example.test/engine", "engine_version": "1.0.0"
+    })()
+    archive_bytes = io.BytesIO()
+    with zipfile.ZipFile(archive_bytes, "w") as archive:
+        archive.writestr("egx-intelligence-api.exe", b"engine")
+
+    manager = EngineUpdateService(settings)
+    manager._stage("1.0.1", archive_bytes.getvalue())
+
+    assert (manager.pending / "egx-intelligence-api.exe").read_bytes() == b"engine"
+    assert (manager.pending / ".version").read_text(encoding="utf-8") == "1.0.1"

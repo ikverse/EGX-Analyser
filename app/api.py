@@ -7,6 +7,7 @@ from app.ai.service import AIAnalysisService
 from app.config import get_settings
 from app.config_store import update_config
 from app.content_updates import ContentUpdateError, ContentUpdateService
+from app.engine_updates import EngineUpdateService
 from app.database import get_session
 from app.diagnostics import diagnostics_path, logger, recent_entries
 from app.models import Channel, Message, Recommendation, Report, Stock
@@ -41,6 +42,19 @@ async def content_update_status() -> dict[str, object]:
 async def check_content_updates() -> dict[str, object]:
     try:
         return await ContentUpdateService(get_settings()).check_and_apply()
+    except ContentUpdateError as error:
+        raise HTTPException(502, str(error)) from error
+
+
+@router.get("/engine-updates")
+async def engine_update_status() -> dict[str, object]:
+    return EngineUpdateService(get_settings()).status()
+
+
+@router.post("/engine-updates/check")
+async def check_engine_updates() -> dict[str, object]:
+    try:
+        return await EngineUpdateService(get_settings()).check_and_stage()
     except ContentUpdateError as error:
         raise HTTPException(502, str(error)) from error
 

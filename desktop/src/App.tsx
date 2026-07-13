@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { check } from "@tauri-apps/plugin-updater";
 
-import { AiProvider, ApiClient, Channel, Consensus, ContentUpdateStatus, DiagnosticEntry, SettingsInput, SettingsStatus, TelegramChat } from "./api";
+import { AiProvider, ApiClient, Channel, Consensus, ContentUpdateStatus, DiagnosticEntry, EngineUpdateStatus, SettingsInput, SettingsStatus, TelegramChat } from "./api";
 
 type Page = "Dashboard" | "Channels" | "Recommendations" | "Reports" | "Search" | "Settings";
 type Toast = { kind: "success" | "error" | "warning"; text: string } | null;
@@ -203,6 +203,7 @@ function CloudSettings({ api, status, onSaved, notify, checkingUpdate, onCheckFo
   const [phone, setPhone] = useState(""); const [code, setCode] = useState(""); const [password, setPassword] = useState(""); const [codeSent, setCodeSent] = useState(false);
   const [diagnostics, setDiagnostics] = useState<DiagnosticEntry[]>([]); const [loadingDiagnostics, setLoadingDiagnostics] = useState(false);
   const [contentStatus, setContentStatus] = useState<ContentUpdateStatus | null>(null); const [checkingContent, setCheckingContent] = useState(false);
+  const [engineStatus, setEngineStatus] = useState<EngineUpdateStatus | null>(null); const [checkingEngine, setCheckingEngine] = useState(false);
   const [appVersion, setAppVersion] = useState("");
   const provider = values.ai_provider || status?.ai_provider || "qwen";
   const providerDetails: Record<AiProvider, { label: string; placeholder: string; key: "qwen_api_key" | "openrouter_api_key" | "huggingface_api_key" | "openai_api_key" }> = {
@@ -214,6 +215,7 @@ function CloudSettings({ api, status, onSaved, notify, checkingUpdate, onCheckFo
   const currentProvider = providerDetails[provider];
   useEffect(() => { void getVersion().then(setAppVersion).catch(() => setAppVersion("Unknown")); }, []);
   useEffect(() => { void api.contentUpdates().then(setContentStatus).catch(() => setContentStatus(null)); }, [api]);
+  useEffect(() => { void api.engineUpdates().then(setEngineStatus).catch(() => setEngineStatus(null)); }, [api]);
   useEffect(() => { if (status) setValues((current) => ({ ...current, ai_provider: status.ai_provider, openai_model: status.openai_model })); }, [status]);
   const save = (event: FormEvent) => {
     event.preventDefault();
@@ -245,6 +247,7 @@ function CloudSettings({ api, status, onSaved, notify, checkingUpdate, onCheckFo
     </form>
     <article className="app-version"><h3>EGX Intelligence</h3><p>Version {appVersion || "Loading…"}</p></article>
     <article className="content-updates"><h3>Analysis content updates</h3><p>Signed prompt and stock-alias updates install without rebuilding or reinstalling the desktop application.</p><p>{contentStatus?.version ? `Installed content pack: ${contentStatus.version}` : "Using built-in analysis content."}</p><button type="button" disabled={checkingContent || contentStatus?.enabled === false} onClick={() => { setCheckingContent(true); void api.checkContentUpdates().then((result) => { notify("success", result.updated ? `Content pack ${result.version} installed.` : `Content pack ${result.version} is already installed.`); return api.contentUpdates(); }).then(setContentStatus).catch((reason) => notify("error", `Could not update analysis content: ${displayError(reason)}`)).finally(() => setCheckingContent(false)); }}>{checkingContent ? "Checking content…" : "Check analysis content"}</button></article>
+    <article className="engine-updates"><h3>Engine quick patches</h3><p>Downloads only a signed local API engine patch. The desktop app restarts only when a patch is ready.</p><p>Running engine: {engineStatus?.version || "Built-in"}</p><button type="button" disabled={checkingEngine} onClick={() => { setCheckingEngine(true); void api.checkEngineUpdates().then(async (result) => { if (!result.updated) { notify("success", `Engine ${result.version} is already installed.`); return; } notify("success", `Engine patch ${result.version} downloaded. Restarting now.`); await invoke("restart_app"); }).catch((reason) => notify("error", `Could not update the engine: ${displayError(reason)}`)).finally(() => setCheckingEngine(false)); }}>{checkingEngine ? "Downloading engine patch…" : "Check engine quick patches"}</button></article>
     <form className="update-settings" onSubmit={(event) => { event.preventDefault(); onCheckForUpdates(); }}><h3>Application updates</h3><p>Checks for a signed EGX Intelligence update and keeps your local data unchanged.</p><button disabled={checkingUpdate}>{checkingUpdate ? "Checking…" : "Check for updates"}</button></form>
     <article className="diagnostics"><h3>Diagnostics</h3><p>Stores local request results and error traces. API keys, codes, and passwords are never logged.</p><button type="button" className="secondary" disabled={loadingDiagnostics} onClick={() => { setLoadingDiagnostics(true); void api.diagnostics().then((result) => { setDiagnostics(result.entries); notify("success", "Recent diagnostics loaded."); }).catch((reason) => notify("error", `Could not load diagnostics: ${displayError(reason)}`)).finally(() => setLoadingDiagnostics(false)); }}>{loadingDiagnostics ? "Loading diagnostics…" : "View recent diagnostics"}</button>{diagnostics.length > 0 && <pre>{diagnostics.map((entry) => `${entry.timestamp || ""} ${entry.level} ${entry.event} ${entry.method || ""} ${entry.path || ""} ${entry.status_code || ""} ${entry.error_type || ""}`).join("\n")}</pre>}</article>
     {!status?.telegram_authorized && <form onSubmit={(event) => { event.preventDefault(); void api.requestTelegramCode(phone).then(() => { setCodeSent(true); notify("success", "Telegram code sent. Enter it below."); }).catch((reason) => notify("error", `Could not send Telegram code: ${displayError(reason)}`)); }}><h3>Connect Telegram</h3><label>Phone number<input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+201..." required /></label><button>Send code</button></form>}
