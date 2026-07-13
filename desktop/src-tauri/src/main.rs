@@ -61,12 +61,11 @@ fn start_local_engine(app: &tauri::App) -> Result<Child, Box<dyn std::error::Err
         .join("sidecar")
         .join("egx-intelligence-api.exe");
 
-    let child = std::process::Command::new(&exe)
-        .current_dir(exe.parent().unwrap_or(&resource_dir))
-        // No console window
-        #[cfg(windows)]
-        .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
-        .spawn()?;
+    let mut cmd = std::process::Command::new(&exe);
+    cmd.current_dir(exe.parent().unwrap_or(&resource_dir));
+    #[cfg(windows)]
+    cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    let child = cmd.spawn()?;
 
     Ok(child)
 }
