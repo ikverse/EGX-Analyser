@@ -49,6 +49,7 @@ class Message(Base):
     forwarded_from: Mapped[str | None] = mapped_column(String(255))
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     processing_error: Mapped[str | None] = mapped_column(Text)
+    ai_response_raw: Mapped[str | None] = mapped_column(Text)
     channel: Mapped[Channel] = relationship(back_populates="messages")
     images: Mapped[list["Image"]] = relationship(back_populates="message", cascade="all, delete-orphan")
     media: Mapped[list["Media"]] = relationship(back_populates="message", cascade="all, delete-orphan")

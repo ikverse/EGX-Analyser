@@ -1,15 +1,26 @@
 from datetime import datetime, time, timedelta, timezone
 from html import escape
+import os
+from pathlib import Path
 from statistics import median
 from zoneinfo import ZoneInfo
 
 from reportlab.lib.pagesizes import A4
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen.canvas import Canvas
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
 from app.models import Channel, Message, Recommendation, Report, Stock, StockMention
+
+try:
+    import arabic_reshaper
+    from bidi.algorithm import get_display
+except ImportError:
+    arabic_reshaper = None
+    get_display = None
 
 
 def is_stock_related(text: str) -> bool:
@@ -177,6 +188,8 @@ class ReportService:
         markdown_path = directory / f"report-{run_id}.md"
         html_path = directory / f"report-{run_id}.html"
         pdf_path = directory / f"report-{run_id}.pdf"
+        raw_text_path = directory / f"original-ai-response-{run_id}.txt"
+        raw_pdf_path = directory / f"original-ai-response-{run_id}.pdf"
         markdown = "\n".join(lines)
         markdown_path.write_text(markdown, encoding="utf-8")
         html_path.write_text(f"<html><body><pre>{escape(markdown)}</pre></body></html>", encoding="utf-8")
@@ -186,10 +199,39 @@ class ReportService:
             text.textLine(line)
         canvas.drawText(text)
         canvas.save()
+        raw_lines = [f"EGX Intelligence - Original AI Responses ({generated_at:%Y-%m-%d %H:%M UTC})", ""]
+        for message, channel in message_rows:
+            if not message.ai_response_raw:
+                continue
+            raw_lines += [
+                f"Channel: {channel.title or channel.handle}",
+                f"Telegram message: {message.telegram_message_id}",
+                f"Published: {message.published_at.isoformat()}",
+                "", message.ai_response_raw, "", "=" * 90, "",
+            ]
+        if len(raw_lines) == 2:
+            raw_lines.append("No original AI responses were recorded for this analysis window.")
+        raw_text_path.write_text("\n".join(raw_lines), encoding="utf-8")
+        raw_canvas = Canvas(str(raw_pdf_path), pagesize=A4)
+        raw_text = raw_canvas.beginText(36, 806)
+        raw_font = _raw_pdf_font()
+        raw_text.setFont(raw_font, 7)
+        for line in raw_lines:
+            for wrapped in _wrap_pdf_line(_format_pdf_text(line), 125):
+                if raw_text.getY() < 36:
+                    raw_canvas.drawText(raw_text)
+                    raw_canvas.showPage()
+                    raw_text = raw_canvas.beginText(36, 806)
+                    raw_text.setFont(raw_font, 7)
+                raw_text.textLine(wrapped)
+        raw_canvas.drawText(raw_text)
+        raw_canvas.save()
         report = Report(markdown_path=str(markdown_path), html_path=str(html_path), pdf_path=str(pdf_path), summary={
             "mode": report_mode, "consensus": consensus, "message_count": len(message_rows),
             "recommendation_count": len(recommendation_rows), "channel_results": channel_results,
             "stock_code_summary": stock_code_summary, "stock_code_details": stock_code_details,
+            "original_ai_response_text_path": str(raw_text_path),
+            "original_ai_response_pdf_path": str(raw_pdf_path),
         })
         self.session.add(report)
         await self.session.flush()
@@ -198,3 +240,24 @@ class ReportService:
 
 def _median(values: list[float]) -> float | None:
     return median(values) if values else None
+
+
+def _wrap_pdf_line(value: str, width: int) -> list[str]:
+    return [value[index:index + width] for index in range(0, max(len(value), 1), width)]
+
+
+def _format_pdf_text(value: str) -> str:
+    if arabic_reshaper is not None and get_display is not None:
+        return get_display(arabic_reshaper.reshape(value))
+    return value
+
+
+def _raw_pdf_font() -> str:
+    font_name = "EGXUnicode"
+    if font_name in pdfmetrics.getRegisteredFontNames():
+        return font_name
+    font_path = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts" / "arial.ttf"
+    if font_path.exists():
+        pdfmetrics.registerFont(TTFont(font_name, str(font_path)))
+        return font_name
+    return "Courier"

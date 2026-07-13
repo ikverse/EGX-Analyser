@@ -92,6 +92,7 @@ async def test_analysis_is_idempotent_and_persists_embedding(session):
     first = await service.analyze(message)
     second = await service.analyze(message)
     assert len(first) == len(second) == 1
+    assert '"ticker": "CIB"' in (message.ai_response_raw or "")
     assert (await SearchService(session, FakeAnalyzer()).search("CIB outlook", 5))[0]["id"] == message.id
 
 
@@ -220,6 +221,7 @@ async def test_selected_chat_report_marks_non_stock_context(session, tmp_path):
         channel_handle="general", telegram_message_id=1, text="Football match news", published_at=datetime.now(timezone.utc)
     ))
     stock = await StockRepository(session).resolve("CIB", "Commercial International Bank")
+    stock_message.ai_response_raw = '{"recommendations":[{"ticker":"CIB","signal":"BUY"}]}'
     session.add(Recommendation(message_id=stock_message.id, stock_id=stock.id, company_name="CIB", ticker_raw="CIB", signal="BUY", confidence=.9, indicators=[]))
     session.add(StockMention(message_id=stock_message.id, stock_id=stock.id, ticker_raw="CIB", company_name_raw="Commercial International Bank", context="CIB row", table_data={"price": "92.5", "target": "100"}, confidence=.9))
     await session.flush()
@@ -234,6 +236,10 @@ async def test_selected_chat_report_marks_non_stock_context(session, tmp_path):
     details = report.summary["stock_code_details"]
     assert details == [{"ticker": "CIB", "company": "Commercial International Bank", "channel": "stocks",
                         "occurrences": 1, "details": [{"price": "92.5", "target": "100", "context": "CIB row"}]}]
+    raw_text_path = Path(report.summary["original_ai_response_text_path"])
+    raw_pdf_path = Path(report.summary["original_ai_response_pdf_path"])
+    assert raw_text_path.exists() and raw_pdf_path.exists()
+    assert stock_message.ai_response_raw in raw_text_path.read_text(encoding="utf-8")
 
 
 async def test_analysis_trace_saves_message_text_and_images(session, tmp_path):

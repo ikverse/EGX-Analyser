@@ -1,9 +1,10 @@
 from collections import Counter
 from datetime import datetime, timezone
+import json
 from math import sqrt
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.ai.service import AIAnalysisService
+from app.ai.service import AIAnalysisService, AnalysisOutcome
 from app.models import Embedding, Image, Media, Message, Recommendation, Signal, StockMention
 from app.repositories import StockRepository, get_or_create_channel
 from app.schemas import ExtractedStockMention, MessageCreate
@@ -42,7 +43,12 @@ class MessageService:
         )).all()
         media = (await self.session.scalars(select(Media).where(Media.message_id == message.id))).all()
         transcripts = [item.transcript for item in media if item.transcript]
-        result = await self.analyzer.analyze(message.text, [image.path for image in images], transcripts)
+        analysis = await self.analyzer.analyze(message.text, [image.path for image in images], transcripts)
+        if isinstance(analysis, AnalysisOutcome):
+            result, message.ai_response_raw = analysis.result, analysis.raw_response
+        else:
+            result = analysis
+            message.ai_response_raw = json.dumps(result.model_dump(mode="json"), ensure_ascii=False)
         await self.session.execute(delete(Recommendation).where(Recommendation.message_id == message.id))
         await self.session.execute(delete(StockMention).where(StockMention.message_id == message.id))
         stocks = StockRepository(self.session)

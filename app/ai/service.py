@@ -1,11 +1,18 @@
 import base64
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from openai import AsyncOpenAI
 from app.config import Settings
 from app.content_updates import ContentUpdateService
 from app.schemas import AnalysisResult
+
+
+@dataclass(frozen=True)
+class AnalysisOutcome:
+    result: AnalysisResult
+    raw_response: str
 
 
 _OUTPUT_CONTRACT = """Return only one JSON object with exactly these top-level arrays:
@@ -100,7 +107,7 @@ class AIAnalysisService:
         }.get(settings.ai_provider)
         self.client = AsyncOpenAI(api_key=settings.ai_api_key, base_url=base_url) if settings.ai_api_key else None
 
-    async def analyze(self, text: str, image_paths: list[str], transcripts: list[str] | None = None) -> AnalysisResult:
+    async def analyze(self, text: str, image_paths: list[str], transcripts: list[str] | None = None) -> AnalysisOutcome:
         if self.client is None:
             raise RuntimeError("An API key is required for the selected AI provider")
         transcript_text = "\n\n".join(transcripts or [])
@@ -123,7 +130,7 @@ class AIAnalysisService:
             )
             output = response.choices[0].message.content or "{}"
             output = output.removeprefix("```json").removesuffix("```").strip()
-            return _analysis_result_from_payload(json.loads(output))
+            return AnalysisOutcome(result=_analysis_result_from_payload(json.loads(output)), raw_response=output)
 
         content = [{"type": "input_text", "text": prompt}]
         for image_path in image_paths:
@@ -135,7 +142,9 @@ class AIAnalysisService:
             text={"format": {"type": "json_schema", "name": "analysis_result", "strict": True,
                 "schema": analysis_output_schema()}},
         )
-        return _analysis_result_from_payload(json.loads(response.output_text))
+        return AnalysisOutcome(
+            result=_analysis_result_from_payload(json.loads(response.output_text)), raw_response=response.output_text
+        )
 
     async def transcribe(self, audio_path: str) -> str:
         if self.client is None or self.settings.ai_provider != "openai":

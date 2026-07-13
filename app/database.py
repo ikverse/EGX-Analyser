@@ -18,7 +18,7 @@ async def init_database() -> None:
     from app.models import Base
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
-        migrations = {"recommendations": {"target_2": "FLOAT"}, "channels": {"last_collected_message_id": "INTEGER", "last_collected_at": "DATETIME"}, "messages": {"processing_error": "TEXT"}}
+        migrations = {"recommendations": {"target_2": "FLOAT"}, "channels": {"last_collected_message_id": "INTEGER", "last_collected_at": "DATETIME"}, "messages": {"processing_error": "TEXT", "ai_response_raw": "TEXT"}}
         for table, additions in migrations.items():
             columns = {column[1] for column in (await connection.exec_driver_sql(f"PRAGMA table_info({table})")).all()}
             for name, definition in additions.items():
