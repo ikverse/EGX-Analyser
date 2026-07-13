@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory)]
     [ValidatePattern("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")]
     [string]$Repository,
-    [string]$SigningKeyPath = (Join-Path $HOME ".tauri\egx-intelligence.key"),
+    [string]$SigningKeyPath = (Join-Path $HOME ".tauri\egx-analyzer.key"),
     [string]$SigningKeyPassword = "",
     [switch]$RotateSigningKey
 )

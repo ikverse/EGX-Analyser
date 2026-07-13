@@ -7,7 +7,7 @@ param(
     [ValidatePattern("^\d+\.\d+\.\d+([-.+][0-9A-Za-z.-]+)?$")]
     [string]$Version,
     [string]$ReleaseNotes = "",
-    [string]$SigningKeyPath = (Join-Path $HOME ".tauri\egx-intelligence.key"),
+    [string]$SigningKeyPath = (Join-Path $HOME ".tauri\egx-analyzer.key"),
     [string]$SigningKeyPassword = ""
 )
 

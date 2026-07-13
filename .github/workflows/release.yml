@@ -33,7 +33,7 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY_CONTENT: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
-          $signingKeyPath = Join-Path $env:RUNNER_TEMP 'egx-intelligence.key'
+          $signingKeyPath = Join-Path $env:RUNNER_TEMP 'egx-analyzer.key'
           [IO.File]::WriteAllText($signingKeyPath, $env:TAURI_SIGNING_PRIVATE_KEY_CONTENT)
           "TAURI_SIGNING_PRIVATE_KEY=$signingKeyPath" | Add-Content -Path $env:GITHUB_ENV
       - name: Build signed update artifacts
@@ -47,7 +47,7 @@ jobs:
           $version = '${{ github.ref_name }}'.TrimStart('v')
           New-Item -ItemType Directory -Force release | Out-Null
           $installer = Get-ChildItem desktop/src-tauri/target/release/bundle/nsis -Filter '*.exe' | Select-Object -First 1
-          $safeInstaller = Join-Path $PWD "release/egx-intelligence-$version-x64-setup.exe"
+          $safeInstaller = Join-Path $PWD "release/egx-analyzer-$version-x64-setup.exe"
           Copy-Item $installer.FullName $safeInstaller
           Copy-Item "$($installer.FullName).sig" "$safeInstaller.sig"
           powershell -ExecutionPolicy Bypass -File scripts/new-update-manifest.ps1 -Repository '${{ github.repository }}' -Version $version -ReleaseNotes 'See this release for changes.' -InstallerPath $safeInstaller
@@ -56,7 +56,7 @@ jobs:
         shell: pwsh
         run: |
           $title = git tag -l $env:GITHUB_REF_NAME --format="%(contents:subject)"
-          if (-not $title) { $title = "EGX Intelligence $env:GITHUB_REF_NAME" }
+          if (-not $title) { $title = "EGX Analyzer $env:GITHUB_REF_NAME" }
           "title=$title" | Add-Content -Path $env:GITHUB_OUTPUT
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
@@ -64,6 +64,6 @@ jobs:
           name: ${{ steps.release_title.outputs.title }}
           generate_release_notes: true
           files: |
-            release/egx-intelligence-*-setup.exe
-            release/egx-intelligence-*-setup.exe.sig
+            release/egx-analyzer-*-setup.exe
+            release/egx-analyzer-*-setup.exe.sig
             release/latest.json
