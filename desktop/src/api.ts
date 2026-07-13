@@ -9,7 +9,7 @@ export type TelegramChat = { id: string; title: string; username: string; kind: 
 export type DiagnosticEntry = { timestamp?: string; level: string; event: string; request_id?: string; method?: string; path?: string; status_code?: number; duration_ms?: number; error_type?: string };
 export type ContentUpdateStatus = { enabled: boolean; version: string | null; source: string };
 export type EngineUpdateStatus = { version: string; source: string };
-export type SelectedAnalysisResult = { messages_collected: number; window_start: string; lookback_days: number; report: { id: number; markdown_path: string; html_path: string; pdf_path: string }; trace: { directory: string; text_path: string; images_path: string; message_count: number; image_count: number }; channel_results: Array<{ channel: string; status: string; messages: number; recommendations: number }>; not_stock_related: string[] };
+export type SelectedAnalysisResult = { messages_collected: number; window_start: string; lookback_days: number; report: { id: number; markdown_path: string; html_path: string; pdf_path: string }; trace: { directory: string; text_path: string; images_path: string; message_count: number; image_count: number }; channel_results: Array<{ channel: string; status: string; messages: number; recommendations: number; stock_codes: number }>; stock_code_summary: Array<{ ticker: string; company: string; occurrences: number; by_chat: Record<string, number>; data_samples: Array<{ channel: string; data: Record<string, string>; context?: string }> }>; not_stock_related: string[] };
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number, readonly requestId?: string) { super(message); this.name = "ApiError"; }

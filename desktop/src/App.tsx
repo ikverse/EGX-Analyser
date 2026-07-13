@@ -177,7 +177,7 @@ function Channels({ channels, api, refresh, notify }: { channels: Channel[]; api
     <label>Analysis window: last {lookbackDays} day{lookbackDays === 1 ? "" : "s"}<input type="range" min="1" max="5" step="1" value={lookbackDays} onChange={(event) => setLookbackDays(Number(event.target.value))} disabled={loading} /></label>
     <button onClick={analyze} disabled={loading}>{loading ? "Analyzing selected chats..." : "Analyze selected chats"}</button>
     <Table rows={selectedRows} />
-    {lastAnalysis && <><h3>Latest analysis report</h3><p>Report created: {lastAnalysis.report.pdf_path}</p><p>Trace text: {lastAnalysis.trace.text_path}</p><p>Trace images: {lastAnalysis.trace.images_path}</p><Table rows={lastAnalysis.channel_results} /></>}
+    {lastAnalysis && <><h3>Latest analysis report</h3><p>Report created: {lastAnalysis.report.pdf_path}</p><p>Trace text: {lastAnalysis.trace.text_path}</p><p>Trace images: {lastAnalysis.trace.images_path}</p><h3>EGX codes found</h3><Table rows={lastAnalysis.stock_code_summary.map((item) => ({ code: item.ticker, company: item.company, occurrences: item.occurrences, per_chat: Object.entries(item.by_chat).map(([chat, count]) => `${chat}: ${count}`).join(" | "), data: item.data_samples.map((sample) => `${sample.channel}: ${Object.entries(sample.data).map(([key, value]) => `${key}=${value}`).join(", ")}`).join(" | ") || "—" }))} /><Table rows={lastAnalysis.channel_results} /></>}
   </>;
 }
 
