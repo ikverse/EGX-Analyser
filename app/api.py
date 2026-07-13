@@ -62,6 +62,14 @@ async def available_models() -> list[str]:
             catalog = response.json().get("data", [])
         except httpx.HTTPStatusError as error:
             status = error.response.status_code
+            if provider == "qwen" and status in (401, 403):
+                raise HTTPException(
+                    status,
+                    "Qwen rejected this key. Create a pay-as-you-go Model Studio API key in the same region "
+                    "as the selected endpoint. Beijing uses dashscope.aliyuncs.com, Singapore uses "
+                    "dashscope-intl.aliyuncs.com, and US uses dashscope-us.aliyuncs.com. Token Plan, "
+                    "Coding Plan, Qwen Chat, and expired temporary keys cannot be used here.",
+                ) from error
             message = "rejected the saved API key" if status in (401, 403) else f"could not load models (status {status})"
             raise HTTPException(status if status < 500 else 502, f"{provider.title()} {message}. Try again shortly.") from error
         except httpx.HTTPError as error:
