@@ -53,6 +53,7 @@ class Message(Base):
     images: Mapped[list["Image"]] = relationship(back_populates="message", cascade="all, delete-orphan")
     media: Mapped[list["Media"]] = relationship(back_populates="message", cascade="all, delete-orphan")
     recommendations: Mapped[list["Recommendation"]] = relationship(back_populates="message", cascade="all, delete-orphan")
+    stock_mentions: Mapped[list["StockMention"]] = relationship(back_populates="message", cascade="all, delete-orphan")
 
 
 class Image(Base):
@@ -96,6 +97,21 @@ class Recommendation(Base):
     indicators: Mapped[list[str]] = mapped_column(JSON, default=list)
     confidence: Mapped[float] = mapped_column(Float)
     message: Mapped[Message] = relationship(back_populates="recommendations")
+    stock: Mapped[Stock | None] = relationship()
+
+
+class StockMention(Base):
+    __tablename__ = "stock_mentions"
+    __table_args__ = (UniqueConstraint("message_id", "ticker_raw", name="uq_message_stock_mention"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    message_id: Mapped[int] = mapped_column(ForeignKey("messages.id"), index=True)
+    stock_id: Mapped[int | None] = mapped_column(ForeignKey("stocks.id"), index=True)
+    ticker_raw: Mapped[str] = mapped_column(String(30), index=True)
+    company_name_raw: Mapped[str | None] = mapped_column(String(255))
+    context: Mapped[str | None] = mapped_column(Text)
+    table_data: Mapped[dict] = mapped_column(JSON, default=dict)
+    confidence: Mapped[float] = mapped_column(Float)
+    message: Mapped[Message] = relationship(back_populates="stock_mentions")
     stock: Mapped[Stock | None] = relationship()
 
 

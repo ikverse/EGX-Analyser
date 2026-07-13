@@ -4,9 +4,9 @@ from math import sqrt
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.service import AIAnalysisService
-from app.models import Embedding, Image, Media, Message, Recommendation, Signal
+from app.models import Embedding, Image, Media, Message, Recommendation, Signal, StockMention
 from app.repositories import StockRepository, get_or_create_channel
-from app.schemas import MessageCreate
+from app.schemas import ExtractedStockMention, MessageCreate
 
 
 class MessageService:
@@ -41,6 +41,7 @@ class MessageService:
         transcripts = [item.transcript for item in media if item.transcript]
         result = await self.analyzer.analyze(message.text, [image.path for image in images], transcripts)
         await self.session.execute(delete(Recommendation).where(Recommendation.message_id == message.id))
+        await self.session.execute(delete(StockMention).where(StockMention.message_id == message.id))
         stocks = StockRepository(self.session)
         created: list[Recommendation] = []
         for item in result.recommendations:
@@ -51,6 +52,20 @@ class MessageService:
                 time_horizon=item.time_horizon, indicators=item.indicators, confidence=item.confidence)
             self.session.add(recommendation)
             created.append(recommendation)
+        mentions = {item.ticker.upper().strip(): item for item in result.stock_mentions if item.ticker.strip()}
+        for recommendation in result.recommendations:
+            if recommendation.ticker:
+                ticker = recommendation.ticker.upper().strip()
+                if ticker not in mentions:
+                    mentions[ticker] = ExtractedStockMention(ticker=ticker, company_name=recommendation.company_name,
+                                                             context=recommendation.reason, confidence=recommendation.confidence)
+        for mention in mentions.values():
+            stock = await stocks.resolve(mention.ticker, mention.company_name)
+            self.session.add(StockMention(
+                message_id=message.id, stock_id=stock.id if stock else None, ticker_raw=mention.ticker.upper().strip(),
+                company_name_raw=mention.company_name, context=mention.context, table_data=mention.table_data,
+                confidence=mention.confidence,
+            ))
         message.processed_at = datetime.now(timezone.utc)
         content = "\n".join([message.text, *(image.ocr_text or "" for image in images)]).strip()
         if content:
@@ -67,7 +82,8 @@ class MessageService:
                 else:
                     embedding.content, embedding.vector = content, vector
         for image in images:
-            image.vision_analysis = {"observations": result.image_observations}
+            image.vision_analysis = {"observations": result.image_observations,
+                                     "stock_mentions": [item.model_dump() for item in result.stock_mentions]}
         await self.session.flush()
         return created
 

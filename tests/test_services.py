@@ -8,7 +8,7 @@ from httpx import Request, Response
 from openai import AuthenticationError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app import api
-from app.models import Base, Image, Recommendation
+from app.models import Base, Image, Recommendation, StockMention
 from app.schemas import AnalysisResult, ExtractedRecommendation, MessageCreate, TelegramChatSelect
 from app.ai.service import analysis_output_schema
 from app.services import AnalyticsService, MessageService, SearchService
@@ -20,6 +20,7 @@ from app.runtime import selected_analysis_start
 from app.collector.telegram import is_promotional_message
 from app.reports import ReportService
 from app.analysis_trace import export_analysis_trace
+from app.repositories import StockRepository
 
 
 class FakeAnalyzer:
@@ -196,7 +197,9 @@ async def test_selected_chat_report_marks_non_stock_context(session, tmp_path):
     non_stock_message = await MessageService(session).ingest(MessageCreate(
         channel_handle="general", telegram_message_id=1, text="Football match news", published_at=datetime.now(timezone.utc)
     ))
-    session.add(Recommendation(message_id=stock_message.id, company_name="CIB", signal="BUY", confidence=.9, indicators=[]))
+    stock = await StockRepository(session).resolve("CIB", "Commercial International Bank")
+    session.add(Recommendation(message_id=stock_message.id, stock_id=stock.id, company_name="CIB", ticker_raw="CIB", signal="BUY", confidence=.9, indicators=[]))
+    session.add(StockMention(message_id=stock_message.id, stock_id=stock.id, ticker_raw="CIB", company_name_raw="Commercial International Bank", context="CIB row", table_data={"price": "92.5", "target": "100"}, confidence=.9))
     await session.flush()
     report = await ReportService(session, type("Settings", (), {"storage_root": tmp_path})()).generate_selected_chat_report(
         [stock_message.channel_id, non_stock_message.channel_id], datetime.now(timezone.utc) - timedelta(days=3), datetime.now(timezone.utc) + timedelta(minutes=1), 3
@@ -204,6 +207,8 @@ async def test_selected_chat_report_marks_non_stock_context(session, tmp_path):
     statuses = {item["channel"]: item["status"] for item in report.summary["channel_results"]}
     assert statuses["stocks"] == "recommendations_found"
     assert statuses["general"] == "not_stock_related"
+    assert report.summary["stock_code_summary"][0]["ticker"] == "CIB"
+    assert report.summary["stock_code_summary"][0]["by_chat"]["stocks"] == 1
 
 
 async def test_analysis_trace_saves_message_text_and_images(session, tmp_path):
@@ -219,3 +224,12 @@ async def test_analysis_trace_saves_message_text_and_images(session, tmp_path):
     )
     assert "BUY CIB" in Path(str(trace["text_path"])).read_text(encoding="utf-8")
     assert Path(str(trace["images_path"])).joinpath("8_source-chart.jpg").read_bytes() == b"chart"
+
+
+async def test_stock_repository_persists_learned_ticker_name_mapping(session):
+    repository = StockRepository(session)
+    stock = await repository.resolve("cib", "Commercial International Bank")
+    same_stock = await repository.resolve("CIB", "البنك التجاري الدولي")
+    assert stock.id == same_stock.id
+    assert same_stock.name_en == "Commercial International Bank"
+    assert "البنك التجاري الدولي" in same_stock.aliases

@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
-from app.models import Channel, Message, Recommendation, Report
+from app.models import Channel, Message, Recommendation, Report, Stock, StockMention
 
 
 def is_stock_related(text: str) -> bool:
@@ -54,6 +54,13 @@ class ReportService:
         message_rows = (await self.session.execute(
             select(Message, Channel).join(Channel, Message.channel_id == Channel.id).where(*filters)
         )).all()
+        mention_rows = (await self.session.execute(
+            select(StockMention, Message, Channel, Stock)
+            .join(Message, StockMention.message_id == Message.id)
+            .join(Channel, Message.channel_id == Channel.id)
+            .outerjoin(Stock, StockMention.stock_id == Stock.id)
+            .where(*filters)
+        )).all()
         ids = channel_ids or sorted({channel.id for _, channel in message_rows})
         channels = (await self.session.scalars(select(Channel).where(Channel.id.in_(ids)))).all() if ids else []
 
@@ -92,16 +99,37 @@ class ReportService:
         recommendation_counts: dict[int, int] = {}
         for _, message, _ in recommendation_rows:
             recommendation_counts[message.channel_id] = recommendation_counts.get(message.channel_id, 0) + 1
+        mention_counts: dict[int, int] = {}
+        ticker_groups: dict[str, list[tuple[StockMention, Message, Channel, Stock | None]]] = {}
+        for mention, message, channel, stock in mention_rows:
+            mention_counts[message.channel_id] = mention_counts.get(message.channel_id, 0) + 1
+            ticker_groups.setdefault(mention.ticker_raw.upper(), []).append((mention, message, channel, stock))
+        stock_code_summary = []
+        for ticker, items in ticker_groups.items():
+            names = [stock.name_en for _, _, _, stock in items if stock and stock.name_en]
+            names += [mention.company_name_raw for mention, _, _, _ in items if mention.company_name_raw]
+            channel_counts: dict[str, int] = {}
+            data_samples = []
+            for mention, _, channel, _ in items:
+                channel_name = channel.title or channel.handle
+                channel_counts[channel_name] = channel_counts.get(channel_name, 0) + 1
+                if mention.table_data and len(data_samples) < 3:
+                    data_samples.append({"channel": channel_name, "data": mention.table_data, "context": mention.context})
+            stock_code_summary.append({"ticker": ticker, "company": names[0] if names else ticker,
+                                       "occurrences": len(items), "by_chat": channel_counts,
+                                       "data_samples": data_samples})
+        stock_code_summary.sort(key=lambda item: (-item["occurrences"], item["ticker"]))
         channel_results = []
         for channel in channels:
             texts = texts_by_channel.get(channel.id, [])
             recommendations = recommendation_counts.get(channel.id, 0)
-            status = "recommendations_found" if recommendations else (
+            mentions = mention_counts.get(channel.id, 0)
+            status = "recommendations_found" if recommendations else "stock_codes_found" if mentions else (
                 "stock_related_no_recommendations" if any(is_stock_related(text) for text in texts)
                 else "not_stock_related" if texts else "no_recent_messages"
             )
             channel_results.append({"channel": channel.title or channel.handle, "status": status,
-                                    "messages": len(texts), "recommendations": recommendations})
+                                    "messages": len(texts), "recommendations": recommendations, "stock_codes": mentions})
 
         generated_at = datetime.now(timezone.utc)
         directory = self.settings.storage_root / "reports" / generated_at.strftime("%Y-%m-%d")
@@ -112,6 +140,14 @@ class ReportService:
             f"- Recommendations: {len(recommendation_rows)}", "", "## Chat relevance",
         ]
         lines += [f"- {item['channel']}: {item['status']} | Messages {item['messages']} | Recommendations {item['recommendations']}" for item in channel_results]
+        lines += ["", "## EGX codes found", "| Code | Company | Occurrences | Per chat | Table/chat data |", "| --- | --- | ---: | --- | --- |"]
+        for item in stock_code_summary:
+            per_chat = ", ".join(f"{name}: {count}" for name, count in item["by_chat"].items())
+            samples = "; ".join(
+                f"{sample['channel']}: " + ", ".join(f"{key}={value}" for key, value in sample["data"].items())
+                for sample in item["data_samples"]
+            ) or "-"
+            lines.append(f"| {item['ticker']} | {item['company']} | {item['occurrences']} | {per_chat} | {samples} |")
         lines += ["", "## Consolidated suggestions"]
         for item in consensus:
             lines += [
@@ -138,6 +174,7 @@ class ReportService:
         report = Report(markdown_path=str(markdown_path), html_path=str(html_path), pdf_path=str(pdf_path), summary={
             "mode": report_mode, "consensus": consensus, "message_count": len(message_rows),
             "recommendation_count": len(recommendation_rows), "channel_results": channel_results,
+            "stock_code_summary": stock_code_summary,
         })
         self.session.add(report)
         await self.session.flush()

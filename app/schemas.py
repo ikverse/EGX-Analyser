@@ -18,8 +18,17 @@ class ExtractedRecommendation(BaseModel):
     confidence: float = Field(ge=0, le=1)
 
 
+class ExtractedStockMention(BaseModel):
+    ticker: str = Field(min_length=1, max_length=30)
+    company_name: str | None = Field(default=None, max_length=255)
+    context: str | None = Field(default=None, max_length=1000)
+    table_data: dict[str, str] = Field(default_factory=dict)
+    confidence: float = Field(default=0.5, ge=0, le=1)
+
+
 class AnalysisResult(BaseModel):
     recommendations: list[ExtractedRecommendation] = Field(default_factory=list)
+    stock_mentions: list[ExtractedStockMention] = Field(default_factory=list)
     image_observations: list[str] = Field(default_factory=list)
 
 

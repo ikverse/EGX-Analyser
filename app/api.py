@@ -212,6 +212,7 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
         return {"messages_collected": messages_collected, "window_start": window_start, "lookback_days": payload.lookback_days,
                 "report": {"id": report.id, "markdown_path": report.markdown_path, "html_path": report.html_path,
                            "pdf_path": report.pdf_path}, "channel_results": channel_results,
+                "stock_code_summary": report.summary["stock_code_summary"],
                 "trace": trace,
                 "not_stock_related": [item["channel"] for item in channel_results if item["status"] == "not_stock_related"]}
     except BadRequestError as error:
