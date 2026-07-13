@@ -97,7 +97,7 @@ fn main() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("error while building EGX Intelligence");
+        .expect("error while building EGX Analyzer");
 
     app.run(|app, event| {
         if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {

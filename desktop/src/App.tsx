@@ -125,7 +125,7 @@ export default function App() {
         }
         if (event.event === "Finished") setDownloadProgress(100);
       });
-      notify("success", "Update installed. Restarting EGX Intelligence now.");
+      notify("success", "Update installed. Restarting EGX Analyzer now.");
       await invoke("restart_app");
     } catch (reason) {
       setDownloadingUpdate(false);
@@ -174,7 +174,7 @@ export default function App() {
   if (!connected) {
     return (
       <main className="login">
-        <h1>EGX Intelligence</h1>
+        <h1>EGX Analyzer</h1>
         <p>{engineStarting ? "Starting your local intelligence workspace…" : "Restarting the local intelligence workspace…"}</p>
         <span>Waiting for the local engine to become ready.</span>
       </main>
@@ -185,7 +185,7 @@ export default function App() {
     <>
       <main className="shell">
         <aside>
-          <h1>EGX Intelligence</h1>
+          <h1>EGX Analyzer</h1>
           {pages.map((item) => (
             <button className={page === item ? "active" : ""} onClick={() => setPage(item)} key={item}>
               {item}
@@ -1145,7 +1145,7 @@ function CloudSettings({ api, status, onSaved, notify, showError, checkingUpdate
       <SettingsSection title="Updates" description={`App v${appVersion || "…"} · ${contentStatus?.version ? `Content pack ${contentStatus.version}` : "Built-in content"}`} open={openSection === "updates"} onToggle={() => toggleSection("updates")}>
         <div className="settings-subsection">
           <strong>Application updates</strong>
-          <p>Checks for a signed EGX Intelligence update and keeps your local data unchanged.</p>
+          <p>Checks for a signed EGX Analyzer update and keeps your local data unchanged.</p>
           <button type="button" disabled={checkingUpdate} onClick={onCheckForUpdates}>
             {checkingUpdate ? "Checking…" : "Check for updates"}
           </button>
@@ -1207,7 +1207,7 @@ function UpdateBanner({ update, downloading, progress, onInstall, onDismiss }: {
     <article className="update-banner">
       <div>
         <strong>Update available: {update.version}</strong>
-        <p>{update.body || "A newer, signed version of EGX Intelligence is ready."}</p>
+        <p>{update.body || "A newer, signed version of EGX Analyzer is ready."}</p>
         {downloading && <p>{progress === null ? "Downloading update…" : `Downloading update: ${progress}%`}</p>}
       </div>
       <div className="update-actions">
