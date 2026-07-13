@@ -10,7 +10,8 @@ import {
   StockSourceRow, StockSummaryRow,
 } from "./api";
 
-type Page = "Dashboard" | "Channels" | "Recommendations" | "Reports" | "Search" | "Settings";
+type Page = "Dashboard" | "Channels" | "Results" | "Reports" | "Settings";
+type ResultTab = "Recommendations" | "Search";
 type Toast = { kind: "success" | "warning"; text: string } | null;
 type UpdateCandidate = {
   version: string;
@@ -18,7 +19,7 @@ type UpdateCandidate = {
   downloadAndInstall: (onEvent: (event: { event: string; data: { contentLength?: number; chunkLength?: number } }) => void) => Promise<void>;
 };
 
-const pages: Page[] = ["Dashboard", "Channels", "Recommendations", "Reports", "Search", "Settings"];
+const pages: Page[] = ["Dashboard", "Channels", "Results", "Reports", "Settings"];
 
 // ── Error Modal ───────────────────────────────────────────────────────────────
 
@@ -51,6 +52,7 @@ function ErrorModal({ message, onClose }: { message: string; onClose: () => void
 export default function App() {
   const [connected, setConnected] = useState(false);
   const [page, setPage] = useState<Page>("Dashboard");
+  const [resultTab, setResultTab] = useState<ResultTab>("Recommendations");
   const [channels, setChannels] = useState<Channel[]>([]);
   const [consensus, setConsensus] = useState<Consensus[]>([]);
   const [rows, setRows] = useState<Array<Record<string, unknown>>>([]);
@@ -132,14 +134,12 @@ export default function App() {
     }
   };
 
-  // Auto-dismiss toasts; error modal stays until OK
   useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(null), 5000);
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  // Poll until engine ready
   useEffect(() => {
     let cancelled = false;
     let retryTimer: number | undefined;
@@ -154,18 +154,16 @@ export default function App() {
     };
   }, [api]);
 
-  // Check for updates once connected
   useEffect(() => {
     if (!connected) return;
     const timer = window.setTimeout(() => void checkForUpdates(false), 1200);
     return () => window.clearTimeout(timer);
   }, [connected]);
 
-  // Refresh page data on navigation
   useEffect(() => {
-    if (connected && page === "Recommendations") void api.recommendations().then(setRows);
+    if (connected && page === "Results" && resultTab === "Recommendations") void api.recommendations().then(setRows);
     if (connected && page === "Reports") void api.reports().then(setRows);
-  }, [api, connected, page]);
+  }, [api, connected, page, resultTab]);
 
   if (!connected) {
     return (
@@ -192,10 +190,19 @@ export default function App() {
           <header>
             <div>
               <strong>{page}</strong>
-              <span className="online">{"●"} Local engine online</span>
+              <span className="online">
+                <span className="online-dot" />
+                Local engine online
+              </span>
             </div>
-            <button onClick={() => void refresh()}>Refresh</button>
+            <div className="header-actions">
+              {page === "Dashboard" && (
+                <DashboardCheckButton api={api} refresh={refresh} notify={notify} showError={showError} />
+              )}
+              <button className="secondary" onClick={() => void refresh()}>Refresh</button>
+            </div>
           </header>
+
           {availableUpdate && (
             <UpdateBanner
               update={availableUpdate}
@@ -205,11 +212,21 @@ export default function App() {
               onDismiss={() => setAvailableUpdate(null)}
             />
           )}
-          {page === "Dashboard" && <Dashboard channels={channels} consensus={consensus} api={api} refresh={refresh} notify={notify} showError={showError} />}
+
+          {page === "Dashboard" && <Dashboard channels={channels} consensus={consensus} />}
           {page === "Channels" && <Channels channels={channels} api={api} refresh={refresh} notify={notify} showError={showError} />}
-          {page === "Recommendations" && <Recommendations rows={rows} />}
+          {page === "Results" && (
+            <Results
+              api={api}
+              rows={rows}
+              setRows={setRows}
+              tab={resultTab}
+              setTab={setResultTab}
+              notify={notify}
+              showError={showError}
+            />
+          )}
           {page === "Reports" && <Reports api={api} rows={rows} setRows={setRows} notify={notify} showError={showError} />}
-          {page === "Search" && <Search api={api} onResult={setRows} notify={notify} showError={showError} />}
           {page === "Settings" && (
             <CloudSettings
               api={api}
@@ -224,15 +241,13 @@ export default function App() {
         </section>
       </main>
 
-      {/* Blocking error modal — only dismissed by pressing OK */}
       {errorModal && <ErrorModal message={errorModal} onClose={() => setErrorModal(null)} />}
 
-      {/* Non-blocking toasts for success and warnings */}
       {toast && (
         <div className={`toast ${toast.kind}`} role="status">
           <strong>{toast.kind}</strong>
           <span>{toast.text}</span>
-          <button onClick={() => setToast(null)} aria-label="Dismiss">{"×"}</button>
+          <button onClick={() => setToast(null)} aria-label="Dismiss">✕</button>
         </div>
       )}
     </>
@@ -244,11 +259,10 @@ export default function App() {
 type Notify = (kind: "success" | "warning", text: string) => void;
 type ShowError = (message: string) => void;
 
-// ── Dashboard ─────────────────────────────────────────────────────────────────
+// ── Dashboard check button (lives in header) ──────────────────────────────────
 
-function Dashboard({ channels, consensus, api, refresh, notify, showError }: {
-  channels: Channel[]; consensus: Consensus[]; api: ApiClient;
-  refresh: () => Promise<boolean>; notify: Notify; showError: ShowError;
+function DashboardCheckButton({ api, refresh, notify, showError }: {
+  api: ApiClient; refresh: () => Promise<boolean>; notify: Notify; showError: ShowError;
 }) {
   const [running, setRunning] = useState(false);
   const run = () => {
@@ -260,14 +274,63 @@ function Dashboard({ channels, consensus, api, refresh, notify, showError }: {
       .finally(() => setRunning(false));
   };
   return (
+    <button onClick={run} disabled={running}>
+      {running ? "Checking Telegram…" : "Check Telegram now"}
+    </button>
+  );
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+
+function Dashboard({ channels, consensus }: {
+  channels: Channel[]; consensus: Consensus[];
+}) {
+  const signalColor: Record<string, string> = { BUY: "#86efac", SELL: "#fca5a5", HOLD: "#fde68a" };
+  const signalBg: Record<string, string> = { BUY: "#1a3d24", SELL: "#3d1a1a", HOLD: "#2e2a14" };
+
+  return (
     <>
       <div className="metrics">
         <Metric value={consensus.length} label="Stocks discussed" />
         <Metric value={consensus.filter((item) => item.sentiment === "BUY").length} label="Buy consensus" />
         <Metric value={channels.filter((item) => item.active).length} label="Active channels" />
       </div>
-      <button onClick={run} disabled={running}>{running ? "Checking Telegram…" : "Check Telegram now"}</button>
-      <Table rows={consensus as unknown as Array<Record<string, unknown>>} />
+      {consensus.length === 0
+        ? <p className="empty">No consensus data yet. Run a Telegram check to populate this page.</p>
+        : (
+          <div className="table">
+            <table>
+              <thead>
+                <tr>
+                  {Object.keys(consensus[0]).map((h) => (
+                    <th key={h}>{h.replaceAll("_", " ")}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {consensus.map((row, i) => (
+                  <tr key={i}>
+                    {Object.entries(row).map(([k, v]) => (
+                      <td key={k}>
+                        {k === "sentiment" ? (
+                          <span style={{
+                            display: "inline-block", padding: ".2rem .55rem", borderRadius: "4px",
+                            fontSize: ".78rem", fontWeight: 700,
+                            background: signalBg[String(v)] ?? "#172033",
+                            color: signalColor[String(v)] ?? "#e5e7eb",
+                          }}>
+                            {String(v ?? "—")}
+                          </span>
+                        ) : String(v ?? "—")}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      }
     </>
   );
 }
@@ -300,52 +363,51 @@ function Reports({ api, rows, setRows, notify, showError }: {
 
   return (
     <>
-      <label>
-        Report period
-        <select value={mode} onChange={(e) => setMode(e.target.value as "calendar" | "session")}>
-          <option value="calendar">Cairo calendar day</option>
-          <option value="session">EGX trading session</option>
-        </select>
-      </label>
-      <button onClick={generate} disabled={generating}>
-        {generating ? "Generating report…" : "Generate consolidated report"}
-      </button>
+      <div className="report-controls">
+        <label>
+          Report period
+          <select value={mode} onChange={(e) => setMode(e.target.value as "calendar" | "session")}>
+            <option value="calendar">Cairo calendar day</option>
+            <option value="session">EGX trading session</option>
+          </select>
+        </label>
+        <button onClick={generate} disabled={generating}>
+          {generating ? "Generating report…" : "Generate consolidated report"}
+        </button>
+      </div>
 
       {typedRows.length === 0 && <p className="empty">No reports yet.</p>}
       {typedRows.map((report, i) => (
         <div key={report.id ?? i} className="report-card">
           <strong className="report-card-title">
-            Report {report.date ? String(report.date).slice(0, 16).replace("T", " ") : `#${report.id}`}
+            {report.date ? String(report.date).slice(0, 16).replace("T", " ") : `Report #${report.id}`}
           </strong>
           <div className="report-links">
             {report.html_path && (
               <a href={`file:///${String(report.html_path).replace(/\\/g, "/")}`}
                 target="_blank" rel="noreferrer" className="report-link">
-                Open HTML report
+                HTML report
               </a>
             )}
             {report.pdf_path && (
               <a href={`file:///${String(report.pdf_path).replace(/\\/g, "/")}`}
                 target="_blank" rel="noreferrer" className="report-link">
-                Open PDF report
+                PDF report
               </a>
             )}
-            {report.summary && (report.summary as ReportRow["summary"])?.original_ai_response_pdf_path && (
-              <a href={`file:///${String((report.summary as ReportRow["summary"])!.original_ai_response_pdf_path).replace(/\\/g, "/")}`}
+            {report.summary?.original_ai_response_pdf_path && (
+              <a href={`file:///${String(report.summary.original_ai_response_pdf_path).replace(/\\/g, "/")}`}
                 target="_blank" rel="noreferrer" className="report-link muted">
-                Original AI response PDF
+                AI response PDF
               </a>
             )}
-            {report.summary && (report.summary as ReportRow["summary"])?.original_ai_response_text_path && (
-              <a href={`file:///${String((report.summary as ReportRow["summary"])!.original_ai_response_text_path).replace(/\\/g, "/")}`}
+            {report.summary?.original_ai_response_text_path && (
+              <a href={`file:///${String(report.summary.original_ai_response_text_path).replace(/\\/g, "/")}`}
                 target="_blank" rel="noreferrer" className="report-link muted">
-                Original AI response text
+                AI response text
               </a>
             )}
           </div>
-          {report.markdown_path && (
-            <p className="report-path">{String(report.markdown_path)}</p>
-          )}
         </div>
       ))}
     </>
@@ -459,23 +521,34 @@ function Channels({ channels, api, refresh, notify, showError }: {
 
   return (
     <>
-      <form className="inline" onSubmit={submit}>
-        <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="Telegram username, without @" required />
-        <button disabled={busy}>Add channel</button>
-      </form>
-      <button onClick={loadChats} disabled={busy}>{loading ? "Loading chats…" : "Load my Telegram chats"}</button>
-      {chats.length > 0 && <Table rows={chatRows} />}
+      <div className="channels-section">
+        <h3 className="section-heading">Add channel</h3>
+        <form className="inline" onSubmit={submit}>
+          <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="Telegram username, without @" required />
+          <button disabled={busy}>Add channel</button>
+        </form>
+        <button className="secondary" onClick={loadChats} disabled={busy}>
+          {loading ? "Loading chats…" : "Load my Telegram chats"}
+        </button>
+        {chats.length > 0 && <Table rows={chatRows} />}
+      </div>
 
-      <h3>Selected chats ({selectedChannels.length})</h3>
-      <label>
-        {`Analysis window: last ${lookbackDays} day${lookbackDays === 1 ? "" : "s"}`}
-        <input type="range" min="1" max="5" step="1" value={lookbackDays}
-          onChange={(e) => setLookbackDays(Number(e.target.value))} disabled={busy} />
-      </label>
-      <button onClick={analyze} disabled={busy}>
-        {analyzing ? "Analyzing selected chats…" : "Analyze selected chats"}
-      </button>
-      <Table rows={selectedRows} />
+      <div className="channels-section">
+        <h3 className="section-heading">Analyze selected chats ({selectedChannels.length})</h3>
+        <div className="lookback-row">
+          <label className="lookback-label">
+            Analysis window
+            <span className="lookback-value">{lookbackDays} day{lookbackDays === 1 ? "" : "s"}</span>
+          </label>
+          <input type="range" min="1" max="5" step="1" value={lookbackDays}
+            onChange={(e) => setLookbackDays(Number(e.target.value))} disabled={busy}
+            className="lookback-slider" />
+        </div>
+        <button onClick={analyze} disabled={busy}>
+          {analyzing ? "Analyzing selected chats…" : "Analyze selected chats"}
+        </button>
+        <Table rows={selectedRows} />
+      </div>
 
       {lastAnalysis && (
         <AnalysisResultTable
@@ -489,6 +562,30 @@ function Channels({ channels, api, refresh, notify, showError }: {
           tracePath={lastAnalysis.trace.text_path}
         />
       )}
+    </>
+  );
+}
+
+// ── Results (merged Recommendations + Search) ─────────────────────────────────
+
+function Results({ api, rows, setRows, tab, setTab, notify, showError }: {
+  api: ApiClient; rows: Array<Record<string, unknown>>;
+  setRows: (rows: Array<Record<string, unknown>>) => void;
+  tab: ResultTab; setTab: (t: ResultTab) => void;
+  notify: Notify; showError: ShowError;
+}) {
+  return (
+    <>
+      <div className="tab-bar">
+        <button className={tab === "Recommendations" ? "tab active" : "tab"} onClick={() => setTab("Recommendations")}>
+          Recommendations
+        </button>
+        <button className={tab === "Search" ? "tab active" : "tab"} onClick={() => setTab("Search")}>
+          Search
+        </button>
+      </div>
+      {tab === "Recommendations" && <Recommendations rows={rows} />}
+      {tab === "Search" && <Search api={api} onResult={setRows} notify={notify} showError={showError} />}
     </>
   );
 }
@@ -532,7 +629,6 @@ function AnalysisResultTable({ summary, details, channelResults, reportHtmlPath,
   const toggle = (ticker: string) =>
     setExpanded((prev) => { const next = new Set(prev); next.has(ticker) ? next.delete(ticker) : next.add(ticker); return next; });
 
-  // Group details by ticker preserving sort order from summary
   const byTicker = new Map<string, StockSourceRow[]>();
   details.forEach((row) => {
     const rows = byTicker.get(row.ticker) ?? [];
@@ -540,7 +636,6 @@ function AnalysisResultTable({ summary, details, channelResults, reportHtmlPath,
     byTicker.set(row.ticker, rows);
   });
 
-  // Merge summary (has occurrences + company_ar) with details groups
   const stocks = summary.map((s) => ({ ...s, sources: byTicker.get(s.ticker) ?? [] }));
 
   const fileLink = (path: string, label: string, muted = false) => (
@@ -557,8 +652,6 @@ function AnalysisResultTable({ summary, details, channelResults, reportHtmlPath,
 
   return (
     <div style={{ marginTop: "1.5rem" }}>
-
-      {/* ── report links ── */}
       <div className="analysis-links-bar">
         <span className="analysis-links-label">Reports:</span>
         {fileLink(reportHtmlPath, "HTML report")}
@@ -568,7 +661,6 @@ function AnalysisResultTable({ summary, details, channelResults, reportHtmlPath,
         {fileLink(tracePath, "Analysis trace", true)}
       </div>
 
-      {/* ── channel status ── */}
       {channelResults.length > 0 && (
         <div className="channel-status-bar">
           {channelResults.map((cr) => (
@@ -579,18 +671,14 @@ function AnalysisResultTable({ summary, details, channelResults, reportHtmlPath,
         </div>
       )}
 
-      {/* ── no results ── */}
       {stocks.length === 0 && (
         <p style={{ color: "#94a3b8", fontStyle: "italic" }}>No EGX stock codes were found in this analysis window.</p>
       )}
 
-      {/* ── one card per EGX stock ── */}
       {stocks.map((stock) => {
         const open = expanded.has(stock.ticker);
         return (
           <div key={stock.ticker} className="stock-card">
-
-            {/* card header — click to expand/collapse */}
             <button className="stock-card-header" onClick={() => toggle(stock.ticker)}>
               <span className="stock-card-chevron">{open ? "▾" : "▸"}</span>
               <span className="stock-card-ticker">{stock.ticker}</span>
@@ -607,7 +695,6 @@ function AnalysisResultTable({ summary, details, channelResults, reportHtmlPath,
               </span>
             </button>
 
-            {/* source rows table */}
             {open && stock.sources.length > 0 && (
               <div className="stock-card-body-table">
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: ".83rem" }}>
@@ -655,7 +742,6 @@ function AnalysisResultTable({ summary, details, channelResults, reportHtmlPath,
                         );
                       })
                     )}
-                    {/* Notes row — spans all columns, shown once per stock */}
                     {(() => {
                       const notes = stock.sources.find((s) => s.notes)?.notes;
                       if (!notes) return null;
@@ -808,7 +894,7 @@ function ModelSelector({ api, configured, selected, onChange, showError }: {
           {models.filter((m) => m !== selected).map((m) => <option key={m} value={m}>{m}</option>)}
         </select>
         <button type="button" onClick={() => void load(true)} disabled={!configured || loading}>
-          {loading ? "Loading…" : "Load available models"}
+          {loading ? "Loading…" : "Load models"}
         </button>
       </div>
     </label>
@@ -816,6 +902,21 @@ function ModelSelector({ api, configured, selected, onChange, showError }: {
 }
 
 // ── CloudSettings ─────────────────────────────────────────────────────────────
+
+function SettingsSection({ title, description, open, onToggle, children }: {
+  title: string; description?: string; open: boolean; onToggle: () => void; children: React.ReactNode;
+}) {
+  return (
+    <div className="settings-section">
+      <button type="button" className="settings-section-header" onClick={onToggle}>
+        <span>{title}</span>
+        <span className="settings-section-chevron">{open ? "▾" : "▸"}</span>
+      </button>
+      {description && !open && <p className="settings-section-desc">{description}</p>}
+      {open && <div className="settings-section-body">{children}</div>}
+    </div>
+  );
+}
 
 function CloudSettings({ api, status, onSaved, notify, showError, checkingUpdate, onCheckForUpdates }: {
   api: ApiClient; status: SettingsStatus | null; onSaved: () => Promise<boolean>;
@@ -840,6 +941,9 @@ function CloudSettings({ api, status, onSaved, notify, showError, checkingUpdate
   const [contentStatus, setContentStatus] = useState<ContentUpdateStatus | null>(null);
   const [checkingContent, setCheckingContent] = useState(false);
   const [appVersion, setAppVersion] = useState("");
+  const [openSection, setOpenSection] = useState<string>("ai");
+
+  const toggleSection = (key: string) => setOpenSection((cur) => cur === key ? "" : key);
 
   const provider = (values.ai_provider || status?.ai_provider || "qwen") as AiProvider;
 
@@ -890,145 +994,180 @@ function CloudSettings({ api, status, onSaved, notify, showError, checkingUpdate
 
   return (
     <div className="settings">
-      <form onSubmit={save}>
-        <p>Cloud provider keys are encrypted and stored only on this computer. No AI model is downloaded locally.</p>
 
-        <label>
-          AI provider
-          <select value={provider} onChange={(e) => chooseProvider(e.target.value as AiProvider)}>
-            <option value="qwen">Qwen Cloud {"—"} default for Arabic and charts</option>
-            <option value="openrouter">OpenRouter {"—"} free models available</option>
-            <option value="huggingface">Hugging Face Inference Providers</option>
-            <option value="openai">OpenAI</option>
-          </select>
-        </label>
-
-        <div className="credential-header">
-          <div>
-            <strong>{currentProvider.label}</strong>
-            <span>{status?.ai_provider === provider && status.ai_configured ? "API key saved" : "API key not configured"}</span>
-          </div>
-          <button type="button" className="secondary" onClick={replaceKey}>
-            {editingProviderKey ? "Cancel" : status?.ai_provider === provider && status.ai_configured ? "Replace API key" : "Add API key"}
-          </button>
-        </div>
-        {editingProviderKey && (
+      <SettingsSection title="AI Provider" description={`${providerDetails[provider].label} · ${status?.ai_configured ? "configured" : "not configured"}`} open={openSection === "ai"} onToggle={() => toggleSection("ai")}>
+        <form onSubmit={save}>
+          <p>Cloud provider keys are encrypted and stored only on this computer. No AI model is downloaded locally.</p>
           <label>
-            {`New ${currentProvider.label} API key`}
-            <input type="password" autoComplete="new-password" placeholder={currentProvider.placeholder}
-              value={(values[currentProvider.key] as string) || ""}
-              onChange={(e) => setValues((cur) => ({ ...cur, [currentProvider.key]: e.target.value }))} required />
+            AI provider
+            <select value={provider} onChange={(e) => chooseProvider(e.target.value as AiProvider)}>
+              <option value="qwen">Qwen Cloud — default for Arabic and charts</option>
+              <option value="openrouter">OpenRouter — free models available</option>
+              <option value="huggingface">Hugging Face Inference Providers</option>
+              <option value="openai">OpenAI</option>
+            </select>
           </label>
-        )}
-
-        {provider === "qwen" && (
+          <div className="credential-header">
+            <div>
+              <strong>{currentProvider.label}</strong>
+              <span>{status?.ai_provider === provider && status.ai_configured ? "API key saved" : "API key not configured"}</span>
+            </div>
+            <button type="button" className="secondary" onClick={replaceKey}>
+              {editingProviderKey ? "Cancel" : status?.ai_provider === provider && status.ai_configured ? "Replace API key" : "Add API key"}
+            </button>
+          </div>
+          {editingProviderKey && (
+            <label>
+              {`New ${currentProvider.label} API key`}
+              <input type="password" autoComplete="new-password" placeholder={currentProvider.placeholder}
+                value={(values[currentProvider.key] as string) || ""}
+                onChange={(e) => setValues((cur) => ({ ...cur, [currentProvider.key]: e.target.value }))} required />
+            </label>
+          )}
+          {provider === "qwen" && (
+            <label>
+              Qwen Cloud endpoint
+              <input type="url" list="qwen-endpoints"
+                value={values.qwen_base_url || "https://dashscope.aliyuncs.com/compatible-mode/v1"}
+                onChange={(e) => setValues((cur) => ({ ...cur, qwen_base_url: e.target.value }))} required />
+              <datalist id="qwen-endpoints">
+                <option value="https://dashscope.aliyuncs.com/compatible-mode/v1">China (Beijing)</option>
+                <option value="https://dashscope-intl.aliyuncs.com/compatible-mode/v1">Singapore</option>
+                <option value="https://dashscope-us.aliyuncs.com/compatible-mode/v1">US (Virginia)</option>
+              </datalist>
+              <span className="credential-note">
+                The key and endpoint must be from the same Model Studio region and pay-as-you-go billing plan.
+              </span>
+            </label>
+          )}
+          <ModelSelector
+            api={api}
+            configured={Boolean(status?.ai_provider === provider && status.ai_configured)}
+            selected={values.openai_model || ""}
+            onChange={(openai_model) => setValues((cur) => ({ ...cur, openai_model }))}
+            showError={showError}
+          />
           <label>
-            Qwen Cloud endpoint
-            <input type="url" list="qwen-endpoints"
-              value={values.qwen_base_url || "https://dashscope.aliyuncs.com/compatible-mode/v1"}
-              onChange={(e) => setValues((cur) => ({ ...cur, qwen_base_url: e.target.value }))} required />
-            <datalist id="qwen-endpoints">
-              <option value="https://dashscope.aliyuncs.com/compatible-mode/v1">China (Beijing)</option>
-              <option value="https://dashscope-intl.aliyuncs.com/compatible-mode/v1">Singapore</option>
-              <option value="https://dashscope-us.aliyuncs.com/compatible-mode/v1">US (Virginia)</option>
-            </datalist>
+            Primary analysis prompt
+            <textarea
+              value={values.analysis_instructions || ""}
+              onChange={(e) => setValues((cur) => ({ ...cur, analysis_instructions: e.target.value }))}
+              placeholder="For example: prioritize EGX table rows, show entry and targets exactly as posted, and flag conflicting channel details."
+              rows={6}
+            />
             <span className="credential-note">
-              The key and endpoint must be from the same Model Studio region and pay-as-you-go billing plan.
-              You can also enter your workspace-dedicated endpoint.
+              When filled, this replaces the built-in analysis prompt. Leave empty to use the built-in prompt.
             </span>
           </label>
+          <button disabled={saving}>{saving ? "Saving…" : "Save settings"}</button>
+        </form>
+      </SettingsSection>
+
+      <SettingsSection title="Telegram" description={status?.telegram_configured ? (status.telegram_authorized ? "Connected" : "Credentials saved — not authorized") : "Not configured"} open={openSection === "telegram"} onToggle={() => toggleSection("telegram")}>
+        <form onSubmit={save}>
+          <div className="credential-header">
+            <div>
+              <strong>Telegram</strong>
+              <span>{status?.telegram_configured ? "API credentials saved" : "API credentials not configured"}</span>
+            </div>
+            <button type="button" className="secondary" onClick={() => {
+              if (editingTelegram) setValues(({ telegram_api_id, telegram_api_hash, ...cur }) => cur);
+              setEditingTelegram((cur) => !cur);
+            }}>
+              {editingTelegram ? "Cancel" : status?.telegram_configured ? "Replace credentials" : "Add credentials"}
+            </button>
+          </div>
+          {editingTelegram && (
+            <>
+              <label>
+                New Telegram API ID
+                <input type="number" placeholder="From my.telegram.org"
+                  value={values.telegram_api_id || ""}
+                  onChange={(e) => setValues((cur) => ({ ...cur, telegram_api_id: Number(e.target.value) || undefined }))} required />
+              </label>
+              <label>
+                New Telegram API hash
+                <input type="password" autoComplete="new-password" placeholder="API hash"
+                  value={values.telegram_api_hash || ""}
+                  onChange={(e) => setValues((cur) => ({ ...cur, telegram_api_hash: e.target.value }))} required />
+              </label>
+              <p className="credential-note">Changing credentials signs this computer out of Telegram.</p>
+            </>
+          )}
+          {(editingTelegram) && <button disabled={saving}>{saving ? "Saving…" : "Save credentials"}</button>}
+        </form>
+
+        {!status?.telegram_authorized && (
+          <form style={{ marginTop: "1rem" }} onSubmit={(e) => {
+            e.preventDefault();
+            setSendingCode(true);
+            void api.requestTelegramCode(phone)
+              .then(() => { setCodeSent(true); notify("success", "Telegram code sent. Enter it below."); })
+              .catch((reason) => showError(`Could not send Telegram code: ${fullError(reason)}`))
+              .finally(() => setSendingCode(false));
+          }}>
+            <h3>Connect Telegram</h3>
+            <label>
+              Phone number
+              <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+201..." required />
+            </label>
+            <button disabled={sendingCode}>{sendingCode ? "Sending code…" : "Send code"}</button>
+          </form>
         )}
 
-        <ModelSelector
-          api={api}
-          configured={Boolean(status?.ai_provider === provider && status.ai_configured)}
-          selected={values.openai_model || ""}
-          onChange={(openai_model) => setValues((cur) => ({ ...cur, openai_model }))}
-          showError={showError}
-        />
-
-        <label>
-          Primary analysis prompt
-          <textarea
-            value={values.analysis_instructions || ""}
-            onChange={(e) => setValues((cur) => ({ ...cur, analysis_instructions: e.target.value }))}
-            placeholder="For example: prioritize EGX table rows, show entry and targets exactly as posted, and flag conflicting channel details."
-            rows={6}
-          />
-          <span className="credential-note">
-            When filled, this replaces the built-in analysis prompt for every request. Leave it empty to use the built-in prompt.
-            The required structured output format remains enforced.
-          </span>
-        </label>
-
-        <div className="credential-header">
-          <div>
-            <strong>Telegram</strong>
-            <span>{status?.telegram_configured ? "API credentials saved" : "API credentials not configured"}</span>
-          </div>
-          <button type="button" className="secondary" onClick={() => {
-            if (editingTelegram) setValues(({ telegram_api_id, telegram_api_hash, ...cur }) => cur);
-            setEditingTelegram((cur) => !cur);
+        {!status?.telegram_authorized && codeSent && (
+          <form style={{ marginTop: "1rem" }} onSubmit={(e) => {
+            e.preventDefault();
+            setVerifying(true);
+            void api.verifyTelegramCode(code, password || undefined)
+              .then(() => onSaved())
+              .then(() => notify("success", "Telegram connected and saved for future launches."))
+              .catch((reason) => showError(`Telegram connection failed: ${fullError(reason)}`))
+              .finally(() => setVerifying(false));
           }}>
-            {editingTelegram ? "Cancel" : status?.telegram_configured ? "Replace Telegram credentials" : "Add Telegram credentials"}
+            <label>
+              Verification code
+              <input value={code} onChange={(e) => setCode(e.target.value)} required />
+            </label>
+            <label>
+              Two-step password (only if enabled)
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+            </label>
+            <button disabled={verifying}>{verifying ? "Verifying…" : "Verify code"}</button>
+          </form>
+        )}
+      </SettingsSection>
+
+      <SettingsSection title="Updates" description={`App v${appVersion || "…"} · ${contentStatus?.version ? `Content pack ${contentStatus.version}` : "Built-in content"}`} open={openSection === "updates"} onToggle={() => toggleSection("updates")}>
+        <div className="settings-subsection">
+          <strong>Application updates</strong>
+          <p>Checks for a signed EGX Intelligence update and keeps your local data unchanged.</p>
+          <button type="button" disabled={checkingUpdate} onClick={onCheckForUpdates}>
+            {checkingUpdate ? "Checking…" : "Check for updates"}
           </button>
         </div>
-        {editingTelegram && (
-          <>
-            <label>
-              New Telegram API ID
-              <input type="number" placeholder="From my.telegram.org"
-                value={values.telegram_api_id || ""}
-                onChange={(e) => setValues((cur) => ({ ...cur, telegram_api_id: Number(e.target.value) || undefined }))} required />
-            </label>
-            <label>
-              New Telegram API hash
-              <input type="password" autoComplete="new-password" placeholder="API hash"
-                value={values.telegram_api_hash || ""}
-                onChange={(e) => setValues((cur) => ({ ...cur, telegram_api_hash: e.target.value }))} required />
-            </label>
-            <p className="credential-note">
-              Changing Telegram credentials signs this computer out of Telegram. Connect it again below after saving.
-            </p>
-          </>
-        )}
+        <div className="settings-subsection">
+          <strong>Analysis content updates</strong>
+          <p>Signed prompt and stock-alias updates install without rebuilding the application.</p>
+          <p className="credential-note">{contentStatus?.version ? `Installed: ${contentStatus.version}` : "Using built-in analysis content."}</p>
+          <button type="button" disabled={checkingContent || contentStatus?.enabled === false}
+            onClick={() => {
+              setCheckingContent(true);
+              void api.checkContentUpdates()
+                .then((result) => {
+                  notify("success", result.updated ? `Content pack ${result.version} installed.` : `Content pack ${result.version} is already installed.`);
+                  return api.contentUpdates();
+                })
+                .then(setContentStatus)
+                .catch((reason) => showError(`Could not update analysis content: ${fullError(reason)}`))
+                .finally(() => setCheckingContent(false));
+            }}>
+            {checkingContent ? "Checking content…" : "Check analysis content"}
+          </button>
+        </div>
+      </SettingsSection>
 
-        <button disabled={saving}>{saving ? "Saving…" : "Save settings"}</button>
-      </form>
-
-      <article className="app-version">
-        <h3>EGX Intelligence</h3>
-        <p>Version {appVersion || "Loading…"}</p>
-      </article>
-
-      <article className="content-updates">
-        <h3>Analysis content updates</h3>
-        <p>Signed prompt and stock-alias updates install without rebuilding or reinstalling the desktop application.</p>
-        <p>{contentStatus?.version ? `Installed content pack: ${contentStatus.version}` : "Using built-in analysis content."}</p>
-        <button type="button" disabled={checkingContent || contentStatus?.enabled === false}
-          onClick={() => {
-            setCheckingContent(true);
-            void api.checkContentUpdates()
-              .then((result) => {
-                notify("success", result.updated ? `Content pack ${result.version} installed.` : `Content pack ${result.version} is already installed.`);
-                return api.contentUpdates();
-              })
-              .then(setContentStatus)
-              .catch((reason) => showError(`Could not update analysis content: ${fullError(reason)}`))
-              .finally(() => setCheckingContent(false));
-          }}>
-          {checkingContent ? "Checking content…" : "Check analysis content"}
-        </button>
-      </article>
-
-      <form className="update-settings" onSubmit={(e) => { e.preventDefault(); onCheckForUpdates(); }}>
-        <h3>Application updates</h3>
-        <p>Checks for a signed EGX Intelligence update and keeps your local data unchanged.</p>
-        <button disabled={checkingUpdate}>{checkingUpdate ? "Checking…" : "Check for updates"}</button>
-      </form>
-
-      <article className="diagnostics">
-        <h3>Diagnostics</h3>
+      <SettingsSection title="Diagnostics" description="Local request logs and error traces" open={openSection === "diagnostics"} onToggle={() => toggleSection("diagnostics")}>
         <p>Stores local request results and error traces. API keys, codes, and passwords are never logged.</p>
         <button type="button" className="secondary" disabled={loadingDiagnostics}
           onClick={() => {
@@ -1041,54 +1180,15 @@ function CloudSettings({ api, status, onSaved, notify, showError, checkingUpdate
               .catch((reason) => showError(`Could not load diagnostics: ${fullError(reason)}`))
               .finally(() => setLoadingDiagnostics(false));
           }}>
-          {loadingDiagnostics ? "Loading diagnostics…" : "View recent diagnostics"}
+          {loadingDiagnostics ? "Loading…" : "View recent diagnostics"}
         </button>
         {diagnostics.length > 0 && (
           <pre>{diagnostics.map((entry) =>
             `${entry.timestamp || ""} ${entry.level} ${entry.event} ${entry.method || ""} ${entry.path || ""} ${entry.status_code || ""} ${entry.error_type || ""}`
           ).join("\n")}</pre>
         )}
-      </article>
+      </SettingsSection>
 
-      {!status?.telegram_authorized && (
-        <form onSubmit={(e) => {
-          e.preventDefault();
-          setSendingCode(true);
-          void api.requestTelegramCode(phone)
-            .then(() => { setCodeSent(true); notify("success", "Telegram code sent. Enter it below."); })
-            .catch((reason) => showError(`Could not send Telegram code: ${fullError(reason)}`))
-            .finally(() => setSendingCode(false));
-        }}>
-          <h3>Connect Telegram</h3>
-          <label>
-            Phone number
-            <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+201..." required />
-          </label>
-          <button disabled={sendingCode}>{sendingCode ? "Sending code…" : "Send code"}</button>
-        </form>
-      )}
-
-      {!status?.telegram_authorized && codeSent && (
-        <form onSubmit={(e) => {
-          e.preventDefault();
-          setVerifying(true);
-          void api.verifyTelegramCode(code, password || undefined)
-            .then(() => onSaved())
-            .then(() => notify("success", "Telegram connected and saved for future launches."))
-            .catch((reason) => showError(`Telegram connection failed: ${fullError(reason)}`))
-            .finally(() => setVerifying(false));
-        }}>
-          <label>
-            Verification code
-            <input value={code} onChange={(e) => setCode(e.target.value)} required />
-          </label>
-          <label>
-            Two-step password (only if enabled)
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-          </label>
-          <button disabled={verifying}>{verifying ? "Verifying…" : "Verify code"}</button>
-        </form>
-      )}
     </div>
   );
 }
