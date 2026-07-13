@@ -1,3 +1,4 @@
+import asyncio
 import time
 import uuid
 import structlog
@@ -6,6 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import router
 from app.database import init_database
 from app.diagnostics import configure_diagnostics, logger
+from app.config import get_settings
+from app.content_updates import ContentUpdateError, ContentUpdateService
 from app.runtime import LocalRuntime
 
 structlog.configure(processors=[structlog.processors.TimeStamper(fmt="iso"), structlog.processors.JSONRenderer()])
@@ -48,10 +51,19 @@ async def startup() -> None:
     await init_database()
     logger().info("local_engine_started")
     await runtime.start()
+    asyncio.create_task(refresh_content_updates())
 
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
     logger().info("local_engine_stopped")
     await runtime.stop()
+
+
+async def refresh_content_updates() -> None:
+    try:
+        result = await ContentUpdateService(get_settings()).check_and_apply()
+        logger().info("content_update_checked", **result)
+    except ContentUpdateError as error:
+        logger().warning("content_update_check_failed", error=str(error))
 runtime = LocalRuntime()

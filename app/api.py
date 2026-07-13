@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.service import AIAnalysisService
 from app.config import get_settings
 from app.config_store import update_config
+from app.content_updates import ContentUpdateError, ContentUpdateService
 from app.database import get_session
 from app.diagnostics import diagnostics_path, logger, recent_entries
 from app.models import Channel, Message, Recommendation, Report, Stock
@@ -29,6 +30,19 @@ async def health() -> dict[str, str]: return {"status": "ok"}
 async def diagnostics(limit: int = 50) -> dict[str, object]:
     """Return locally stored, secret-free API diagnostics for troubleshooting."""
     return {"path": str(diagnostics_path()), "entries": recent_entries(min(max(limit, 1), 100))}
+
+
+@router.get("/content-updates")
+async def content_update_status() -> dict[str, object]:
+    return ContentUpdateService(get_settings()).status()
+
+
+@router.post("/content-updates/check")
+async def check_content_updates() -> dict[str, object]:
+    try:
+        return await ContentUpdateService(get_settings()).check_and_apply()
+    except ContentUpdateError as error:
+        raise HTTPException(502, str(error)) from error
 
 
 @router.get("/settings")

@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 from openai import AsyncOpenAI
 from app.config import Settings
+from app.content_updates import ContentUpdateService
 from app.schemas import AnalysisResult
 
 
@@ -29,7 +30,8 @@ def analysis_output_schema() -> dict[str, Any]:
 class AIAnalysisService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self.prompt = (Path(__file__).parent / "prompts" / "recommendation.md").read_text(encoding="utf-8")
+        prompt_path = ContentUpdateService(settings).file_path("recommendation.md")
+        self.prompt = (prompt_path or Path(__file__).parent / "prompts" / "recommendation.md").read_text(encoding="utf-8")
         base_url = {
             "qwen": settings.qwen_base_url,
             "openrouter": "https://openrouter.ai/api/v1",

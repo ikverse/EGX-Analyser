@@ -26,3 +26,15 @@ For a normal Windows application with an icon, native window, and installer, see
 ## Cloud AI providers
 
 The desktop app does not download AI models. **Qwen Cloud** is the default provider and uses `qwen3-vl-plus` for Arabic text and chart-image analysis through Alibaba Cloud Model Studio. Use a pay-as-you-go Model Studio API key and the endpoint for the same region: Beijing `https://dashscope.aliyuncs.com/compatible-mode/v1`, Singapore `https://dashscope-intl.aliyuncs.com/compatible-mode/v1`, or US `https://dashscope-us.aliyuncs.com/compatible-mode/v1`. OpenRouter, Hugging Face Inference Providers, and OpenAI remain available. Audio transcription and semantic embedding search currently use OpenAI when those features are required; text and image recommendation analysis works with every listed cloud provider.
+
+## Lightweight content updates
+
+The desktop application checks a signed content pack in the repository and can update its recommendation prompt and stock aliases without a desktop rebuild or installer update. The app rejects packs whose signature or SHA-256 checksum does not match, and retains the previous pack for rollback. The first desktop release includes the public verification key. Keep `.content-update-private.key` private and back it up before publishing any pack.
+
+To publish a prompt or alias change, edit `remote-content/source/`, then run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/publish-content-pack.ps1 -Version 1.0.1
+```
+
+When the local `github-upload` checkout exists, the publishing script also copies the files there. Commit and push only `remote-content/content-pack.json`, `remote-content/content-pack.zip`, and the source edits. Installed apps receive the signed pack from the **Analysis content updates** section in Settings or during their next launch. Code, UI, sidecar, and security fixes still require a full signed desktop release.

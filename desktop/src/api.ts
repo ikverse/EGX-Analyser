@@ -7,6 +7,7 @@ export type SettingsStatus = { openai_configured: boolean; ai_configured: boolea
 export type SettingsInput = { ai_provider?: AiProvider; openai_api_key?: string; openrouter_api_key?: string; huggingface_api_key?: string; qwen_api_key?: string; qwen_base_url?: string; openai_model?: string; telegram_api_id?: number; telegram_api_hash?: string; telegram_session?: string };
 export type TelegramChat = { id: string; title: string; username: string; kind: string };
 export type DiagnosticEntry = { timestamp?: string; level: string; event: string; request_id?: string; method?: string; path?: string; status_code?: number; duration_ms?: number; error_type?: string };
+export type ContentUpdateStatus = { enabled: boolean; version: string | null; source: string };
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number, readonly requestId?: string) { super(message); this.name = "ApiError"; }
@@ -46,6 +47,8 @@ export class ApiClient {
   verifyTelegramCode(code: string, password?: string) { return this.request<{ authorized: boolean }>("/telegram/verify-code", { method: "POST", body: JSON.stringify({ code, password }) }); }
   telegramChats() { return this.request<TelegramChat[]>("/telegram/chats"); }
   diagnostics() { return this.request<{ path: string; entries: DiagnosticEntry[] }>("/diagnostics/recent"); }
+  contentUpdates() { return this.request<ContentUpdateStatus>("/content-updates"); }
+  checkContentUpdates() { return this.request<{ updated: boolean; version: string }>("/content-updates/check", { method: "POST" }); }
   selectTelegramChat(chat: TelegramChat) { return this.request<Channel>("/telegram/chats/select", { method: "POST", body: JSON.stringify(chat) }); }
   runCollection() { return this.request<{ messages_collected: number }>("/collection/run", { method: "POST" }); }
   analyzeSelected(channel_ids: number[]) { return this.request<{ messages_collected: number }>("/collection/analyze-selected", { method: "POST", body: JSON.stringify({ channel_ids, analyze: true }) }); }
