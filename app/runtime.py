@@ -12,7 +12,7 @@ from app.models import Channel
 from app.services import MessageService
 
 log = structlog.get_logger()
-SELECTED_ANALYSIS_LOOKBACK = timedelta(days=3)
+MAX_SELECTED_ANALYSIS_LOOKBACK_DAYS = 5
 
 
 class LocalRuntime:
@@ -67,5 +67,7 @@ class LocalRuntime:
             await asyncio.sleep(60)
 
 
-def selected_analysis_start(now: datetime | None = None) -> datetime:
-    return (now or datetime.now(timezone.utc)) - SELECTED_ANALYSIS_LOOKBACK
+def selected_analysis_start(lookback_days: int = 3, now: datetime | None = None) -> datetime:
+    if not 1 <= lookback_days <= MAX_SELECTED_ANALYSIS_LOOKBACK_DAYS:
+        raise ValueError(f"The selected analysis range must be between 1 and {MAX_SELECTED_ANALYSIS_LOOKBACK_DAYS} days")
+    return (now or datetime.now(timezone.utc)) - timedelta(days=lookback_days)

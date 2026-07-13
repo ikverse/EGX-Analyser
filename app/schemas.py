@@ -52,6 +52,7 @@ class ChannelUpdate(BaseModel):
 class CollectionRequest(BaseModel):
     channel_ids: list[int] = Field(min_length=1)
     analyze: bool = True
+    lookback_days: int = Field(default=3, ge=1, le=5)
 
 
 class DailyReportRequest(BaseModel):

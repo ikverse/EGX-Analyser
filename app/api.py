@@ -5,6 +5,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.service import AIAnalysisService
+from app.analysis_trace import export_analysis_trace
 from app.config import get_settings
 from app.config_store import update_config
 from app.content_updates import ContentUpdateError, ContentUpdateService
@@ -197,17 +198,21 @@ async def run_collection() -> dict:
 async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSession = Depends(get_session)) -> dict:
     from app.main import runtime
     from app.runtime import selected_analysis_start
-    window_start = selected_analysis_start()
+    window_start = selected_analysis_start(payload.lookback_days)
     try:
         messages_collected = await runtime.collect_once(payload.channel_ids, since=window_start)
+        trace = await export_analysis_trace(
+            session, get_settings().storage_root, payload.channel_ids, window_start, datetime.now(timezone.utc)
+        )
         report = await ReportService(session, get_settings()).generate_selected_chat_report(
-            payload.channel_ids, window_start, datetime.now(timezone.utc)
+            payload.channel_ids, window_start, datetime.now(timezone.utc), payload.lookback_days
         )
         await session.commit()
         channel_results = report.summary["channel_results"]
-        return {"messages_collected": messages_collected, "window_start": window_start, "lookback_days": 3,
+        return {"messages_collected": messages_collected, "window_start": window_start, "lookback_days": payload.lookback_days,
                 "report": {"id": report.id, "markdown_path": report.markdown_path, "html_path": report.html_path,
                            "pdf_path": report.pdf_path}, "channel_results": channel_results,
+                "trace": trace,
                 "not_stock_related": [item["channel"] for item in channel_results if item["status"] == "not_stock_related"]}
     except BadRequestError as error:
         raise HTTPException(400, f"The selected AI provider rejected the analysis request: {error}") from error

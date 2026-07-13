@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 import io
 import os
+from pathlib import Path
 import pytest
 from fastapi import HTTPException
 from httpx import Request, Response
@@ -18,6 +19,7 @@ from app.telegram_auth import TelegramAuthenticator
 from app.runtime import selected_analysis_start
 from app.collector.telegram import is_promotional_message
 from app.reports import ReportService
+from app.analysis_trace import export_analysis_trace
 
 
 class FakeAnalyzer:
@@ -178,7 +180,8 @@ def test_engine_patch_stages_only_the_sidecar(tmp_path):
 
 def test_selected_analysis_starts_three_days_before_request():
     requested_at = datetime(2026, 7, 13, 12, tzinfo=timezone.utc)
-    assert selected_analysis_start(requested_at) == datetime(2026, 7, 10, 12, tzinfo=timezone.utc)
+    assert selected_analysis_start(now=requested_at) == datetime(2026, 7, 10, 12, tzinfo=timezone.utc)
+    assert selected_analysis_start(5, requested_at) == datetime(2026, 7, 8, 12, tzinfo=timezone.utc)
 
 
 def test_promotional_messages_are_skipped_without_hiding_trade_posts():
@@ -196,8 +199,23 @@ async def test_selected_chat_report_marks_non_stock_context(session, tmp_path):
     session.add(Recommendation(message_id=stock_message.id, company_name="CIB", signal="BUY", confidence=.9, indicators=[]))
     await session.flush()
     report = await ReportService(session, type("Settings", (), {"storage_root": tmp_path})()).generate_selected_chat_report(
-        [stock_message.channel_id, non_stock_message.channel_id], datetime.now(timezone.utc) - timedelta(days=3), datetime.now(timezone.utc)
+        [stock_message.channel_id, non_stock_message.channel_id], datetime.now(timezone.utc) - timedelta(days=3), datetime.now(timezone.utc) + timedelta(minutes=1), 3
     )
     statuses = {item["channel"]: item["status"] for item in report.summary["channel_results"]}
     assert statuses["stocks"] == "recommendations_found"
     assert statuses["general"] == "not_stock_related"
+
+
+async def test_analysis_trace_saves_message_text_and_images(session, tmp_path):
+    message = await MessageService(session).ingest(MessageCreate(
+        channel_handle="signals", telegram_message_id=8, text="BUY CIB", published_at=datetime.now(timezone.utc)
+    ))
+    source_image = tmp_path / "source-chart.jpg"
+    source_image.write_bytes(b"chart")
+    session.add(Image(message_id=message.id, path=str(source_image), mime_type="image/jpeg"))
+    await session.flush()
+    trace = await export_analysis_trace(
+        session, tmp_path / "storage", [message.channel_id], datetime.now(timezone.utc) - timedelta(days=1), datetime.now(timezone.utc) + timedelta(minutes=1)
+    )
+    assert "BUY CIB" in Path(str(trace["text_path"])).read_text(encoding="utf-8")
+    assert Path(str(trace["images_path"])).joinpath("8_source-chart.jpg").read_bytes() == b"chart"

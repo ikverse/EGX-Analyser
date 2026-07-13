@@ -36,8 +36,9 @@ class ReportService:
             end = datetime.combine(local_day, time.fromisoformat(self.settings.egx_session_end), tzinfo=cairo)
         return await self._generate(start.astimezone(timezone.utc), end.astimezone(timezone.utc), report_mode)
 
-    async def generate_selected_chat_report(self, channel_ids: list[int], start: datetime, end: datetime) -> Report:
-        return await self._generate(start, end, "selected chats (72 hours)", channel_ids)
+    async def generate_selected_chat_report(self, channel_ids: list[int], start: datetime, end: datetime,
+                                             lookback_days: int) -> Report:
+        return await self._generate(start, end, f"selected chats ({lookback_days} days)", channel_ids)
 
     async def _generate(self, start: datetime, end: datetime, report_mode: str,
                         channel_ids: list[int] | None = None) -> Report:
