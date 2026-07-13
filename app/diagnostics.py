@@ -29,6 +29,10 @@ def diagnostics_path() -> Path:
     return diagnostics_directory() / "api-diagnostics.jsonl"
 
 
+def app_errors_path() -> Path:
+    return diagnostics_directory() / "app-errors.jsonl"
+
+
 class JsonDiagnosticFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
@@ -59,6 +63,19 @@ def configure_diagnostics() -> logging.Logger:
 
 def logger() -> logging.Logger:
     return configure_diagnostics()
+
+
+def structlog_file_processor(log_path: Path):
+    """Returns a structlog processor that appends JSON lines to log_path."""
+    _handler = RotatingFileHandler(log_path, maxBytes=1_000_000, backupCount=3, encoding="utf-8")
+
+    def processor(logger_inst, method: str, event_dict: dict) -> dict:
+        entry = {"timestamp": datetime.now(UTC).isoformat(), "level": method, **event_dict}
+        _handler.stream  # ensure open
+        _handler.emit(logging.makeLogRecord({"msg": json.dumps(entry, ensure_ascii=False, default=str)}))
+        return event_dict
+
+    return processor
 
 
 def recent_entries(limit: int = 50) -> list[dict[str, Any]]:

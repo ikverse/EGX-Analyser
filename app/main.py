@@ -7,12 +7,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import router
 from app.database import init_database
-from app.diagnostics import configure_diagnostics, logger
+from app.diagnostics import configure_diagnostics, logger, structlog_file_processor, app_errors_path
 from app.config import get_settings
 from app.content_updates import ContentUpdateError, ContentUpdateService
 from app.runtime import LocalRuntime
 
-structlog.configure(processors=[structlog.processors.TimeStamper(fmt="iso"), structlog.processors.JSONRenderer()])
+structlog.configure(processors=[
+    structlog_file_processor(app_errors_path()),
+    structlog.processors.TimeStamper(fmt="iso"),
+    structlog.processors.JSONRenderer(),
+])
 diagnostic_log = configure_diagnostics()
 runtime = LocalRuntime()
 
