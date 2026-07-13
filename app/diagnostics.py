@@ -71,7 +71,6 @@ def structlog_file_processor(log_path: Path):
 
     def processor(logger_inst, method: str, event_dict: dict) -> dict:
         entry = {"timestamp": datetime.now(UTC).isoformat(), "level": method, **event_dict}
-        _handler.stream  # ensure open
         _handler.emit(logging.makeLogRecord({"msg": json.dumps(entry, ensure_ascii=False, default=str)}))
         return event_dict
 

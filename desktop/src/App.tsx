@@ -161,8 +161,14 @@ export default function App() {
   }, [connected]);
 
   useEffect(() => {
-    if (connected && page === "Results" && resultTab === "Recommendations") void api.recommendations().then(setRows);
-    if (connected && page === "Reports") void api.reports().then(setRows);
+    if (connected && page === "Results" && resultTab === "Recommendations") {
+      setRows([]);
+      void api.recommendations().then(setRows);
+    }
+    if (connected && page === "Reports") {
+      setRows([]);
+      void api.reports().then(setRows);
+    }
   }, [api, connected, page, resultTab]);
 
   if (!connected) {
@@ -257,6 +263,9 @@ export default function App() {
 // ── Shared types ──────────────────────────────────────────────────────────────
 
 type Notify = (kind: "success" | "warning", text: string) => void;
+
+const SIGNAL_COLOR: Record<string, string> = { BUY: "#86efac", SELL: "#fca5a5", HOLD: "#fde68a" };
+const SIGNAL_BG: Record<string, string> = { BUY: "#1a3d24", SELL: "#3d1a1a", HOLD: "#2e2a14" };
 type ShowError = (message: string) => void;
 
 // ── Dashboard check button (lives in header) ──────────────────────────────────
@@ -285,9 +294,6 @@ function DashboardCheckButton({ api, refresh, notify, showError }: {
 function Dashboard({ channels, consensus }: {
   channels: Channel[]; consensus: Consensus[];
 }) {
-  const signalColor: Record<string, string> = { BUY: "#86efac", SELL: "#fca5a5", HOLD: "#fde68a" };
-  const signalBg: Record<string, string> = { BUY: "#1a3d24", SELL: "#3d1a1a", HOLD: "#2e2a14" };
-
   return (
     <>
       <div className="metrics">
@@ -316,8 +322,8 @@ function Dashboard({ channels, consensus }: {
                           <span style={{
                             display: "inline-block", padding: ".2rem .55rem", borderRadius: "4px",
                             fontSize: ".78rem", fontWeight: 700,
-                            background: signalBg[String(v)] ?? "#172033",
-                            color: signalColor[String(v)] ?? "#e5e7eb",
+                            background: SIGNAL_BG[String(v)] ?? "#172033",
+                            color: SIGNAL_COLOR[String(v)] ?? "#e5e7eb",
                           }}>
                             {String(v ?? "—")}
                           </span>
@@ -789,8 +795,6 @@ type RecommendationRow = { id: number; company: string; ticker?: string; signal:
 function Recommendations({ rows }: { rows: Array<Record<string, unknown>> }) {
   if (!rows.length) return <p className="empty">No recommendations yet. Run an analysis to populate this page.</p>;
   const typed = rows as unknown as RecommendationRow[];
-  const signalColor: Record<string, string> = { BUY: "#86efac", SELL: "#fca5a5", HOLD: "#fde68a" };
-  const signalBg: Record<string, string> = { BUY: "#1a3d24", SELL: "#3d1a1a", HOLD: "#2e2a14" };
   return (
     <div className="table">
       <table>
@@ -814,13 +818,13 @@ function Recommendations({ rows }: { rows: Array<Record<string, unknown>> }) {
                 <span style={{
                   display: "inline-block", padding: ".2rem .55rem", borderRadius: "4px",
                   fontSize: ".78rem", fontWeight: 700,
-                  background: signalBg[row.signal] ?? "#172033",
-                  color: signalColor[row.signal] ?? "#e5e7eb",
+                  background: SIGNAL_BG[row.signal] ?? "#172033",
+                  color: SIGNAL_COLOR[row.signal] ?? "#e5e7eb",
                 }}>
                   {row.signal}
                 </span>
               </td>
-              <td style={{ textAlign: "right" }}>{(row.confidence * 100).toFixed(0)}%</td>
+              <td style={{ textAlign: "right" }}>{row.confidence != null ? `${(row.confidence * 100).toFixed(0)}%` : "—"}</td>
               <td style={{ textAlign: "right" }}>{row.target ?? "—"}</td>
             </tr>
           ))}
