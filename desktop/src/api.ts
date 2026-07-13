@@ -9,7 +9,7 @@ export type TelegramChat = { id: string; title: string; username: string; kind: 
 export type DiagnosticEntry = { timestamp?: string; level: string; event: string; request_id?: string; method?: string; path?: string; status_code?: number; duration_ms?: number; error_type?: string };
 export type ContentUpdateStatus = { enabled: boolean; version: string | null; source: string };
 export type EngineUpdateStatus = { version: string; source: string };
-export type SelectedAnalysisResult = { messages_collected: number; window_start: string; lookback_days: number; report: { id: number; markdown_path: string; html_path: string; pdf_path: string }; channel_results: Array<{ channel: string; status: string; messages: number; recommendations: number }>; not_stock_related: string[] };
+export type SelectedAnalysisResult = { messages_collected: number; window_start: string; lookback_days: number; report: { id: number; markdown_path: string; html_path: string; pdf_path: string }; trace: { directory: string; text_path: string; images_path: string; message_count: number; image_count: number }; channel_results: Array<{ channel: string; status: string; messages: number; recommendations: number }>; not_stock_related: string[] };
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number, readonly requestId?: string) { super(message); this.name = "ApiError"; }
@@ -55,7 +55,7 @@ export class ApiClient {
   checkEngineUpdates() { return this.request<{ updated: boolean; version: string; restart_required: boolean }>("/engine-updates/check", { method: "POST" }); }
   selectTelegramChat(chat: TelegramChat) { return this.request<Channel>("/telegram/chats/select", { method: "POST", body: JSON.stringify(chat) }); }
   runCollection() { return this.request<{ messages_collected: number }>("/collection/run", { method: "POST" }); }
-  analyzeSelected(channel_ids: number[]) { return this.request<SelectedAnalysisResult>("/collection/analyze-selected", { method: "POST", body: JSON.stringify({ channel_ids, analyze: true }) }); }
+  analyzeSelected(channel_ids: number[], lookback_days: number) { return this.request<SelectedAnalysisResult>("/collection/analyze-selected", { method: "POST", body: JSON.stringify({ channel_ids, analyze: true, lookback_days }) }); }
   addChannel(handle: string, title?: string) { return this.request<Channel>("/channels", { method: "POST", body: JSON.stringify({ handle, title }) }); }
   setChannelActive(id: number, active: boolean) { return this.request<Channel>(`/channels/${id}`, { method: "PATCH", body: JSON.stringify({ active }) }); }
   consensus() { return this.request<Consensus[]>("/analytics/consensus"); }

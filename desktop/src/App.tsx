@@ -158,6 +158,7 @@ function Channels({ channels, api, refresh, notify }: { channels: Channel[]; api
   const [selectedHandles, setSelectedHandles] = useState<string[]>(() => { try { return JSON.parse(sessionStorage.getItem("egx.selectedTelegramChats") || "[]") as string[]; } catch { return []; } });
   const [loading, setLoading] = useState(false);
   const [lastAnalysis, setLastAnalysis] = useState<SelectedAnalysisResult | null>(null);
+  const [lookbackDays, setLookbackDays] = useState(3);
   const submit = (event: FormEvent) => { event.preventDefault(); void api.addChannel(handle).then(() => { setHandle(""); return refresh(); }).then(() => notify("success", "Channel added for analysis.")).catch((reason) => notify("error", displayError(reason))); };
   const loadChats = () => { setLoading(true); void api.telegramChats().then((items) => { setChats(items); sessionStorage.setItem("egx.telegramChats", JSON.stringify(items)); notify(items.length ? "success" : "warning", items.length ? `${items.length} Telegram chats loaded for this session.` : "No chats were found."); }).catch((reason) => notify("error", displayError(reason))).finally(() => setLoading(false)); };
   const updateSelectedHandles = (handles: string[]) => { setSelectedHandles(handles); sessionStorage.setItem("egx.selectedTelegramChats", JSON.stringify(handles)); };
@@ -165,7 +166,7 @@ function Channels({ channels, api, refresh, notify }: { channels: Channel[]; api
   const removeChat = (handle: string) => { updateSelectedHandles(selectedHandles.filter((item) => item !== handle)); notify("success", "Chat removed from this session."); };
   const selected = new Set(selectedHandles);
   const selectedChannels = channels.filter((channel) => selected.has(channel.handle));
-  const analyze = () => { const ids = selectedChannels.map((channel) => channel.id); if (!ids.length) return notify("warning", "Select at least one chat first."); setLoading(true); void api.analyzeSelected(ids).then((result) => { setLastAnalysis(result); return refresh().then(() => notify(result.not_stock_related.length ? "warning" : "success", `${result.messages_collected} messages analyzed and report created.${result.not_stock_related.length ? ` No stock-related context: ${result.not_stock_related.join(", ")}.` : ""}`)); }).catch((reason) => notify("error", displayError(reason))).finally(() => setLoading(false)); };
+  const analyze = () => { const ids = selectedChannels.map((channel) => channel.id); if (!ids.length) return notify("warning", "Select at least one chat first."); setLoading(true); void api.analyzeSelected(ids, lookbackDays).then((result) => { setLastAnalysis(result); return refresh().then(() => notify(result.not_stock_related.length ? "warning" : "success", `${result.messages_collected} messages analyzed from the last ${result.lookback_days} day(s); report and local trace created.${result.not_stock_related.length ? ` No stock-related context: ${result.not_stock_related.join(", ")}.` : ""}`)); }).catch((reason) => notify("error", displayError(reason))).finally(() => setLoading(false)); };
   const selectedRows = selectedChannels.map((channel) => ({ ...channel, selection: <button className="secondary" onClick={() => removeChat(channel.handle)}>Remove</button> }));
   const chatRows = chats.map((chat) => ({ chat: `${chat.title}${chat.username ? ` (@${chat.username})` : ""}`, type: chat.kind, selection: <button disabled={loading} onClick={() => selected.has(chat.id) ? removeChat(chat.id) : addChat(chat)}>{selected.has(chat.id) ? "Remove" : "Select"}</button> }));
   return <>
@@ -173,9 +174,10 @@ function Channels({ channels, api, refresh, notify }: { channels: Channel[]; api
     <button onClick={loadChats} disabled={loading}>{loading ? "Loading chats..." : "Load my Telegram chats"}</button>
     {chats.length > 0 && <Table rows={chatRows} />}
     <h3>Selected chats ({selectedChannels.length})</h3>
+    <label>Analysis window: last {lookbackDays} day{lookbackDays === 1 ? "" : "s"}<input type="range" min="1" max="5" step="1" value={lookbackDays} onChange={(event) => setLookbackDays(Number(event.target.value))} disabled={loading} /></label>
     <button onClick={analyze} disabled={loading}>{loading ? "Analyzing selected chats..." : "Analyze selected chats"}</button>
     <Table rows={selectedRows} />
-    {lastAnalysis && <><h3>Latest analysis report</h3><p>Report created: {lastAnalysis.report.pdf_path}</p><Table rows={lastAnalysis.channel_results} /></>}
+    {lastAnalysis && <><h3>Latest analysis report</h3><p>Report created: {lastAnalysis.report.pdf_path}</p><p>Trace text: {lastAnalysis.trace.text_path}</p><p>Trace images: {lastAnalysis.trace.images_path}</p><Table rows={lastAnalysis.channel_results} /></>}
   </>;
 }
 
