@@ -183,6 +183,10 @@ async def run_collection() -> dict:
     try:
         summary = await runtime.collect_once()
         return {"messages_collected": summary["messages_analyzed"], **summary}
+    except RuntimeError as error:
+        if "already running" in str(error).lower():
+            raise HTTPException(409, "A background collection is already running. Wait a moment and try again.") from error
+        raise HTTPException(500, str(error)) from error
     except BadRequestError as error:
         raise HTTPException(400, f"The selected AI provider rejected the analysis request: {error}") from error
 
@@ -212,6 +216,10 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
                 "stock_code_details": report.summary["stock_code_details"],
                 "trace": trace,
                 "not_stock_related": [item["channel"] for item in channel_results if item["status"] == "not_stock_related"]}
+    except RuntimeError as error:
+        if "already running" in str(error).lower():
+            raise HTTPException(409, "A background collection is already running. Wait a moment and try again.") from error
+        raise HTTPException(500, str(error)) from error
     except BadRequestError as error:
         raise HTTPException(400, f"The selected AI provider rejected the analysis request: {error}") from error
 
@@ -251,7 +259,15 @@ async def create_channel(payload: ChannelCreate, session: AsyncSession = Depends
 @router.post("/telegram/chats/select")
 async def select_telegram_chat(payload: TelegramChatSelect, session: AsyncSession = Depends(get_session)) -> dict:
     try:
-        channel = await get_or_create_channel(session, payload.id)
+        # Prefer the @username handle; fall back to the numeric entity ID.
+        # For supergroups/channels the API returns IDs like "-1001234567890" — strip the
+        # "-100" prefix so the stored handle is the plain channel ID used by Telethon.
+        if payload.username:
+            handle = payload.username
+        else:
+            raw = str(payload.id).lstrip("-")
+            handle = raw[3:] if raw.startswith("100") else raw
+        channel = await get_or_create_channel(session, handle)
         channel.title = payload.title
         channel.active = False
         await session.commit()

@@ -48,6 +48,13 @@ try {
     $binDir = Join-Path $root "desktop\src-tauri\binaries"
     New-Item -ItemType Directory -Force -Path $binDir | Out-Null
     Copy-Item "dist\egx-intelligence-api.exe" "$binDir\egx-intelligence-api-$target.exe" -Force
+    Push-Location "desktop\src-tauri"
+    try {
+        Write-Host "Running cargo check..." -ForegroundColor Cyan
+        cargo check
+        if ($LASTEXITCODE -ne 0) { throw "cargo check failed. Fix Rust compilation errors before building the installer." }
+        Write-Host "cargo check passed." -ForegroundColor Green
+    } finally { Pop-Location }
     Push-Location "desktop"
     try {
         npm install

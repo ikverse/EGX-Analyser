@@ -1,4 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
 from PyInstaller.utils.hooks import collect_all
 
 datas = []
@@ -10,7 +11,7 @@ datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 a = Analysis(
     ['desktop\\sidecar_server.py'],
-    pathex=['C:\\Users\\kabas\\Documents\\Codex\\2026-07-12\\write-me-a-prompt-i-pate'],
+    pathex=[os.getcwd()],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,

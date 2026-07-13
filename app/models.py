@@ -2,7 +2,14 @@ from datetime import datetime
 from enum import StrEnum
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from pgvector.sqlalchemy import VECTOR
+
+try:
+    from pgvector.sqlalchemy import VECTOR as _VECTOR
+    def _vector_col() -> type:
+        return _VECTOR(1536).with_variant(JSON, "sqlite")
+except ImportError:
+    def _vector_col() -> type:  # type: ignore[misc]
+        return JSON
 
 
 class Base(DeclarativeBase):
@@ -121,7 +128,7 @@ class Embedding(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     message_id: Mapped[int] = mapped_column(ForeignKey("messages.id"), unique=True)
     content: Mapped[str] = mapped_column(Text)
-    vector: Mapped[list[float] | None] = mapped_column(VECTOR(1536).with_variant(JSON, "sqlite"))
+    vector: Mapped[list[float] | None] = mapped_column(_vector_col())
 
 
 class Report(Base):

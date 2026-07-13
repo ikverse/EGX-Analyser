@@ -227,7 +227,12 @@ class ReportService:
         raw_pdf_path = directory / f"original-ai-response-{run_id}.pdf"
         markdown = "\n".join(lines)
         markdown_path.write_text(markdown, encoding="utf-8")
-        html_path.write_text(f"<html><body><pre>{escape(markdown)}</pre></body></html>", encoding="utf-8")
+        html_path.write_text(
+            _build_html_report(generated_at, report_mode, message_rows, recommendation_rows,
+                               channel_results, consensus, stock_code_details,
+                               consolidated_source),
+            encoding="utf-8",
+        )
         canvas = Canvas(str(pdf_path), pagesize=A4)
         text = canvas.beginText(48, 800)
         for line in lines:
@@ -372,3 +377,230 @@ def _category_labels(stocks: object) -> str:
         else:
             labels.append(str(item))
     return ", ".join(labels) or "-"
+
+
+def _build_html_report(
+    generated_at: datetime,
+    report_mode: str,
+    message_rows: list,
+    recommendation_rows: list,
+    channel_results: list[dict],
+    consensus: list[dict],
+    stock_code_details: list[dict],
+    consolidated_source: dict | None,
+) -> str:
+    css = """
+    <style>
+      :root{--bg:#0b1120;--surface:#111c2e;--border:#26364d;--text:#e5e7eb;--muted:#94a3b8;
+            --green:#70c96a;--red:#f87171;--yellow:#fbbf24}
+      *{box-sizing:border-box}
+      body{margin:0;padding:2rem;font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.6;direction:ltr}
+      h1{font-size:1.5rem;color:var(--green);margin:0 0 .5rem}
+      h2{font-size:1.1rem;color:var(--green);margin:2rem 0 .75rem;border-bottom:1px solid var(--border);padding-bottom:.35rem}
+      h3{font-size:.95rem;color:var(--text);margin:1.5rem 0 .5rem}
+      .meta{color:var(--muted);font-size:.85rem;margin-bottom:2rem}
+      table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin:.5rem 0 1.5rem;font-size:.85rem}
+      th{background:#172033;color:var(--muted);padding:.65rem .8rem;text-align:left;font-weight:600}
+      td{padding:.6rem .8rem;border-top:1px solid var(--border);vertical-align:top}
+      .badge{display:inline-block;padding:.2rem .55rem;border-radius:4px;font-size:.75rem;font-weight:700}
+      .buy{background:#1a3d24;color:#86efac}.sell{background:#3d1a1a;color:#fca5a5}.hold{background:#2e2a14;color:#fde68a}
+      .ok{background:#1a3d24;color:#86efac}.warn{background:#2e2a14;color:#fde68a}.neutral{background:#172033;color:var(--muted)}
+      .ar{direction:rtl;unicode-bidi:embed;text-align:right;font-size:.9rem}
+      .num{text-align:right;font-variant-numeric:tabular-nums}
+      .section{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:1.25rem;margin-bottom:1.5rem}
+      p{margin:.3rem 0;color:var(--muted);font-size:.88rem}
+      .empty{color:var(--muted);font-style:italic;font-size:.85rem}
+    </style>"""
+
+    def e(text: object) -> str:
+        return escape(str(text) if text is not None else "")
+
+    def badge(signal: str) -> str:
+        cls = {"BUY": "buy", "SELL": "sell", "HOLD": "hold"}.get(str(signal).upper(), "neutral")
+        return f'<span class="badge {cls}">{e(signal)}</span>'
+
+    def status_badge(status: str) -> str:
+        cls = {"recommendations_found": "ok", "stock_codes_found": "ok",
+               "stock_related_no_recommendations": "warn", "not_stock_related": "neutral",
+               "no_recent_messages": "neutral"}.get(status, "neutral")
+        return f'<span class="badge {cls}">{e(status.replace("_", " "))}</span>'
+
+    sections: list[str] = []
+
+    # ── header ────────────────────────────────────────────────────────────────
+    sections.append(
+        f'<h1>EGX Intelligence Report</h1>'
+        f'<p class="meta">Generated {generated_at:%Y-%m-%d %H:%M UTC} &nbsp;·&nbsp; '
+        f'Mode: {e(report_mode)} &nbsp;·&nbsp; '
+        f'Messages: {len(message_rows)} &nbsp;·&nbsp; '
+        f'Recommendations: {len(recommendation_rows)}</p>'
+    )
+
+    # ── channel relevance ─────────────────────────────────────────────────────
+    sections.append('<h2>Channel relevance</h2><table><thead><tr>'
+                    '<th>Channel</th><th>Status</th><th>Messages</th>'
+                    '<th>Recommendations</th><th>Stock codes</th></tr></thead><tbody>')
+    for item in channel_results:
+        sections.append(
+            f'<tr><td>{e(item["channel"])}</td>'
+            f'<td>{status_badge(item["status"])}</td>'
+            f'<td class="num">{e(item["messages"])}</td>'
+            f'<td class="num">{e(item["recommendations"])}</td>'
+            f'<td class="num">{e(item["stock_codes"])}</td></tr>'
+        )
+    sections.append('</tbody></table>')
+
+    # ── Qwen consolidated analysis ────────────────────────────────────────────
+    if consolidated_source is not None:
+        period = consolidated_source.get("analysis_period") or report_mode
+        sections.append(f'<h2>Qwen consolidated analysis</h2>'
+                        f'<p>Analysis period: <strong>{e(period)}</strong></p>')
+
+        recs = consolidated_source.get("top_consolidated_recommendations", [])
+        if recs:
+            sections.append(
+                '<table><thead><tr>'
+                '<th>Rank</th><th>Code</th><th>Company (EN)</th><th>Company (AR)</th>'
+                '<th class="num">Mentions</th><th>Status</th><th>Source</th>'
+                '<th class="num">Buy</th><th class="num">Target 1</th>'
+                '<th class="num">Target 2</th><th class="num">Stop loss</th>'
+                '<th class="num">Return %</th><th class="num">Risk %</th>'
+                '</tr></thead><tbody>'
+            )
+            for item in recs:
+                if not isinstance(item, dict):
+                    continue
+                points = item.get("data_points") if isinstance(item.get("data_points"), list) else [{}]
+                row_status = str(item.get("status") or "")
+                for point in (points or [{}]):
+                    point = point if isinstance(point, dict) else {}
+                    sections.append(
+                        f'<tr>'
+                        f'<td class="num">{e(item.get("rank", "-"))}</td>'
+                        f'<td><strong>{e(item.get("stock_code", "-"))}</strong></td>'
+                        f'<td>{e(item.get("stock_name_en", "-"))}</td>'
+                        f'<td class="ar">{e(item.get("stock_name_ar", ""))}</td>'
+                        f'<td class="num">{e(item.get("mention_count", 0))}</td>'
+                        f'<td>{badge(row_status if row_status else "HOLD")}</td>'
+                        f'<td>{e(point.get("source", "-"))}</td>'
+                        f'<td class="num">{e(point.get("buy_price", "-"))}</td>'
+                        f'<td class="num">{e(point.get("target_1", "-"))}</td>'
+                        f'<td class="num">{e(point.get("target_2", "-"))}</td>'
+                        f'<td class="num">{e(point.get("stop_loss", "-"))}</td>'
+                        f'<td class="num">{e(point.get("expected_return_pct", "-"))}</td>'
+                        f'<td class="num">{e(point.get("risk_pct", "-"))}</td>'
+                        f'</tr>'
+                    )
+                summary_ar = item.get("analysis_summary_ar")
+                if summary_ar:
+                    sections.append(
+                        f'<tr><td colspan="13" class="ar" style="color:#94a3b8;font-size:.82rem">'
+                        f'{e(summary_ar)}</td></tr>'
+                    )
+            sections.append('</tbody></table>')
+
+        achieved = consolidated_source.get("achieved_targets", [])
+        if achieved:
+            sections.append('<h3>Achieved targets</h3>'
+                            '<table><thead><tr><th>Code</th><th>Company (EN)</th>'
+                            '<th>Status (AR)</th><th>Date</th><th>Source</th></tr></thead><tbody>')
+            for item in achieved:
+                if not isinstance(item, dict):
+                    continue
+                sections.append(
+                    f'<tr>'
+                    f'<td><strong>{e(item.get("stock_code", "-"))}</strong></td>'
+                    f'<td>{e(item.get("stock_name_en", "-"))}</td>'
+                    f'<td class="ar">{e(item.get("status_ar", ""))}</td>'
+                    f'<td>{e(item.get("date", "-"))}</td>'
+                    f'<td>{e(item.get("source", "-"))}</td>'
+                    f'</tr>'
+                )
+            sections.append('</tbody></table>')
+
+        categories = consolidated_source.get("text_based_categories")
+        if isinstance(categories, dict):
+            sections.append('<h3>Text-based categories</h3><div class="section">')
+            for cat_name, cat_stocks in categories.items():
+                label = cat_name.replace("_", " ").title()
+                sections.append(f'<p><strong>{e(label)}:</strong> {e(_category_labels(cat_stocks))}</p>')
+            sections.append('</div>')
+
+        daily = consolidated_source.get("daily_breakdown")
+        if isinstance(daily, dict):
+            sections.append('<h3>Daily breakdown</h3>'
+                            '<table><thead><tr><th>Date</th><th class="num">Total mentions</th>'
+                            '<th>Top stock</th></tr></thead><tbody>')
+            for day, vals in sorted(daily.items()):
+                vals = vals if isinstance(vals, dict) else {}
+                sections.append(
+                    f'<tr><td>{e(day)}</td>'
+                    f'<td class="num">{e(vals.get("total_mentions", 0))}</td>'
+                    f'<td>{e(vals.get("top_stock_of_day", "-"))}</td></tr>'
+                )
+            sections.append('</tbody></table>')
+
+    # ── EGX code details ──────────────────────────────────────────────────────
+    sections.append('<h2>EGX code details by channel</h2>')
+    if stock_code_details:
+        sections.append(
+            '<table><thead><tr>'
+            '<th>Code</th><th>Company</th><th>Channel</th>'
+            '<th class="num">Occurrences</th><th>Extracted details</th>'
+            '</tr></thead><tbody>'
+        )
+        for item in stock_code_details:
+            detail_text = "; ".join(
+                ", ".join(f"{k}={v}" for k, v in d.items()) for d in item["details"]
+            ) or "—"
+            sections.append(
+                f'<tr>'
+                f'<td><strong>{e(item["ticker"])}</strong></td>'
+                f'<td>{e(item["company"])}</td>'
+                f'<td>{e(item["channel"])}</td>'
+                f'<td class="num">{e(item["occurrences"])}</td>'
+                f'<td style="font-size:.78rem;color:#94a3b8">{e(detail_text)}</td>'
+                f'</tr>'
+            )
+        sections.append('</tbody></table>')
+    else:
+        sections.append('<p class="empty">No EGX codes were found in this analysis window.</p>')
+
+    # ── consensus suggestions ─────────────────────────────────────────────────
+    sections.append('<h2>Consolidated suggestions</h2>')
+    if consensus:
+        sections.append(
+            '<table><thead><tr>'
+            '<th>Code</th><th>Company</th><th>Signal</th>'
+            '<th class="num">Channels</th><th class="num">Confidence</th>'
+            '<th class="num">Entry</th><th class="num">TP1</th>'
+            '<th class="num">TP2</th><th class="num">Stop</th>'
+            '</tr></thead><tbody>'
+        )
+        for item in consensus:
+            sections.append(
+                f'<tr>'
+                f'<td><strong>{e(item["ticker"])}</strong></td>'
+                f'<td>{e(item["company"])}</td>'
+                f'<td>{badge(item["signal"])}</td>'
+                f'<td class="num">{e(item["channel_count"])}</td>'
+                f'<td class="num">{item["confidence"]:.0%}</td>'
+                f'<td class="num">{e(item["entry"] or "-")}</td>'
+                f'<td class="num">{e(item["tp1"] or "-")}</td>'
+                f'<td class="num">{e(item["tp2"] or "-")}</td>'
+                f'<td class="num">{e(item["stop"] or "-")}</td>'
+                f'</tr>'
+            )
+        sections.append('</tbody></table>')
+    else:
+        sections.append('<p class="empty">No stock recommendations were detected in this analysis window.</p>')
+
+    body = "\n".join(sections)
+    return (
+        f'<!doctype html><html lang="en"><head>'
+        f'<meta charset="UTF-8">'
+        f'<meta name="viewport" content="width=device-width,initial-scale=1">'
+        f'<title>EGX Intelligence Report {generated_at:%Y-%m-%d}</title>'
+        f'{css}</head><body>{body}</body></html>'
+    )
+

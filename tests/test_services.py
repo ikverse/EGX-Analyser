@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import asyncio
 import io
 import json
 import os
@@ -302,3 +303,25 @@ async def test_stock_repository_persists_learned_ticker_name_mapping(session):
     assert stock.id == same_stock.id
     assert same_stock.name_en == "Commercial International Bank"
     assert "البنك التجاري الدولي" in same_stock.aliases
+
+
+async def test_collection_lock_returns_409(monkeypatch):
+    """A manual collection request while the background lock is held must get 409."""
+    from app import api as api_module
+    from app.runtime import LocalRuntime
+
+    locked_runtime = LocalRuntime()
+    # Acquire the lock so collect_once raises immediately.
+    await locked_runtime._collection_lock.acquire()
+
+    monkeypatch.setattr(api_module, "runtime", locked_runtime, raising=False)
+    # Patch the module-level import used inside run_collection.
+    import app.main as main_module
+    monkeypatch.setattr(main_module, "runtime", locked_runtime)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await api_module.run_collection()
+
+    assert exc_info.value.status_code == 409
+    assert "already running" in exc_info.value.detail.lower()
+    locked_runtime._collection_lock.release()

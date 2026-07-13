@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import asynccontextmanager
 import time
 import uuid
 import structlog
@@ -13,7 +14,21 @@ from app.runtime import LocalRuntime
 
 structlog.configure(processors=[structlog.processors.TimeStamper(fmt="iso"), structlog.processors.JSONRenderer()])
 diagnostic_log = configure_diagnostics()
-app = FastAPI(title="EGX Stock Intelligence", version="0.1.0")
+runtime = LocalRuntime()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_database()
+    logger().info("local_engine_started")
+    await runtime.start()
+    asyncio.create_task(refresh_content_updates())
+    yield
+    logger().info("local_engine_stopped")
+    await runtime.stop()
+
+
+app = FastAPI(title="EGX Stock Intelligence", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://tauri.localhost", "https://tauri.localhost"],
@@ -46,24 +61,9 @@ async def record_api_request(request, call_next):
     return response
 
 
-@app.on_event("startup")
-async def startup() -> None:
-    await init_database()
-    logger().info("local_engine_started")
-    await runtime.start()
-    asyncio.create_task(refresh_content_updates())
-
-
-@app.on_event("shutdown")
-async def shutdown() -> None:
-    logger().info("local_engine_stopped")
-    await runtime.stop()
-
-
 async def refresh_content_updates() -> None:
     try:
         result = await ContentUpdateService(get_settings()).check_and_apply()
         logger().info("content_update_checked", **result)
     except ContentUpdateError as error:
         logger().warning("content_update_check_failed", error=str(error))
-runtime = LocalRuntime()
