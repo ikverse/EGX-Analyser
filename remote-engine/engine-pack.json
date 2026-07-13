@@ -1,6 +1,6 @@
 {
-  "version": "1.0.5",
+  "version": "1.0.6",
   "archive_url": "https://raw.githubusercontent.com/ikverse/EGX-Analyser/main/remote-engine/engine-pack.zip",
-  "sha256": "924290e8be447c677cfe38508a9a05a51dac33b347934e92157d1b6728d37fa5",
-  "signature": "0e4YkKHSl/IgQB70kRSG+UjCZnkqY8RKf5r6NRDRkwKCkqALFMsv4tFg3DjkllQ2fvrycLDxbeYVxTbLvN7CCw=="
+  "sha256": "038dd8ae6eff8ef4a40a62934954ad2b6efe4df33db0c3c89c6551caafa2247e",
+  "signature": "MayhL567Zvo2M8ikixt65h8azFTD98GNGTJPZCiHSomYw4sVi5SB4kgqVuOIsJO/WQHvSfUBo20azlW8TrS+Cg=="
 }
