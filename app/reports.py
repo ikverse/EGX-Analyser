@@ -105,20 +105,35 @@ class ReportService:
             mention_counts[message.channel_id] = mention_counts.get(message.channel_id, 0) + 1
             ticker_groups.setdefault(mention.ticker_raw.upper(), []).append((mention, message, channel, stock))
         stock_code_summary = []
+        stock_code_details = []
         for ticker, items in ticker_groups.items():
             names = [stock.name_en for _, _, _, stock in items if stock and stock.name_en]
             names += [mention.company_name_raw for mention, _, _, _ in items if mention.company_name_raw]
+            company = names[0] if names else ticker
             channel_counts: dict[str, int] = {}
             data_samples = []
+            details_by_channel: dict[str, list[StockMention]] = {}
             for mention, _, channel, _ in items:
                 channel_name = channel.title or channel.handle
                 channel_counts[channel_name] = channel_counts.get(channel_name, 0) + 1
+                details_by_channel.setdefault(channel_name, []).append(mention)
                 if mention.table_data and len(data_samples) < 3:
                     data_samples.append({"channel": channel_name, "data": mention.table_data, "context": mention.context})
-            stock_code_summary.append({"ticker": ticker, "company": names[0] if names else ticker,
+            stock_code_summary.append({"ticker": ticker, "company": company,
                                        "occurrences": len(items), "by_chat": channel_counts,
                                        "data_samples": data_samples})
+            for channel_name, mentions in details_by_channel.items():
+                details = []
+                for mention in mentions:
+                    detail = {str(key): str(value) for key, value in (mention.table_data or {}).items()}
+                    if mention.context:
+                        detail["context"] = mention.context
+                    if detail:
+                        details.append(detail)
+                stock_code_details.append({"ticker": ticker, "company": company, "channel": channel_name,
+                                           "occurrences": len(mentions), "details": details})
         stock_code_summary.sort(key=lambda item: (-item["occurrences"], item["ticker"]))
+        stock_code_details.sort(key=lambda item: (item["ticker"], item["channel"]))
         channel_results = []
         for channel in channels:
             texts = texts_by_channel.get(channel.id, [])
@@ -140,14 +155,14 @@ class ReportService:
             f"- Recommendations: {len(recommendation_rows)}", "", "## Chat relevance",
         ]
         lines += [f"- {item['channel']}: {item['status']} | Messages {item['messages']} | Recommendations {item['recommendations']}" for item in channel_results]
-        lines += ["", "## EGX codes found", "| Code | Company | Occurrences | Per chat | Table/chat data |", "| --- | --- | ---: | --- | --- |"]
-        for item in stock_code_summary:
-            per_chat = ", ".join(f"{name}: {count}" for name, count in item["by_chat"].items())
-            samples = "; ".join(
-                f"{sample['channel']}: " + ", ".join(f"{key}={value}" for key, value in sample["data"].items())
-                for sample in item["data_samples"]
+        lines += ["", "## EGX code details by channel", "| Code | Company | Channel | Occurrences | Extracted chat/table details |", "| --- | --- | --- | ---: | --- |"]
+        for item in stock_code_details:
+            details = "; ".join(
+                ", ".join(f"{key}={value}" for key, value in detail.items()) for detail in item["details"]
             ) or "-"
-            lines.append(f"| {item['ticker']} | {item['company']} | {item['occurrences']} | {per_chat} | {samples} |")
+            lines.append(f"| {item['ticker']} | {item['company']} | {item['channel']} | {item['occurrences']} | {details} |")
+        if not stock_code_details:
+            lines.append("| - | - | - | 0 | No EGX codes were found in this analysis window. |")
         lines += ["", "## Consolidated suggestions"]
         for item in consensus:
             lines += [
@@ -174,7 +189,7 @@ class ReportService:
         report = Report(markdown_path=str(markdown_path), html_path=str(html_path), pdf_path=str(pdf_path), summary={
             "mode": report_mode, "consensus": consensus, "message_count": len(message_rows),
             "recommendation_count": len(recommendation_rows), "channel_results": channel_results,
-            "stock_code_summary": stock_code_summary,
+            "stock_code_summary": stock_code_summary, "stock_code_details": stock_code_details,
         })
         self.session.add(report)
         await self.session.flush()

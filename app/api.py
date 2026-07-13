@@ -70,7 +70,8 @@ async def settings_status() -> dict[str, object]:
             "ai_provider": settings.ai_provider,
             "telegram_configured": bool(settings.telegram_api_id and settings.telegram_api_hash),
             "telegram_authorized": Path(session_path).exists(),
-            "openai_model": settings.openai_model, "telegram_session": settings.telegram_session}
+            "openai_model": settings.openai_model, "telegram_session": settings.telegram_session,
+            "analysis_instructions": settings.analysis_instructions}
 
 
 @router.get("/models")
@@ -215,6 +216,7 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
                 "report": {"id": report.id, "markdown_path": report.markdown_path, "html_path": report.html_path,
                            "pdf_path": report.pdf_path}, "channel_results": channel_results,
                 "stock_code_summary": report.summary["stock_code_summary"],
+                "stock_code_details": report.summary["stock_code_details"],
                 "trace": trace,
                 "not_stock_related": [item["channel"] for item in channel_results if item["status"] == "not_stock_related"]}
     except BadRequestError as error:

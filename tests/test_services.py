@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app import api
 from app.models import Base, Image, Recommendation, StockMention
 from app.schemas import AnalysisResult, ExtractedRecommendation, ExtractedStockMention, MessageCreate, TelegramChatSelect
-from app.ai.service import analysis_output_schema
+from app.ai.service import _analysis_result_from_payload, analysis_output_schema
 from app.services import AnalyticsService, MessageService, SearchService
 from app.config_store import load_secrets_into_environment, update_config
 from app.content_updates import ContentUpdateService, generate_seed, public_key_from_seed, sign_bytes, verify_bytes
@@ -105,6 +105,8 @@ async def test_stock_code_only_analysis_is_not_repeated(session):
     await service.analyze(message)
     await service.analyze(message)
     assert analyzer.calls == 1
+    await service.analyze(message, force=True)
+    assert analyzer.calls == 2
     assert len((await session.scalars(StockMention.__table__.select())).all()) == 1
 
 
@@ -112,11 +114,13 @@ def test_local_settings_encrypt_secrets(monkeypatch, tmp_path):
     config_file = tmp_path / ".env"
     monkeypatch.setenv("EGX_CONFIG_FILE", str(config_file))
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    update_config({"OPENAI_API_KEY": "test-secret", "OPENAI_MODEL": "gpt-5.5"})
+    update_config({"OPENAI_API_KEY": "test-secret", "OPENAI_MODEL": "gpt-5.5",
+                   "ANALYSIS_INSTRUCTIONS": "Prioritize EGX tables.\nKeep channel context."})
     assert "test-secret" not in config_file.read_text(encoding="utf-8")
     assert (tmp_path / "secrets.json").exists()
     load_secrets_into_environment()
     assert os.environ["OPENAI_API_KEY"] == "test-secret"
+    assert os.environ["ANALYSIS_INSTRUCTIONS"] == "Prioritize EGX tables.\nKeep channel context."
 
 
 @pytest.mark.asyncio
@@ -156,6 +160,18 @@ def test_analysis_output_schema_is_strict_for_openai():
     recommendation = schema["$defs"]["ExtractedRecommendation"]
     assert recommendation["additionalProperties"] is False
     assert set(recommendation["required"]) == set(recommendation["properties"])
+
+
+def test_analysis_result_normalizes_common_model_field_aliases():
+    result = _analysis_result_from_payload({
+        "recommendations": [{"code": "COMI", "company": "CIB", "action": "buy", "tp1": "100", "confidence": "0.9"}],
+        "stock_mentions": [{"code": "COMI", "company": "CIB", "table_data": {"entry": 92}}],
+        "image_observations": ["Bullish chart"],
+    })
+    assert result.recommendations[0].ticker == "COMI"
+    assert result.recommendations[0].signal.value == "BUY"
+    assert result.recommendations[0].target == 100.0
+    assert result.stock_mentions[0].ticker == "COMI"
 
 
 def test_content_pack_signature_matches_ed25519_reference_vector():
@@ -233,6 +249,9 @@ async def test_selected_chat_report_marks_non_stock_context(session, tmp_path):
     assert statuses["general"] == "not_stock_related"
     assert report.summary["stock_code_summary"][0]["ticker"] == "CIB"
     assert report.summary["stock_code_summary"][0]["by_chat"]["stocks"] == 1
+    details = report.summary["stock_code_details"]
+    assert details == [{"ticker": "CIB", "company": "Commercial International Bank", "channel": "stocks",
+                        "occurrences": 1, "details": [{"price": "92.5", "target": "100", "context": "CIB row"}]}]
 
 
 async def test_analysis_trace_saves_message_text_and_images(session, tmp_path):

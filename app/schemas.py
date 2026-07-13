@@ -82,6 +82,7 @@ class SettingsUpdate(BaseModel):
     qwen_base_url: str | None = Field(default=None, pattern="^https://.+")
     ai_provider: str | None = Field(default=None, pattern="^(qwen|openrouter|huggingface|openai)$")
     openai_model: str | None = None
+    analysis_instructions: str | None = Field(default=None, max_length=8000)
     telegram_api_id: int | None = None
     telegram_api_hash: str | None = None
     telegram_session: str | None = None

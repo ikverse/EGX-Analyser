@@ -10,6 +10,7 @@ SECRET_KEYS = {
     "HUGGINGFACE_API_KEY",
     "QWEN_API_KEY",
     "TELEGRAM_API_HASH",
+    "ANALYSIS_INSTRUCTIONS",
 }
 
 
@@ -77,6 +78,9 @@ def update_config(values: dict[str, str]) -> None:
     encrypted: dict[str, str] = json.loads(secret_file.read_text(encoding="utf-8")) if secret_file.exists() else {}
     for key, value in values.items():
         if not value:
+            if key == "ANALYSIS_INSTRUCTIONS":
+                encrypted.pop(key, None)
+                os.environ.pop(key, None)
             continue
         if key in SECRET_KEYS:
             encrypted[key] = _protect(value)

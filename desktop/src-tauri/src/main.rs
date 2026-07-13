@@ -80,6 +80,8 @@ fn promote_pending_engine() {
 }
 
 fn start_local_engine(app: &tauri::App) -> Result<EngineChild, Box<dyn std::error::Error>> {
+    #[cfg(windows)]
+    terminate_orphaned_engines();
     promote_pending_engine();
     let patched_engine = engine_update_root().join("current").join("egx-intelligence-api.exe");
     if patched_engine.is_file() {

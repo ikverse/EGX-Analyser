@@ -31,7 +31,12 @@ class TelegramCollector:
                            since: datetime | None = None) -> dict[str, int]:
         if not self.settings.telegram_api_id or not self.settings.telegram_api_hash:
             raise RuntimeError("Telegram credentials are required")
-        summary = {"messages_in_window": 0, "messages_analyzed": 0, "messages_already_saved": 0}
+        summary = {
+            "messages_in_window": 0,
+            "messages_analyzed": 0,
+            "messages_reanalyzed": 0,
+            "messages_already_saved": 0,
+        }
         async with TelegramClient(self.settings.telegram_session, self.settings.telegram_api_id, self.settings.telegram_api_hash) as client:
             cutoff = since.astimezone(timezone.utc) if since is not None else None
             for handle in channel_handles if channel_handles is not None else self.settings.channels:
@@ -81,9 +86,13 @@ class TelegramCollector:
                                 except RuntimeError:
                                     media.transcript = None
                                 media.processed_at = remote.date.astimezone(timezone.utc)
-                    if service.analyzer is not None and message.processed_at is None:
-                        await service.analyze(message)
+                    force_reanalysis = cutoff is not None
+                    if service.analyzer is not None and (force_reanalysis or message.processed_at is None):
+                        was_previously_analyzed = message.processed_at is not None
+                        await service.analyze(message, force=force_reanalysis)
                         summary["messages_analyzed"] += 1
+                        if was_previously_analyzed:
+                            summary["messages_reanalyzed"] += 1
                     else:
                         summary["messages_already_saved"] += 1
                 if channel and latest_message_id > min_id:

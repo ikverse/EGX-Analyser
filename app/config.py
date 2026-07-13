@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     engine_version: str = "1.0.0"
     ai_provider: str = ""
     openai_model: str = "openrouter/free"
+    analysis_instructions: str = ""
     telegram_api_id: int | None = None
     telegram_api_hash: str | None = None
     telegram_session: str = "egx_collector"

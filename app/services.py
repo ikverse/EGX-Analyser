@@ -26,7 +26,7 @@ class MessageService:
         await self.session.flush()
         return message
 
-    async def analyze(self, message: Message) -> list[Recommendation]:
+    async def analyze(self, message: Message, force: bool = False) -> list[Recommendation]:
         if self.analyzer is None:
             raise RuntimeError("AI analysis service is unavailable")
         existing = (await self.session.scalars(
@@ -35,7 +35,7 @@ class MessageService:
         existing_mentions = (await self.session.scalars(
             select(StockMention).where(StockMention.message_id == message.id)
         )).all()
-        if message.processed_at and (existing or existing_mentions):
+        if not force and message.processed_at and (existing or existing_mentions):
             return list(existing)
         images = (await self.session.scalars(
             select(Image).where(Image.message_id == message.id)

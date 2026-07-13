@@ -15,6 +15,15 @@ log = structlog.get_logger()
 MAX_SELECTED_ANALYSIS_LOOKBACK_DAYS = 5
 
 
+def empty_collection_summary() -> dict[str, int]:
+    return {
+        "messages_in_window": 0,
+        "messages_analyzed": 0,
+        "messages_reanalyzed": 0,
+        "messages_already_saved": 0,
+    }
+
+
 class LocalRuntime:
     def __init__(self) -> None:
         self._task: asyncio.Task[None] | None = None
@@ -39,18 +48,18 @@ class LocalRuntime:
     async def _collect_once(self, channel_ids: list[int] | None = None, since: datetime | None = None) -> dict[str, int]:
         settings = get_settings()
         if not settings.telegram_api_id or not settings.telegram_api_hash:
-            return {"messages_in_window": 0, "messages_analyzed": 0, "messages_already_saved": 0}
+            return empty_collection_summary()
         async with SessionLocal() as session:
             statement = select(Channel)
             if channel_ids is not None:
                 if not channel_ids:
-                    return {"messages_in_window": 0, "messages_analyzed": 0, "messages_already_saved": 0}
+                    return empty_collection_summary()
                 statement = statement.where(Channel.id.in_(channel_ids))
             else:
                 statement = statement.where(Channel.active.is_(True))
             active = [channel.handle for channel in (await session.scalars(statement)).all()]
             if not active:
-                return {"messages_in_window": 0, "messages_analyzed": 0, "messages_already_saved": 0}
+                return empty_collection_summary()
             analyzer = AIAnalysisService(settings) if settings.ai_api_key else None
             count = await TelegramCollector(settings).collect_once(MessageService(session, analyzer), active, since)
             await session.commit()
