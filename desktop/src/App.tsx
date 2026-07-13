@@ -209,7 +209,7 @@ export default function App() {
           {page === "Channels" && <Channels channels={channels} api={api} refresh={refresh} notify={notify} showError={showError} />}
           {page === "Recommendations" && <Recommendations rows={rows} />}
           {page === "Reports" && <Reports api={api} rows={rows} setRows={setRows} notify={notify} showError={showError} />}
-          {page === "Search" && <Search api={api} onResult={setRows} showError={showError} />}
+          {page === "Search" && <Search api={api} onResult={setRows} notify={notify} showError={showError} />}
           {page === "Settings" && (
             <CloudSettings
               api={api}
