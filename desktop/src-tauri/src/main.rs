@@ -21,6 +21,16 @@ fn restart_app(app: tauri::AppHandle) {
     app.restart();
 }
 
+#[cfg(windows)]
+fn terminate_orphaned_engines() {
+    for image_name in ["egx-intelligence-api.exe", "egx-intelligence-api-x86_64-pc-windows-msvc.exe"] {
+        let _ = std::process::Command::new("taskkill")
+            .args(["/IM", image_name, "/T", "/F"])
+            .creation_flags(0x0800_0000)
+            .status();
+    }
+}
+
 fn stop_local_engine(app: &tauri::AppHandle) {
     let engine = app.state::<LocalEngine>();
     let child = {
@@ -44,6 +54,8 @@ fn stop_local_engine(app: &tauri::AppHandle) {
             EngineChild::Patched(mut process) => { let _ = process.kill(); }
         }
     }
+    #[cfg(windows)]
+    terminate_orphaned_engines();
 }
 
 fn engine_update_root() -> PathBuf {
