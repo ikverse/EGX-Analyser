@@ -15,6 +15,7 @@ from app.config_store import load_secrets_into_environment, update_config
 from app.content_updates import ContentUpdateService, generate_seed, public_key_from_seed, sign_bytes, verify_bytes
 from app.engine_updates import EngineUpdateService
 from app.telegram_auth import TelegramAuthenticator
+from app.runtime import selected_analysis_start
 
 
 class FakeAnalyzer:
@@ -171,3 +172,8 @@ def test_engine_patch_stages_only_the_sidecar(tmp_path):
 
     assert (manager.pending / "egx-intelligence-api.exe").read_bytes() == b"engine"
     assert (manager.pending / ".version").read_text(encoding="utf-8") == "1.0.1"
+
+
+def test_selected_analysis_starts_three_days_before_request():
+    requested_at = datetime(2026, 7, 13, 12, tzinfo=timezone.utc)
+    assert selected_analysis_start(requested_at) == datetime(2026, 7, 10, 12, tzinfo=timezone.utc)

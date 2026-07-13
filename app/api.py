@@ -195,8 +195,11 @@ async def run_collection() -> dict:
 @router.post("/collection/analyze-selected")
 async def analyze_selected_channels(payload: CollectionRequest) -> dict:
     from app.main import runtime
+    from app.runtime import selected_analysis_start
+    window_start = selected_analysis_start()
     try:
-        return {"messages_collected": await runtime.collect_once(payload.channel_ids)}
+        return {"messages_collected": await runtime.collect_once(payload.channel_ids, since=window_start),
+                "window_start": window_start, "lookback_days": 3}
     except BadRequestError as error:
         raise HTTPException(400, f"The selected AI provider rejected the analysis request: {error}") from error
 

@@ -34,7 +34,7 @@ def read_seed() -> bytes:
 
 def build(version: str) -> None:
     subprocess.run([
-        sys.executable, "-m", "PyInstaller", "--noconfirm", "--onefile", "--windowed",
+        sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onefile", "--windowed",
         "--name", "egx-intelligence-api", "--paths", str(ROOT),
         "--add-data", f"{ROOT / 'app' / 'content_pack_public_key.txt'};app",
         "--add-data", f"{ROOT / 'app' / 'ai' / 'prompts'};app/ai/prompts",

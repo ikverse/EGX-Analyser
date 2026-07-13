@@ -11,20 +11,26 @@ from app.services import MessageService
 class TelegramCollector:
     def __init__(self, settings: Settings) -> None: self.settings = settings
 
-    async def collect_once(self, service: MessageService, channel_handles: list[str] | None = None) -> int:
+    async def collect_once(self, service: MessageService, channel_handles: list[str] | None = None,
+                           since: datetime | None = None) -> int:
         if not self.settings.telegram_api_id or not self.settings.telegram_api_hash:
             raise RuntimeError("Telegram credentials are required")
         count = 0
         async with TelegramClient(self.settings.telegram_session, self.settings.telegram_api_id, self.settings.telegram_api_hash) as client:
+            cutoff = since.astimezone(timezone.utc) if since is not None else None
             for handle in channel_handles if channel_handles is not None else self.settings.channels:
                 channel = await service.session.scalar(select(Channel).where(Channel.handle == handle.lower().lstrip("@")))
                 entity_reference: str | int = int(handle) if handle.lstrip("-").isdigit() else handle
                 entity = await client.get_entity(entity_reference)
                 min_id = channel.last_collected_message_id if channel and channel.last_collected_message_id else 0
-                async for remote in client.iter_messages(entity, limit=250, min_id=min_id, reverse=True):
+                latest_message_id = min_id
+                async for remote in client.iter_messages(entity, limit=None if cutoff else 250, min_id=min_id):
                     if not remote.date: continue
+                    published_at = remote.date.astimezone(timezone.utc)
+                    if cutoff is not None and published_at < cutoff:
+                        break
                     message = await service.ingest(MessageCreate(channel_handle=handle, telegram_message_id=remote.id,
-                        published_at=remote.date.astimezone(timezone.utc), text=remote.message or "", views=remote.views))
+                        published_at=published_at, text=remote.message or "", views=remote.views))
                     if isinstance(remote.media, MessageMediaPhoto):
                         folder = self.settings.storage_root / "images" / handle / remote.date.strftime("%Y/%m/%d")
                         folder.mkdir(parents=True, exist_ok=True)
@@ -56,7 +62,9 @@ class TelegramCollector:
                     if service.analyzer is not None and message.processed_at is None:
                         await service.analyze(message)
                     if channel:
-                        channel.last_collected_message_id = remote.id
-                        channel.last_collected_at = datetime.now(timezone.utc)
+                        latest_message_id = max(latest_message_id, remote.id)
                     count += 1
+                if channel and latest_message_id > min_id:
+                    channel.last_collected_message_id = latest_message_id
+                    channel.last_collected_at = datetime.now(timezone.utc)
         return count

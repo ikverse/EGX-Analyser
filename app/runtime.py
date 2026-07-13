@@ -1,6 +1,7 @@
 """Local background work used by the standalone desktop application."""
 import asyncio
 from contextlib import suppress
+from datetime import datetime, timedelta, timezone
 import structlog
 from sqlalchemy import select
 from app.ai.service import AIAnalysisService
@@ -11,6 +12,7 @@ from app.models import Channel
 from app.services import MessageService
 
 log = structlog.get_logger()
+SELECTED_ANALYSIS_LOOKBACK = timedelta(days=3)
 
 
 class LocalRuntime:
@@ -28,13 +30,13 @@ class LocalRuntime:
         with suppress(asyncio.CancelledError):
             await self._task
 
-    async def collect_once(self, channel_ids: list[int] | None = None) -> int:
+    async def collect_once(self, channel_ids: list[int] | None = None, since: datetime | None = None) -> int:
         if self._collection_lock.locked():
             raise RuntimeError("A Telegram collection is already running")
         async with self._collection_lock:
-            return await self._collect_once(channel_ids)
+            return await self._collect_once(channel_ids, since)
 
-    async def _collect_once(self, channel_ids: list[int] | None = None) -> int:
+    async def _collect_once(self, channel_ids: list[int] | None = None, since: datetime | None = None) -> int:
         settings = get_settings()
         if not settings.telegram_api_id or not settings.telegram_api_hash:
             return 0
@@ -50,7 +52,7 @@ class LocalRuntime:
             if not active:
                 return 0
             analyzer = AIAnalysisService(settings) if settings.ai_api_key else None
-            count = await TelegramCollector(settings).collect_once(MessageService(session, analyzer), active)
+            count = await TelegramCollector(settings).collect_once(MessageService(session, analyzer), active, since)
             await session.commit()
             return count
 
@@ -63,3 +65,7 @@ class LocalRuntime:
             except Exception as error:
                 log.exception("telegram_collection_failed", error=str(error))
             await asyncio.sleep(60)
+
+
+def selected_analysis_start(now: datetime | None = None) -> datetime:
+    return (now or datetime.now(timezone.utc)) - SELECTED_ANALYSIS_LOOKBACK
