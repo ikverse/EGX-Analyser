@@ -19,7 +19,7 @@ async def _collect() -> int:
         active_channels = [channel.handle for channel in (await session.scalars(
             select(Channel).where(Channel.active.is_(True))
         )).all()]
-        analyzer = AIAnalysisService(settings) if settings.openai_api_key else None
+        analyzer = AIAnalysisService(settings) if settings.ai_api_key else None
         result = await TelegramCollector(settings).collect_once(
             MessageService(session, analyzer), active_channels or settings.channels
         )

@@ -2,18 +2,33 @@ from collections.abc import AsyncIterator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from app.config import get_settings
 
-settings = get_settings()
-engine = create_async_engine(settings.database_url, pool_pre_ping=True)
-SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
+
+_engine = None
+_session_factory = None
+
+
+def _engine_and_factory():
+    global _engine, _session_factory
+    if _engine is None:
+        _engine = create_async_engine(get_settings().database_url, pool_pre_ping=True)
+        _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
+    return _engine, _session_factory
+
+
+def SessionLocal():
+    _, factory = _engine_and_factory()
+    return factory()
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:
-    async with SessionLocal() as session:
+    _, factory = _engine_and_factory()
+    async with factory() as session:
         yield session
 
 
 async def init_database() -> None:
-    if not settings.database_url.startswith("sqlite"):
+    engine, _ = _engine_and_factory()
+    if not get_settings().database_url.startswith("sqlite"):
         return
     from app.models import Base
     async with engine.begin() as connection:

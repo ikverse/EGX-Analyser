@@ -313,44 +313,38 @@ function Reports({ api, rows, setRows, notify, showError }: {
 
       {typedRows.length === 0 && <p className="empty">No reports yet.</p>}
       {typedRows.map((report, i) => (
-        <div key={report.id ?? i} style={{ background: "#111c2e", border: "1px solid #26364d", borderRadius: "10px", padding: "1rem", marginTop: "1rem" }}>
-          <strong style={{ color: "#86efac" }}>
+        <div key={report.id ?? i} className="report-card">
+          <strong className="report-card-title">
             Report {report.date ? String(report.date).slice(0, 16).replace("T", " ") : `#${report.id}`}
           </strong>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: ".5rem", marginTop: ".75rem" }}>
+          <div className="report-links">
             {report.html_path && (
               <a href={`file:///${String(report.html_path).replace(/\\/g, "/")}`}
-                target="_blank" rel="noreferrer"
-                style={{ color: "#70c96a", fontSize: ".85rem" }}>
+                target="_blank" rel="noreferrer" className="report-link">
                 Open HTML report
               </a>
             )}
             {report.pdf_path && (
               <a href={`file:///${String(report.pdf_path).replace(/\\/g, "/")}`}
-                target="_blank" rel="noreferrer"
-                style={{ color: "#70c96a", fontSize: ".85rem", marginLeft: "1rem" }}>
+                target="_blank" rel="noreferrer" className="report-link">
                 Open PDF report
               </a>
             )}
             {report.summary && (report.summary as ReportRow["summary"])?.original_ai_response_pdf_path && (
               <a href={`file:///${String((report.summary as ReportRow["summary"])!.original_ai_response_pdf_path).replace(/\\/g, "/")}`}
-                target="_blank" rel="noreferrer"
-                style={{ color: "#94a3b8", fontSize: ".85rem", marginLeft: "1rem" }}>
+                target="_blank" rel="noreferrer" className="report-link muted">
                 Original AI response PDF
               </a>
             )}
             {report.summary && (report.summary as ReportRow["summary"])?.original_ai_response_text_path && (
               <a href={`file:///${String((report.summary as ReportRow["summary"])!.original_ai_response_text_path).replace(/\\/g, "/")}`}
-                target="_blank" rel="noreferrer"
-                style={{ color: "#94a3b8", fontSize: ".85rem", marginLeft: "1rem" }}>
+                target="_blank" rel="noreferrer" className="report-link muted">
                 Original AI response text
               </a>
             )}
           </div>
           {report.markdown_path && (
-            <p style={{ color: "#475569", fontSize: ".78rem", marginTop: ".4rem", wordBreak: "break-all" }}>
-              {String(report.markdown_path)}
-            </p>
+            <p className="report-path">{String(report.markdown_path)}</p>
           )}
         </div>
       ))}
@@ -549,9 +543,9 @@ function AnalysisResultTable({ summary, details, channelResults, reportHtmlPath,
   // Merge summary (has occurrences + company_ar) with details groups
   const stocks = summary.map((s) => ({ ...s, sources: byTicker.get(s.ticker) ?? [] }));
 
-  const fileLink = (path: string, label: string, color = "#70c96a") => (
+  const fileLink = (path: string, label: string, muted = false) => (
     <a href={`file:///${path.replace(/\\/g, "/")}`} target="_blank" rel="noreferrer"
-      style={{ color, fontSize: ".82rem", marginRight: "1.25rem", textDecoration: "none", borderBottom: `1px solid ${color}44` }}>
+      className={`analysis-file-link${muted ? " muted" : ""}`}>
       {label}
     </a>
   );
@@ -565,20 +559,20 @@ function AnalysisResultTable({ summary, details, channelResults, reportHtmlPath,
     <div style={{ marginTop: "1.5rem" }}>
 
       {/* ── report links ── */}
-      <div style={{ background: "#0f1e33", border: "1px solid #26364d", borderRadius: "10px", padding: "1rem 1.25rem", marginBottom: "1.25rem", display: "flex", flexWrap: "wrap", alignItems: "center", gap: ".5rem" }}>
-        <span style={{ color: "#94a3b8", fontSize: ".82rem", marginRight: ".5rem" }}>Reports:</span>
+      <div className="analysis-links-bar">
+        <span className="analysis-links-label">Reports:</span>
         {fileLink(reportHtmlPath, "HTML report")}
         {fileLink(reportPdfPath, "PDF report")}
-        {fileLink(aiResponsePdfPath, "Original AI response PDF", "#94a3b8")}
-        {fileLink(aiResponseTextPath, "Original AI response text", "#94a3b8")}
-        {fileLink(tracePath, "Analysis trace", "#94a3b8")}
+        {fileLink(aiResponsePdfPath, "Original AI response PDF", true)}
+        {fileLink(aiResponseTextPath, "Original AI response text", true)}
+        {fileLink(tracePath, "Analysis trace", true)}
       </div>
 
       {/* ── channel status ── */}
       {channelResults.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: ".5rem", marginBottom: "1.25rem" }}>
+        <div className="channel-status-bar">
           {channelResults.map((cr) => (
-            <span key={cr.channel} style={{ background: "#111c2e", border: "1px solid #26364d", borderRadius: "6px", padding: ".3rem .7rem", fontSize: ".78rem", color: statusColor[cr.status] ?? "#94a3b8" }}>
+            <span key={cr.channel} className="channel-status-chip" style={{ color: statusColor[cr.status] ?? "#94a3b8" }}>
               {cr.channel} · {cr.messages} msg · {cr.recommendations} rec · {cr.stock_codes} codes
             </span>
           ))}
@@ -594,24 +588,20 @@ function AnalysisResultTable({ summary, details, channelResults, reportHtmlPath,
       {stocks.map((stock) => {
         const open = expanded.has(stock.ticker);
         return (
-          <div key={stock.ticker} style={{ background: "#111c2e", border: "1px solid #26364d", borderRadius: "10px", marginBottom: ".85rem", overflow: "hidden" }}>
+          <div key={stock.ticker} className="stock-card">
 
             {/* card header — click to expand/collapse */}
-            <button
-              onClick={() => toggle(stock.ticker)}
-              style={{ width: "100%", background: "transparent", border: "none", padding: ".85rem 1.1rem", display: "flex", alignItems: "center", gap: ".75rem", cursor: "pointer", textAlign: "left" }}
-            >
-              <span style={{ color: "#94a3b8", fontSize: ".85rem", minWidth: "16px" }}>{open ? "▾" : "▸"}</span>
-              <span style={{ color: "#86efac", fontWeight: 700, fontSize: "1rem", minWidth: "56px" }}>{stock.ticker}</span>
-              <span style={{ color: "#e5e7eb", fontWeight: 600 }}>{stock.company}</span>
+            <button className="stock-card-header" onClick={() => toggle(stock.ticker)}>
+              <span className="stock-card-chevron">{open ? "▾" : "▸"}</span>
+              <span className="stock-card-ticker">{stock.ticker}</span>
+              <span className="stock-card-company">{stock.company}</span>
               {stock.company_ar && (
-                <span style={{ color: "#94a3b8", fontSize: ".9rem", direction: "rtl", marginLeft: "auto" }}>{stock.company_ar}</span>
+                <span className="stock-card-company-ar">{stock.company_ar}</span>
               )}
-              <span style={{
+              <span className="stock-card-mentions" style={{
                 background: stock.occurrences >= 3 ? "#1a3d24" : stock.occurrences === 2 ? "#2e2a14" : "#172033",
                 color: stock.occurrences >= 3 ? "#86efac" : stock.occurrences === 2 ? "#fde68a" : "#94a3b8",
-                borderRadius: "20px", padding: ".15rem .65rem", fontSize: ".78rem", fontWeight: 700,
-                marginLeft: stock.company_ar ? "1rem" : "auto", whiteSpace: "nowrap",
+                marginLeft: stock.company_ar ? "1rem" : "auto",
               }}>
                 {stock.occurrences} mention{stock.occurrences !== 1 ? "s" : ""}
               </span>
@@ -619,7 +609,7 @@ function AnalysisResultTable({ summary, details, channelResults, reportHtmlPath,
 
             {/* source rows table */}
             {open && stock.sources.length > 0 && (
-              <div style={{ overflowX: "auto", borderTop: "1px solid #26364d" }}>
+              <div className="stock-card-body-table">
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: ".83rem" }}>
                   <thead>
                     <tr style={{ background: "#0f1e33" }}>
@@ -687,9 +677,7 @@ function AnalysisResultTable({ summary, details, channelResults, reportHtmlPath,
             )}
 
             {open && stock.sources.length === 0 && (
-              <p style={{ color: "#475569", fontSize: ".82rem", padding: ".75rem 1.1rem", margin: 0 }}>
-                No structured price data extracted for this code.
-              </p>
+              <p className="stock-card-empty">No structured price data extracted for this code.</p>
             )}
           </div>
         );
@@ -760,7 +748,7 @@ function Recommendations({ rows }: { rows: Array<Record<string, unknown>> }) {
 
 function Search({ api, onResult, showError }: {
   api: ApiClient; onResult: (rows: Array<Record<string, unknown>>) => void;
-  notify: Notify; showError: ShowError;
+  showError: ShowError;
 }) {
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);

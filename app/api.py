@@ -17,6 +17,7 @@ from app.reports import ReportService
 from app.schemas import (ChannelCreate, ChannelUpdate, CollectionRequest, DailyReportRequest, MessageCreate, SearchRequest, SettingsUpdate, TelegramChatSelect,
                          TelegramCodeRequest, TelegramCodeVerification)
 from app.services import AnalyticsService, MessageService, SearchService
+from app.repositories import get_or_create_channel
 from app.telegram_auth import TelegramAuthenticator
 from telethon import TelegramClient
 from openai import APIConnectionError, APIStatusError, AsyncOpenAI, AuthenticationError, BadRequestError, RateLimitError
@@ -234,16 +235,6 @@ async def list_messages(session: AsyncSession = Depends(get_session), limit: int
 async def list_channels(session: AsyncSession = Depends(get_session)) -> list[dict]:
     return [{"id": item.id, "handle": item.handle, "title": item.title, "active": item.active,
              "analyst_score": item.analyst_score} for item in (await session.scalars(select(Channel))).all()]
-
-
-async def get_or_create_channel(session: AsyncSession, handle: str) -> Channel:
-    normalized_handle = handle.strip().lstrip("@").lower()
-    channel = await session.scalar(select(Channel).where(Channel.handle == normalized_handle))
-    if channel is None:
-        channel = Channel(handle=normalized_handle, title=normalized_handle, active=True)
-        session.add(channel)
-        await session.flush()
-    return channel
 
 
 @router.post("/channels")

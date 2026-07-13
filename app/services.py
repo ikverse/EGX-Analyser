@@ -131,6 +131,19 @@ class SearchService:
             query_vector = await self.analyzer.embed(query)
         except RuntimeError:
             return await self._keyword_search(query, limit)
+        from app.config import get_settings
+        if get_settings().database_url.startswith("postgresql"):
+            from sqlalchemy import text
+            rows = (await self.session.execute(
+                text(
+                    "SELECT m.id, m.text, m.published_at, "
+                    "1 - (e.vector <=> cast(:vec AS vector)) AS score "
+                    "FROM embeddings e JOIN messages m ON e.message_id = m.id "
+                    "ORDER BY e.vector <=> cast(:vec AS vector) LIMIT :lim"
+                ),
+                {"vec": str(query_vector), "lim": limit},
+            )).all()
+            return [{"id": r.id, "text": r.text, "published_at": r.published_at, "score": round(float(r.score), 4)} for r in rows if r.score > 0]
         rows = (await self.session.execute(
             select(Embedding, Message).join(Message, Embedding.message_id == Message.id)
         )).all()
