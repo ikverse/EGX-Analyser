@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import io
 import os
 import pytest
@@ -17,6 +17,7 @@ from app.engine_updates import EngineUpdateService
 from app.telegram_auth import TelegramAuthenticator
 from app.runtime import selected_analysis_start
 from app.collector.telegram import is_promotional_message
+from app.reports import ReportService
 
 
 class FakeAnalyzer:
@@ -183,3 +184,20 @@ def test_selected_analysis_starts_three_days_before_request():
 def test_promotional_messages_are_skipped_without_hiding_trade_posts():
     assert is_promotional_message("إعلان: اشترك في قناتنا المدفوعة للحصول على خصم")
     assert not is_promotional_message("اشترك معنا: شراء CIB دخول 92 هدف 100")
+
+
+async def test_selected_chat_report_marks_non_stock_context(session, tmp_path):
+    stock_message = await MessageService(session).ingest(MessageCreate(
+        channel_handle="stocks", telegram_message_id=1, text="BUY CIB entry 90", published_at=datetime.now(timezone.utc)
+    ))
+    non_stock_message = await MessageService(session).ingest(MessageCreate(
+        channel_handle="general", telegram_message_id=1, text="Football match news", published_at=datetime.now(timezone.utc)
+    ))
+    session.add(Recommendation(message_id=stock_message.id, company_name="CIB", signal="BUY", confidence=.9, indicators=[]))
+    await session.flush()
+    report = await ReportService(session, type("Settings", (), {"storage_root": tmp_path})()).generate_selected_chat_report(
+        [stock_message.channel_id, non_stock_message.channel_id], datetime.now(timezone.utc) - timedelta(days=3), datetime.now(timezone.utc)
+    )
+    statuses = {item["channel"]: item["status"] for item in report.summary["channel_results"]}
+    assert statuses["stocks"] == "recommendations_found"
+    assert statuses["general"] == "not_stock_related"

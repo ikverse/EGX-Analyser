@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime, timezone
 from pathlib import Path
 import httpx
 from sqlalchemy import select
@@ -193,13 +194,21 @@ async def run_collection() -> dict:
 
 
 @router.post("/collection/analyze-selected")
-async def analyze_selected_channels(payload: CollectionRequest) -> dict:
+async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSession = Depends(get_session)) -> dict:
     from app.main import runtime
     from app.runtime import selected_analysis_start
     window_start = selected_analysis_start()
     try:
-        return {"messages_collected": await runtime.collect_once(payload.channel_ids, since=window_start),
-                "window_start": window_start, "lookback_days": 3}
+        messages_collected = await runtime.collect_once(payload.channel_ids, since=window_start)
+        report = await ReportService(session, get_settings()).generate_selected_chat_report(
+            payload.channel_ids, window_start, datetime.now(timezone.utc)
+        )
+        await session.commit()
+        channel_results = report.summary["channel_results"]
+        return {"messages_collected": messages_collected, "window_start": window_start, "lookback_days": 3,
+                "report": {"id": report.id, "markdown_path": report.markdown_path, "html_path": report.html_path,
+                           "pdf_path": report.pdf_path}, "channel_results": channel_results,
+                "not_stock_related": [item["channel"] for item in channel_results if item["status"] == "not_stock_related"]}
     except BadRequestError as error:
         raise HTTPException(400, f"The selected AI provider rejected the analysis request: {error}") from error
 
@@ -286,7 +295,8 @@ async def create_report(payload: DailyReportRequest = DailyReportRequest(), sess
 
 @router.get("/reports")
 async def reports(session: AsyncSession = Depends(get_session)) -> list[dict]:
-    return [{"id": item.id, "date": item.report_date, "summary": item.summary} for item in (await session.scalars(select(Report).order_by(Report.report_date.desc()))).all()]
+    return [{"id": item.id, "date": item.report_date, "summary": item.summary, "markdown_path": item.markdown_path,
+             "html_path": item.html_path, "pdf_path": item.pdf_path} for item in (await session.scalars(select(Report).order_by(Report.report_date.desc()))).all()]
 
 
 @router.post("/search")
