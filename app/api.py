@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from datetime import datetime, timezone
 from pathlib import Path
+import json
 import subprocess
 import httpx
 from sqlalchemy import select
@@ -12,7 +13,7 @@ from app.config_store import update_config
 from app.content_updates import ContentUpdateError, ContentUpdateService
 from app.database import get_session
 from app.diagnostics import diagnostics_path, logger, recent_entries
-from app.models import Channel, Message, Recommendation, Report, Stock
+from app.models import Channel, Image, Media, Message, Recommendation, Report, Stock
 from app.reports import ReportService
 from app.schemas import (ChannelCreate, ChannelUpdate, CollectionRequest, DailyReportRequest, MessageCreate, SearchRequest, SettingsUpdate, TelegramChatSelect,
                          TelegramCodeRequest, TelegramCodeVerification)
@@ -197,13 +198,54 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
     from app.main import runtime
     from app.runtime import selected_analysis_start
     window_start = selected_analysis_start(payload.lookback_days)
+    window_end = datetime.now(timezone.utc)
     try:
-        collection = await runtime.collect_once(payload.channel_ids, since=window_start)
+        collection = await runtime.collect_once(payload.channel_ids, since=window_start, analyze_messages=False)
+        message_rows = (await session.execute(
+            select(Message, Channel)
+            .join(Channel, Message.channel_id == Channel.id)
+            .where(
+                Message.channel_id.in_(payload.channel_ids),
+                Message.published_at >= window_start,
+                Message.published_at < window_end,
+            )
+            .order_by(Message.published_at.asc())
+        )).all()
+        message_ids = [message.id for message, _ in message_rows]
+        images_by_message: dict[int, list[str]] = {}
+        transcripts_by_message: dict[int, list[str]] = {}
+        if message_ids:
+            image_rows = (await session.scalars(select(Image).where(Image.message_id.in_(message_ids)))).all()
+            media_rows = (await session.scalars(select(Media).where(Media.message_id.in_(message_ids)))).all()
+            for image in image_rows:
+                if Path(image.path).is_file():
+                    images_by_message.setdefault(image.message_id, []).append(image.path)
+            for media in media_rows:
+                if media.transcript:
+                    transcripts_by_message.setdefault(media.message_id, []).append(media.transcript)
+        batch_messages = [
+            {
+                "source": channel.title or channel.handle,
+                "published_at": message.published_at.isoformat(),
+                "telegram_message_id": message.telegram_message_id,
+                "text": message.text,
+                "image_paths": images_by_message.get(message.id, []),
+                "transcripts": transcripts_by_message.get(message.id, []),
+            }
+            for message, channel in message_rows
+        ]
+        analysis_period = f"{window_start.date().isoformat()} to {window_end.date().isoformat()}"
+        outcome = await AIAnalysisService(get_settings()).analyze_consolidated(batch_messages, analysis_period)
+        consolidated_source = json.loads(outcome.raw_response)
+        if not isinstance(consolidated_source, dict):
+            raise RuntimeError("The AI provider returned a non-object response for the consolidated analysis")
+        collection["messages_analyzed"] = len(batch_messages)
         trace = await export_analysis_trace(
-            session, get_settings().storage_root, payload.channel_ids, window_start, datetime.now(timezone.utc)
+            session, get_settings().storage_root, payload.channel_ids, window_start, window_end, outcome.raw_response
         )
         report = await ReportService(session, get_settings()).generate_selected_chat_report(
-            payload.channel_ids, window_start, datetime.now(timezone.utc), payload.lookback_days
+            payload.channel_ids, window_start, window_end, payload.lookback_days,
+            consolidated_source=consolidated_source, consolidated_raw_response=outcome.raw_response,
         )
         await session.commit()
         channel_results = report.summary["channel_results"]

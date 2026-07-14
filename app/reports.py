@@ -49,11 +49,16 @@ class ReportService:
         return await self._generate(start.astimezone(timezone.utc), end.astimezone(timezone.utc), report_mode)
 
     async def generate_selected_chat_report(self, channel_ids: list[int], start: datetime, end: datetime,
-                                             lookback_days: int) -> Report:
-        return await self._generate(start, end, f"selected chats ({lookback_days} days)", channel_ids)
+                                             lookback_days: int, consolidated_source: dict | None = None,
+                                             consolidated_raw_response: str | None = None) -> Report:
+        return await self._generate(
+            start, end, f"selected chats ({lookback_days} days)", channel_ids,
+            consolidated_source=consolidated_source, consolidated_raw_response=consolidated_raw_response,
+        )
 
     async def _generate(self, start: datetime, end: datetime, report_mode: str,
-                        channel_ids: list[int] | None = None) -> Report:
+                        channel_ids: list[int] | None = None, consolidated_source: dict | None = None,
+                        consolidated_raw_response: str | None = None) -> Report:
         filters = [Message.published_at >= start, Message.published_at < end]
         if channel_ids is not None:
             filters.append(Message.channel_id.in_(channel_ids))
@@ -156,9 +161,16 @@ class ReportService:
                                            "notes": ticker_notes})
         stock_code_summary.sort(key=lambda item: (-item["occurrences"], item["ticker"]))
         stock_code_details.sort(key=lambda item: (item["ticker"], item["channel"]))
-        consolidated_source = _consolidated_source_output(message_rows)
+        consolidated_source = consolidated_source or _consolidated_source_output(message_rows)
         if consolidated_source is not None:
             consensus, stock_code_summary, stock_code_details = _source_driven_tables(consolidated_source)
+            source_counts = _consolidated_source_counts(consolidated_source)
+            for channel in channels:
+                label = channel.title or channel.handle
+                if label not in source_counts:
+                    continue
+                recommendation_counts[channel.id] = source_counts[label]["recommendations"]
+                mention_counts[channel.id] = source_counts[label]["stock_codes"]
         channel_results = []
         for channel in channels:
             texts = texts_by_channel.get(channel.id, [])
@@ -174,10 +186,11 @@ class ReportService:
         generated_at = datetime.now(timezone.utc)
         directory = self.settings.storage_root / "reports" / generated_at.strftime("%Y-%m-%d")
         directory.mkdir(parents=True, exist_ok=True)
+        display_recommendation_count = sum(recommendation_counts.values())
         lines = [
             f"# EGX Intelligence Report - {generated_at:%Y-%m-%d}", "",
             f"## Overview ({report_mode})", f"- Messages: {len(message_rows)}",
-            f"- Recommendations: {len(recommendation_rows)}", "", "## Chat relevance",
+            f"- Recommendations: {display_recommendation_count}", "", "## Chat relevance",
         ]
         lines += [f"- {item['channel']}: {item['status']} | Messages {item['messages']} | Recommendations {item['recommendations']}" for item in channel_results]
         if consolidated_source is not None:
@@ -250,15 +263,18 @@ class ReportService:
         canvas.drawText(text)
         canvas.save()
         raw_lines = [f"EGX Intelligence - Original AI Responses ({generated_at:%Y-%m-%d %H:%M UTC})", ""]
-        for message, channel in message_rows:
-            if not message.ai_response_raw:
-                continue
-            raw_lines += [
-                f"Channel: {channel.title or channel.handle}",
-                f"Telegram message: {message.telegram_message_id}",
-                f"Published: {message.published_at.isoformat()}",
-                "", message.ai_response_raw, "", "=" * 90, "",
-            ]
+        if consolidated_raw_response:
+            raw_lines += ["Consolidated selected-chat analysis", "", consolidated_raw_response, "", "=" * 90, ""]
+        else:
+            for message, channel in message_rows:
+                if not message.ai_response_raw:
+                    continue
+                raw_lines += [
+                    f"Channel: {channel.title or channel.handle}",
+                    f"Telegram message: {message.telegram_message_id}",
+                    f"Published: {message.published_at.isoformat()}",
+                    "", message.ai_response_raw, "", "=" * 90, "",
+                ]
         if len(raw_lines) == 2:
             raw_lines.append("No original AI responses were recorded for this analysis window.")
         raw_text_path.write_text("\n".join(raw_lines), encoding="utf-8")
@@ -278,9 +294,10 @@ class ReportService:
         raw_canvas.save()
         report = Report(markdown_path=str(markdown_path), html_path=str(html_path), pdf_path=str(pdf_path), summary={
             "mode": report_mode, "consensus": consensus, "message_count": len(message_rows),
-            "recommendation_count": len(recommendation_rows), "channel_results": channel_results,
+            "recommendation_count": display_recommendation_count, "channel_results": channel_results,
             "stock_code_summary": stock_code_summary, "stock_code_details": stock_code_details,
             "consolidated_source": consolidated_source,
+            "analysis_mode": "consolidated_batch" if consolidated_raw_response else "per_message",
             "original_ai_response_text_path": str(raw_text_path),
             "original_ai_response_pdf_path": str(raw_pdf_path),
         })
@@ -327,6 +344,22 @@ def _consolidated_source_output(message_rows: list[tuple[Message, Channel]]) -> 
         if isinstance(payload, dict) and isinstance(payload.get("top_consolidated_recommendations"), list):
             candidates.append(payload)
     return max(candidates, key=lambda item: len(item["top_consolidated_recommendations"]), default=None)
+
+
+def _consolidated_source_counts(payload: dict) -> dict[str, dict[str, int]]:
+    """Count batch findings by the exact source labels supplied to the model."""
+    counts: dict[str, dict[str, int]] = {}
+    for item in payload.get("top_consolidated_recommendations", []):
+        if not isinstance(item, dict):
+            continue
+        for point in item.get("data_points", []):
+            if not isinstance(point, dict) or not point.get("source"):
+                continue
+            source = str(point["source"])
+            values = counts.setdefault(source, {"recommendations": 0, "stock_codes": 0})
+            values["recommendations"] += 1
+            values["stock_codes"] += 1
+    return counts
 
 
 def _source_driven_tables(payload: dict) -> tuple[list[dict], list[dict], list[dict]]:

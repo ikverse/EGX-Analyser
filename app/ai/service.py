@@ -151,11 +151,54 @@ class AIAnalysisService:
         self.client = AsyncOpenAI(api_key=settings.ai_api_key, base_url=base_url) if settings.ai_api_key else None
 
     async def analyze(self, text: str, image_paths: list[str], transcripts: list[str] | None = None) -> AnalysisOutcome:
+        transcript_text = "\n\n".join(transcripts or [])
+        return await self._analyze_prompt(
+            f"Post:\n{text}\n\nAudio transcript:\n{transcript_text}", image_paths
+        )
+
+    async def analyze_consolidated(self, messages: list[dict[str, Any]], analysis_period: str) -> AnalysisOutcome:
+        """Analyze one fresh, selected-chat window in a single model request."""
+        if not messages:
+            empty = {
+                "analysis_period": analysis_period,
+                "top_consolidated_recommendations": [],
+                "achieved_targets": [],
+                "text_based_categories": {
+                    "most_important_stocks": [], "trading_stocks": [], "watchlist_stocks": [],
+                },
+                "daily_breakdown": {},
+            }
+            return AnalysisOutcome(result=_analysis_result_from_payload(empty), raw_response=json.dumps(empty))
+
+        parts = [
+            "Selected Telegram chat data follows. Analyze the complete set as one consolidated EGX window.",
+            f"Analysis period: {analysis_period}",
+            "Use each SOURCE exactly as written below in every data_points[].source value. "
+            "Do not treat a source label as a stock recommendation by itself.",
+        ]
+        image_paths: list[str] = []
+        for item in messages:
+            source = str(item.get("source") or "Unknown chat")
+            timestamp = str(item.get("published_at") or "")
+            telegram_id = str(item.get("telegram_message_id") or "")
+            text = str(item.get("text") or "[No text]")
+            transcripts = item.get("transcripts") if isinstance(item.get("transcripts"), list) else []
+            parts.extend([
+                "", f"--- MESSAGE | SOURCE: {source} | DATE: {timestamp} | TELEGRAM_ID: {telegram_id} ---",
+                text,
+            ])
+            if transcripts:
+                parts.append("Audio transcript:\n" + "\n".join(str(value) for value in transcripts if value))
+            for index, image_path in enumerate(item.get("image_paths") or [], start=1):
+                parts.append(f"Image {index} for this message follows.")
+                image_paths.append(str(image_path))
+        return await self._analyze_prompt("\n".join(parts), image_paths)
+
+    async def _analyze_prompt(self, source_data: str, image_paths: list[str]) -> AnalysisOutcome:
         if self.client is None:
             raise RuntimeError("An API key is required for the selected AI provider")
-        transcript_text = "\n\n".join(transcripts or [])
         analysis_prompt = self.settings.analysis_instructions.strip() or self.prompt
-        prompt = f"{analysis_prompt}\n\n{_OUTPUT_CONTRACT}\n\nPost:\n{text}\n\nAudio transcript:\n{transcript_text}"
+        prompt = f"{analysis_prompt}\n\n{_OUTPUT_CONTRACT}\n\n{source_data}"
         if self.settings.ai_provider != "openai":
             content: list[dict[str, object]] = [{"type": "text", "text": prompt}]
             for image_path in image_paths:

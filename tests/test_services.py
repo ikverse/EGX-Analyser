@@ -286,6 +286,22 @@ async def test_report_uses_qwen_consolidated_source(session, tmp_path):
     assert "Qwen consolidated analysis" in Path(report.markdown_path).read_text(encoding="utf-8")
 
 
+async def test_selected_chat_report_prefers_explicit_batch_result_and_preserves_raw_output(session, tmp_path):
+    message = await MessageService(session).ingest(MessageCreate(
+        channel_handle="signals", telegram_message_id=16, text="Unrelated historic response", published_at=datetime.now(timezone.utc)
+    ))
+    message.ai_response_raw = '{"recommendations": []}'
+    await session.flush()
+    raw_response = json.dumps(QWEN_CONSOLIDATED_OUTPUT, ensure_ascii=False)
+    report = await ReportService(session, type("Settings", (), {"storage_root": tmp_path})()).generate_selected_chat_report(
+        [message.channel_id], datetime.now(timezone.utc) - timedelta(days=1), datetime.now(timezone.utc) + timedelta(minutes=1),
+        1, consolidated_source=QWEN_CONSOLIDATED_OUTPUT, consolidated_raw_response=raw_response,
+    )
+    assert report.summary["analysis_mode"] == "consolidated_batch"
+    assert report.summary["stock_code_summary"][0]["ticker"] == "MFPC"
+    assert raw_response in Path(report.summary["original_ai_response_text_path"]).read_text(encoding="utf-8")
+
+
 async def test_analysis_trace_saves_message_text_and_images(session, tmp_path):
     message = await MessageService(session).ingest(MessageCreate(
         channel_handle="signals", telegram_message_id=8, text="BUY CIB", published_at=datetime.now(timezone.utc)
@@ -299,6 +315,18 @@ async def test_analysis_trace_saves_message_text_and_images(session, tmp_path):
     )
     assert "BUY CIB" in Path(str(trace["text_path"])).read_text(encoding="utf-8")
     assert Path(str(trace["images_path"])).joinpath("8_source-chart.jpg").read_bytes() == b"chart"
+
+
+async def test_analysis_trace_saves_consolidated_response(session, tmp_path):
+    message = await MessageService(session).ingest(MessageCreate(
+        channel_handle="signals", telegram_message_id=18, text="BUY CIB", published_at=datetime.now(timezone.utc)
+    ))
+    await session.flush()
+    trace = await export_analysis_trace(
+        session, tmp_path / "storage", [message.channel_id], datetime.now(timezone.utc) - timedelta(days=1),
+        datetime.now(timezone.utc) + timedelta(minutes=1), '{"top_consolidated_recommendations": []}',
+    )
+    assert Path(str(trace["consolidated_response_path"])).read_text(encoding="utf-8") == '{"top_consolidated_recommendations": []}'
 
 
 async def test_stock_repository_persists_learned_ticker_name_mapping(session):

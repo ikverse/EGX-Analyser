@@ -9,7 +9,7 @@ from app.models import Channel, Image, Message, Recommendation
 
 
 async def export_analysis_trace(session: AsyncSession, storage_root: Path, channel_ids: list[int],
-                                start: datetime, end: datetime) -> dict[str, object]:
+                                start: datetime, end: datetime, consolidated_response: str | None = None) -> dict[str, object]:
     """Save the exact text and images considered in one selected-chat analysis run."""
     created_at = datetime.now(timezone.utc)
     directory = storage_root / "analysis-traces" / created_at.strftime("%Y-%m-%d") / created_at.strftime("%H%M%S")
@@ -54,5 +54,10 @@ async def export_analysis_trace(session: AsyncSession, storage_root: Path, chann
         lines.append("")
     text_path = directory / "messages.txt"
     text_path.write_text("\n".join(lines), encoding="utf-8")
+    response_path = None
+    if consolidated_response:
+        response_path = directory / "consolidated-ai-response.json"
+        response_path.write_text(consolidated_response, encoding="utf-8")
     return {"directory": str(directory), "text_path": str(text_path), "images_path": str(image_directory),
+            "consolidated_response_path": str(response_path) if response_path else None,
             "message_count": len(rows), "image_count": copied_images}

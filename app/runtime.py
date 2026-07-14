@@ -39,13 +39,15 @@ class LocalRuntime:
         with suppress(asyncio.CancelledError):
             await self._task
 
-    async def collect_once(self, channel_ids: list[int] | None = None, since: datetime | None = None) -> dict[str, int]:
+    async def collect_once(self, channel_ids: list[int] | None = None, since: datetime | None = None,
+                           analyze_messages: bool = True) -> dict[str, int]:
         if self._collection_lock.locked():
             raise RuntimeError("A Telegram collection is already running")
         async with self._collection_lock:
-            return await self._collect_once(channel_ids, since)
+            return await self._collect_once(channel_ids, since, analyze_messages)
 
-    async def _collect_once(self, channel_ids: list[int] | None = None, since: datetime | None = None) -> dict[str, int]:
+    async def _collect_once(self, channel_ids: list[int] | None = None, since: datetime | None = None,
+                            analyze_messages: bool = True) -> dict[str, int]:
         settings = get_settings()
         if not settings.telegram_api_id or not settings.telegram_api_hash:
             return empty_collection_summary()
@@ -61,7 +63,9 @@ class LocalRuntime:
             if not active:
                 return empty_collection_summary()
             analyzer = AIAnalysisService(settings) if settings.ai_api_key else None
-            count = await TelegramCollector(settings).collect_once(MessageService(session, analyzer), active, since)
+            count = await TelegramCollector(settings).collect_once(
+                MessageService(session, analyzer), active, since, analyze_messages=analyze_messages
+            )
             await session.commit()
             return count
 
