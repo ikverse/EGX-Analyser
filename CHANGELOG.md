@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.1.50
+- Fixed python312.dll load failure — set `contents_directory='.'` in PyInstaller spec so all runtime files are placed flat in sidecar/ instead of inside `_internal/`
+
 ## v0.1.49
 - Fixed python312.dll load failure — removed nonexistent `_internal` path from sidecar PATH injection, DLL files are flat in sidecar/
 
