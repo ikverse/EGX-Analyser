@@ -248,6 +248,31 @@ def test_client_inquiry_replies_are_kept_out_of_active_recommendations():
 
 
 
+def test_client_inquiry_rows_require_traceable_message_evidence_when_validating():
+    payload = {
+        "client_inquiry_responses": [
+            {
+                "stock_code": "ALUM", "stock_name_en": "Aluminium Arabia", "source": "Ostoul Capital",
+                "source_message_id": "101", "source_excerpt": "Reply to customer inquiries about ALUM.",
+            },
+            {
+                "stock_code": "COMI", "stock_name_en": "CIB", "source": "Ostoul Capital",
+                "source_message_id": "999", "source_excerpt": "This message was not included in the analysis.",
+            },
+            {
+                "stock_code": "TMGH", "stock_name_en": "TMG", "source": "Ostoul Capital",
+                "source_message_id": "101",
+            },
+        ],
+    }
+
+    rows = _client_inquiry_rows(payload, {"101"})
+
+    assert [row["ticker"] for row in rows] == ["ALUM"]
+    assert rows[0]["source_message_id"] == "101"
+    assert rows[0]["source_excerpt"] == "Reply to customer inquiries about ALUM."
+
+
 def test_local_settings_encrypt_secrets(monkeypatch, tmp_path):
     config_file = tmp_path / ".env"
     monkeypatch.setenv("EGX_CONFIG_FILE", str(config_file))

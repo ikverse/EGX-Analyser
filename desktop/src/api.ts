@@ -55,6 +55,8 @@ export type ClientInquiryResponse = {
   company_ar?: string;
   source: string;
   date?: string | null;
+  source_message_id?: string | null;
+  source_excerpt?: string | null;
   question_summary_ar?: string;
   reply_summary_ar?: string;
   current_trend_ar?: string;

@@ -615,7 +615,7 @@ function matchesStockQuery(row: StockSourceTableRow, query: string): boolean {
 function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted }: {
   items: AnalysisResultHistory[]; api: ApiClient; notify: Notify; showError: ShowError; onDeleted: (id: number) => void;
 }) {
-  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [expandedOutput, setExpandedOutput] = useState<string | null>(null);
   const [stockQuery, setStockQuery] = useState("");
   const [deleteCandidate, setDeleteCandidate] = useState<AnalysisResultHistory | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -626,7 +626,7 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted }
     setDeleting(true);
     void api.deleteAnalysisResult(deleteCandidate.id)
       .then(() => {
-        if (expandedId === deleteCandidate.id) setExpandedId(null);
+        if (expandedOutput?.startsWith(`${deleteCandidate.id}:`)) setExpandedOutput(null);
         onDeleted(deleteCandidate.id);
         setDeleteCandidate(null);
         notify("success", "Analysis result and its generated files were deleted.");
@@ -635,41 +635,44 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted }
       .finally(() => setDeleting(false));
   };
 
-  const toggleExpanded = (id: number) => {
-    setExpandedId((current) => current === id ? null : id);
-    setStockQuery("");
+  const toggleExpanded = (id: number, output: "active" | "inquiries") => {
+    const key = `${id}:${output}`;
+    setExpandedOutput((current) => current === key ? null : key);
+    if (output === "active") setStockQuery("");
   };
 
   return (
     <div className="analysis-history-wrap">
-      <p className="analysis-history-help">Select a generated result to expand its complete EGX recommendations table.</p>
+      <p className="analysis-history-help">Each analysis keeps active recommendations separate from client inquiry replies.</p>
       <table className="analysis-history-table">
         <thead>
-          <tr><th>Generated result</th><th>Target date</th><th>Inputs sent</th><th>Messages analyzed</th><th>Stocks</th><th /></tr>
+          <tr><th>Generated output</th><th>Target date</th><th>Inputs sent</th><th>Scope</th><th>Records</th><th /></tr>
         </thead>
         <tbody>
           {items.map((item) => {
-            const isOpen = expandedId === item.id;
+            const activeOpen = expandedOutput === `${item.id}:active`;
+            const inquiryOpen = expandedOutput === `${item.id}:inquiries`;
+            const stockCount = new Set(item.stock_source_table.map((row) => row.ticker)).size;
             return (
               <Fragment key={item.id}>
-                <tr className="analysis-history-row" onClick={() => toggleExpanded(item.id)}>
+                <tr className="analysis-history-row" onClick={() => toggleExpanded(item.id, "active")}>
                   <td><strong>Analysis · {formatGeneratedAt(item.generated_at)}</strong></td>
                   <td>{item.target_date || "—"}</td>
                   <td>{contentTypeLabel(item.content_types)}</td>
-                  <td>{item.messages_analyzed}</td>
-                  <td>{new Set(item.stock_source_table.map((row) => row.ticker)).size}</td>
+                  <td>{item.messages_analyzed} messages</td>
+                  <td>{stockCount} stocks / {item.stock_source_table.length} source rows</td>
                   <td className="analysis-history-actions">
                     <button type="button" className="secondary compact" onClick={(event) => {
                       event.stopPropagation();
-                      toggleExpanded(item.id);
-                    }}>{isOpen ? "Hide" : "View"}</button>
+                      toggleExpanded(item.id, "active");
+                    }}>{activeOpen ? "Hide" : "View"}</button>
                     <button type="button" className="danger compact" onClick={(event) => {
                       event.stopPropagation();
                       setDeleteCandidate(item);
                     }}>Delete</button>
                   </td>
                 </tr>
-                {isOpen && (
+                {activeOpen && (
                   <tr className="analysis-history-expanded">
                     <td colSpan={6}>
                       <label className="analysis-result-search">
@@ -681,8 +684,29 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted }
                         />
                       </label>
                       <ConsolidatedStockTable rows={item.stock_source_table.filter((row) => matchesStockQuery(row, stockQuery))} />
-                      <ClientInquiryResponses rows={item.client_inquiry_responses} />
                     </td>
+                  </tr>
+                )}
+                <tr className="analysis-history-row analysis-history-reference-row" onClick={() => toggleExpanded(item.id, "inquiries")}>
+                  <td><strong>Client inquiry replies - {formatGeneratedAt(item.generated_at)}</strong></td>
+                  <td>{item.target_date || "-"}</td>
+                  <td>{contentTypeLabel(item.content_types)}</td>
+                  <td>Reference only</td>
+                  <td>{item.client_inquiry_responses.length} replies</td>
+                  <td className="analysis-history-actions">
+                    <button type="button" className="secondary compact" onClick={(event) => {
+                      event.stopPropagation();
+                      toggleExpanded(item.id, "inquiries");
+                    }}>{inquiryOpen ? "Hide" : "View"}</button>
+                    <button type="button" className="danger compact" onClick={(event) => {
+                      event.stopPropagation();
+                      setDeleteCandidate(item);
+                    }}>Delete</button>
+                  </td>
+                </tr>
+                {inquiryOpen && (
+                  <tr className="analysis-history-expanded">
+                    <td colSpan={6}><ClientInquiryResponses rows={item.client_inquiry_responses} /></td>
                   </tr>
                 )}
               </Fragment>
@@ -814,6 +838,57 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
 }
 
 function ClientInquiryResponses({ rows }: { rows: ClientInquiryResponse[] }) {
+  if (!rows.length) return <p className="empty">No client inquiry replies were found in this analysis.</p>;
+  const groups = new Map<string, ClientInquiryResponse[]>();
+  rows.forEach((row) => {
+    const group = groups.get(row.ticker) ?? [];
+    group.push(row);
+    groups.set(row.ticker, group);
+  });
+  return (
+    <section className="client-inquiries" aria-label="Client inquiry replies">
+      <div className="client-inquiries-heading">
+        <strong>Client inquiry replies</strong>
+        <span>Reference only - excluded from active recommendations</span>
+      </div>
+      {[...groups.entries()].map(([ticker, replies]) => {
+        const first = replies[0];
+        return (
+          <section className="client-inquiry-group" key={ticker}>
+            <h4><span>{ticker}</span> {first.company}{first.company_ar ? ` / ${first.company_ar}` : ""}</h4>
+            <div className="client-inquiry-cards">
+              {replies.map((row, index) => <ClientInquiryCard key={`${row.source}-${row.date ?? ""}-${row.source_message_id ?? index}`} row={row} />)}
+            </div>
+          </section>
+        );
+      })}
+    </section>
+  );
+}
+
+function ClientInquiryCard({ row }: { row: ClientInquiryResponse }) {
+  const levels = [
+    ["Last price", num(row.last_price)], ["Support", num(row.support)], ["Resistance", num(row.resistance)],
+  ].filter(([, value]) => value !== "-");
+  return (
+    <article className="client-inquiry-card" dir="rtl">
+      <header className="client-inquiry-card-header">
+        <div><strong>{row.source}</strong><span>{row.date || "No stated date"}</span></div>
+        {row.current_trend_ar && <span className="client-inquiry-trend">{row.current_trend_ar}</span>}
+      </header>
+      {row.question_summary_ar && <section><h5>استفسار العميل</h5><p>{row.question_summary_ar}</p></section>}
+      {row.reply_summary_ar && <section><h5>الرد</h5><p>{row.reply_summary_ar}</p></section>}
+      {levels.length > 0 && <dl className="client-inquiry-levels" dir="ltr">
+        {levels.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+      </dl>}
+      {row.advice_ar && <section><h5>النصيحة</h5><p>{row.advice_ar}</p></section>}
+      {row.alternate_scenario_ar && <section><h5>السيناريو البديل</h5><p>{row.alternate_scenario_ar}</p></section>}
+      {row.source_excerpt && <blockquote className="client-inquiry-evidence"><strong>Message {row.source_message_id || ""}</strong>{row.source_excerpt}</blockquote>}
+    </article>
+  );
+}
+
+function LegacyClientInquiryResponses({ rows }: { rows: ClientInquiryResponse[] }) {
   if (!rows.length) return null;
   return (
     <details className="client-inquiries">

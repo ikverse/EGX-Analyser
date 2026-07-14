@@ -32,7 +32,7 @@ _OUTPUT_CONTRACT = """Return only one JSON object in this consolidated EGX repor
 - top_consolidated_recommendations: ranked array. Each item has stock_code, stock_name_en, stock_name_ar, mention_count, rank, status, analysis_summary_ar, and data_points.
 - data_points: array for each stock. Each item has date, source, buy_price, target_1, target_2, stop_loss, support, resistance, expected_return_pct, and risk_pct.
 - achieved_targets: array with stock_code, stock_name_en, status_ar, date, and source.
-- client_inquiry_responses: array for stock-specific replies to customer/member questions. Each item has stock_code, stock_name_en, stock_name_ar, source, date, question_summary_ar, reply_summary_ar, current_trend_ar, last_price, support, resistance, advice_ar, and alternate_scenario_ar.
+- client_inquiry_responses: array for stock-specific replies to customer/member questions. Each item has stock_code, stock_name_en, stock_name_ar, source, date, source_message_id, source_excerpt, question_summary_ar, reply_summary_ar, current_trend_ar, last_price, support, resistance, advice_ar, and alternate_scenario_ar. source_message_id must equal the TELEGRAM_ID of the supporting message and source_excerpt must be an exact quotation from that message.
 - text_based_categories: object with most_important_stocks, trading_stocks, and watchlist_stocks arrays. Each array item has stock_code, stock_name_en, and stock_name_ar.
 - daily_breakdown: object keyed by date; each item has total_mentions and top_stock_of_day.
 Use English EGX ticker codes in stock_code. Keep unavailable values as null. Do not invent price levels or targets."""
@@ -260,7 +260,9 @@ class AIAnalysisService:
             "or clearly answers a member/customer question about a particular stock, NEVER place it in "
             "top_consolidated_recommendations, achieved_targets, or text_based_categories. Instead place one clean, "
             "stock-specific record in client_inquiry_responses. Preserve its source, date, levels, trend, advice, and "
-            "alternative scenario when explicitly present. Do not invent a buy recommendation from an inquiry reply.",
+            "alternative scenario when explicitly present. Every inquiry record MUST include source_message_id equal to the "
+            "supporting TELEGRAM_ID and source_excerpt containing an exact quotation from that message. Omit an inquiry "
+            "record when you cannot provide both fields. Do not invent a buy recommendation from an inquiry reply.",
             "Use each SOURCE exactly as written below in every data_points[].source value. "
             "Do not treat a source label as a stock recommendation by itself.",
         ]

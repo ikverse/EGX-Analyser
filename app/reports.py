@@ -168,7 +168,8 @@ class ReportService:
         if consolidated_source is not None:
             consensus, stock_code_summary, stock_code_details = _source_driven_tables(consolidated_source)
             stock_source_table = _consolidated_source_table(consolidated_source)
-            client_inquiry_responses = _client_inquiry_rows(consolidated_source)
+            valid_telegram_message_ids = {str(message.telegram_message_id) for message, _ in message_rows}
+            client_inquiry_responses = _client_inquiry_rows(consolidated_source, valid_telegram_message_ids)
             source_counts = _consolidated_source_counts(consolidated_source)
             for channel in channels:
                 label = channel.title or channel.handle
@@ -424,7 +425,7 @@ def _consolidated_source_table(payload: dict) -> list[dict]:
     return sorted(rows, key=lambda row: (int(row["rank"] or 999), row["ticker"], row["source"]))
 
 
-def _client_inquiry_rows(payload: dict) -> list[dict]:
+def _client_inquiry_rows(payload: dict, valid_message_ids: set[str] | None = None) -> list[dict]:
     """Normalize model-extracted customer inquiry replies without promoting them to signals."""
     rows: list[dict] = []
     for item in payload.get("client_inquiry_responses", []):
@@ -433,12 +434,18 @@ def _client_inquiry_rows(payload: dict) -> list[dict]:
         ticker = str(item.get("stock_code") or "").strip().upper()
         if not ticker:
             continue
+        source_message_id = str(item.get("source_message_id") or item.get("telegram_message_id") or "").strip()
+        source_excerpt = str(item.get("source_excerpt") or "").strip()
+        if valid_message_ids is not None and (source_message_id not in valid_message_ids or not source_excerpt):
+            continue
         rows.append({
             "ticker": ticker,
             "company": str(item.get("stock_name_en") or ticker),
             "company_ar": str(item.get("stock_name_ar") or ""),
             "source": str(item.get("source") or "Unspecified"),
             "date": str(item.get("date") or "")[:10] or None,
+            "source_message_id": source_message_id or None,
+            "source_excerpt": source_excerpt or None,
             "question_summary_ar": str(item.get("question_summary_ar") or ""),
             "reply_summary_ar": str(item.get("reply_summary_ar") or ""),
             "current_trend_ar": str(item.get("current_trend_ar") or ""),
