@@ -223,7 +223,7 @@ class AIAnalysisService:
         )
 
     async def analyze_consolidated(self, messages: list[dict[str, Any]], analysis_period: str,
-                                   target_trading_date: str) -> AnalysisOutcome:
+                                   target_trading_date: str, catalog_hints: list[str] | None = None) -> AnalysisOutcome:
         """Analyze one fresh, selected-chat window in a single model request."""
         if not messages:
             empty = {
@@ -266,6 +266,12 @@ class AIAnalysisService:
             "Use each SOURCE exactly as written below in every data_points[].source value. "
             "Do not treat a source label as a stock recommendation by itself.",
         ]
+        if catalog_hints:
+            parts.extend([
+                "Known EGX identities matched locally in the selected text/audio follow. Use these exact codes and names "
+                "when the matching company is mentioned; do not infer a match for any other company.",
+                *[f"- {hint}" for hint in catalog_hints],
+            ])
         image_paths: list[str] = []
         image_references: dict[str, int] = {}
         text_references: dict[str, str] = {}

@@ -5,7 +5,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { check } from "@tauri-apps/plugin-updater";
 
 import {
-  AiProvider, AnalysisContentType, AnalysisMode, AnalysisResultHistory, ApiClient, Channel, ClientInquiryResponse, ContentUpdateStatus,
+  AiProvider, AnalysisContentType, AnalysisMode, AnalysisResultHistory, ApiClient, Channel, ClientInquiryResponse, ContentUpdateStatus, EgxCatalogStatus,
   DiagnosticEntry, SettingsInput, SettingsStatus, TelegramChat,
   StockSourceRow, StockSourceTableRow, StockSummaryRow,
 } from "./api";
@@ -615,7 +615,8 @@ function matchesStockQuery(row: StockSourceTableRow, query: string): boolean {
 function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted }: {
   items: AnalysisResultHistory[]; api: ApiClient; notify: Notify; showError: ShowError; onDeleted: (id: number) => void;
 }) {
-  const [expandedOutput, setExpandedOutput] = useState<string | null>(null);
+  const [expandedAnalysis, setExpandedAnalysis] = useState<number | null>(null);
+  const [expandedSection, setExpandedSection] = useState<"recommendations" | "inquiries" | null>(null);
   const [stockQuery, setStockQuery] = useState("");
   const [deleteCandidate, setDeleteCandidate] = useState<AnalysisResultHistory | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -626,7 +627,10 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted }
     setDeleting(true);
     void api.deleteAnalysisResult(deleteCandidate.id)
       .then(() => {
-        if (expandedOutput?.startsWith(`${deleteCandidate.id}:`)) setExpandedOutput(null);
+        if (expandedAnalysis === deleteCandidate.id) {
+          setExpandedAnalysis(null);
+          setExpandedSection(null);
+        }
         onDeleted(deleteCandidate.id);
         setDeleteCandidate(null);
         notify("success", "Analysis result and its generated files were deleted.");
@@ -635,27 +639,37 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted }
       .finally(() => setDeleting(false));
   };
 
-  const toggleExpanded = (id: number, output: "active" | "inquiries") => {
-    const key = `${id}:${output}`;
-    setExpandedOutput((current) => current === key ? null : key);
-    if (output === "active") setStockQuery("");
+  const toggleAnalysis = (id: number) => {
+    if (expandedAnalysis === id) {
+      setExpandedAnalysis(null);
+      setExpandedSection(null);
+      return;
+    }
+    setExpandedAnalysis(id);
+    setExpandedSection(null);
+  };
+
+  const toggleSection = (section: "recommendations" | "inquiries") => {
+    setExpandedSection((current) => current === section ? null : section);
+    if (section === "recommendations") setStockQuery("");
   };
 
   return (
     <div className="analysis-history-wrap">
-      <p className="analysis-history-help">Each analysis keeps active recommendations separate from client inquiry replies.</p>
+      <p className="analysis-history-help">Open an analysis run, then choose its recommendations table or client inquiry replies.</p>
       <table className="analysis-history-table">
         <thead>
           <tr><th>Generated output</th><th>Target date</th><th>Inputs sent</th><th>Scope</th><th>Records</th><th /></tr>
         </thead>
         <tbody>
           {items.map((item) => {
-            const activeOpen = expandedOutput === `${item.id}:active`;
-            const inquiryOpen = expandedOutput === `${item.id}:inquiries`;
+            const analysisOpen = expandedAnalysis === item.id;
+            const recommendationsOpen = analysisOpen && expandedSection === "recommendations";
+            const inquiriesOpen = analysisOpen && expandedSection === "inquiries";
             const stockCount = new Set(item.stock_source_table.map((row) => row.ticker)).size;
             return (
               <Fragment key={item.id}>
-                <tr className="analysis-history-row" onClick={() => toggleExpanded(item.id, "active")}>
+                <tr className="analysis-history-row" onClick={() => toggleAnalysis(item.id)}>
                   <td><strong>Analysis · {formatGeneratedAt(item.generated_at)}</strong></td>
                   <td>{item.target_date || "—"}</td>
                   <td>{contentTypeLabel(item.content_types)}</td>
@@ -664,17 +678,23 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted }
                   <td className="analysis-history-actions">
                     <button type="button" className="secondary compact" onClick={(event) => {
                       event.stopPropagation();
-                      toggleExpanded(item.id, "active");
-                    }}>{activeOpen ? "Hide" : "View"}</button>
+                      toggleAnalysis(item.id);
+                    }}>{analysisOpen ? "Hide" : "View"}</button>
                     <button type="button" className="danger compact" onClick={(event) => {
                       event.stopPropagation();
                       setDeleteCandidate(item);
                     }}>Delete</button>
                   </td>
                 </tr>
-                {activeOpen && (
+                {analysisOpen && (
                   <tr className="analysis-history-expanded">
                     <td colSpan={6}>
+                      <div className="analysis-section-list">
+                        <button type="button" className="analysis-section-row" onClick={() => toggleSection("recommendations")} aria-expanded={recommendationsOpen}>
+                          <span><strong>Recommendations table</strong><small>Active EGX recommendations grouped by source</small></span>
+                          <span>{item.stock_source_table.length} rows - {recommendationsOpen ? "Hide" : "View"}</span>
+                        </button>
+                        {recommendationsOpen && <div className="analysis-section-content">
                       <label className="analysis-result-search">
                         Find stock code or name
                         <input
@@ -684,29 +704,14 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted }
                         />
                       </label>
                       <ConsolidatedStockTable rows={item.stock_source_table.filter((row) => matchesStockQuery(row, stockQuery))} />
+                        </div>}
+                        <button type="button" className="analysis-section-row analysis-section-reference" onClick={() => toggleSection("inquiries")} aria-expanded={inquiriesOpen}>
+                          <span><strong>Client inquiry replies</strong><small>Reference-only replies, excluded from recommendations</small></span>
+                          <span>{item.client_inquiry_responses.length} replies - {inquiriesOpen ? "Hide" : "View"}</span>
+                        </button>
+                        {inquiriesOpen && <div className="analysis-section-content"><ClientInquiryResponses rows={item.client_inquiry_responses} /></div>}
+                      </div>
                     </td>
-                  </tr>
-                )}
-                <tr className="analysis-history-row analysis-history-reference-row" onClick={() => toggleExpanded(item.id, "inquiries")}>
-                  <td><strong>Client inquiry replies - {formatGeneratedAt(item.generated_at)}</strong></td>
-                  <td>{item.target_date || "-"}</td>
-                  <td>{contentTypeLabel(item.content_types)}</td>
-                  <td>Reference only</td>
-                  <td>{item.client_inquiry_responses.length} replies</td>
-                  <td className="analysis-history-actions">
-                    <button type="button" className="secondary compact" onClick={(event) => {
-                      event.stopPropagation();
-                      toggleExpanded(item.id, "inquiries");
-                    }}>{inquiryOpen ? "Hide" : "View"}</button>
-                    <button type="button" className="danger compact" onClick={(event) => {
-                      event.stopPropagation();
-                      setDeleteCandidate(item);
-                    }}>Delete</button>
-                  </td>
-                </tr>
-                {inquiryOpen && (
-                  <tr className="analysis-history-expanded">
-                    <td colSpan={6}><ClientInquiryResponses rows={item.client_inquiry_responses} /></td>
                   </tr>
                 )}
               </Fragment>
@@ -883,7 +888,6 @@ function ClientInquiryCard({ row }: { row: ClientInquiryResponse }) {
       </dl>}
       {row.advice_ar && <section><h5>النصيحة</h5><p>{row.advice_ar}</p></section>}
       {row.alternate_scenario_ar && <section><h5>السيناريو البديل</h5><p>{row.alternate_scenario_ar}</p></section>}
-      {row.source_excerpt && <blockquote className="client-inquiry-evidence"><strong>Message {row.source_message_id || ""}</strong>{row.source_excerpt}</blockquote>}
     </article>
   );
 }
@@ -1244,6 +1248,8 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
   const [loadingDiagnostics, setLoadingDiagnostics] = useState(false);
   const [contentStatus, setContentStatus] = useState<ContentUpdateStatus | null>(null);
   const [checkingContent, setCheckingContent] = useState(false);
+  const [catalogStatus, setCatalogStatus] = useState<EgxCatalogStatus | null>(null);
+  const [refreshingCatalog, setRefreshingCatalog] = useState(false);
   const [appVersion, setAppVersion] = useState("");
   const [openSection, setOpenSection] = useState<string>("ai");
 
@@ -1261,6 +1267,7 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
 
   useEffect(() => { void getVersion().then(setAppVersion).catch(() => setAppVersion("Unknown")); }, []);
   useEffect(() => { void api.contentUpdates().then(setContentStatus).catch(() => setContentStatus(null)); }, [api]);
+  useEffect(() => { void api.egxCatalog().then(setCatalogStatus).catch(() => setCatalogStatus(null)); }, [api]);
   useEffect(() => {
     if (status) setValues((cur) => ({
       ...cur,
@@ -1457,6 +1464,28 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
             </button>
           </div>
         )}
+      </SettingsSection>
+
+      <SettingsSection title="EGX Stock Catalog" description={catalogStatus ? `${catalogStatus.stock_count} stocks · refreshes every ${catalogStatus.refresh_days} days` : "Loading local stock mappings"} open={openSection === "catalog"} onToggle={() => toggleSection("catalog")}>
+        <div className="settings-subsection">
+          <strong>Arabic and English stock identities</strong>
+          <p>Downloads the EGX catalog only when due, then keeps codes, Arabic names, English names, and learned aliases on this computer for all analyses.</p>
+          <p className="credential-note">
+            {catalogStatus?.last_successful_refresh ? `Last updated: ${formatGeneratedAt(catalogStatus.last_successful_refresh)}` : "Using the built-in catalog until the first online refresh."}
+          </p>
+          <button type="button" disabled={refreshingCatalog} onClick={() => {
+            setRefreshingCatalog(true);
+            void api.refreshEgxCatalog()
+              .then((result) => {
+                setCatalogStatus(result);
+                notify("success", `EGX catalog refreshed: ${result.stock_count} stocks are stored locally.`);
+              })
+              .catch((reason) => showError(`Could not refresh the EGX catalog: ${fullError(reason)}`))
+              .finally(() => setRefreshingCatalog(false));
+          }}>
+            {refreshingCatalog ? "Refreshing catalog…" : "Refresh EGX catalog now"}
+          </button>
+        </div>
       </SettingsSection>
 
       <SettingsSection title="Updates" description={`App v${appVersion || "…"} · ${contentStatus?.version ? `Content pack ${contentStatus.version}` : "Built-in content"}`} open={openSection === "updates"} onToggle={() => toggleSection("updates")}>

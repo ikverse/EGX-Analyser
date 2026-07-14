@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.63
+- Fixed desktop release version synchronization: the Tauri bundle, Node package, Rust package, Python package, and API now share one release version.
+- GitHub Actions now rejects tags that do not match every bundled version, preventing an installed build from repeatedly offering its own release as an update.
+- Added a locally cached EGX stock catalog that maps codes to Arabic and English company names, learns confirmed aliases, and refreshes weekly.
+- Reworked Results into one expandable row per analysis run, with nested recommendations and compact client-inquiry sections. Client message evidence is no longer displayed.
+
 ## v0.1.61
 - Reduced analysis payload overhead by reusing exact duplicate content and optimizing only oversized images before they are sent to the AI provider.
 - Added local, secret-free analysis timing diagnostics and clearer in-app analysis progress feedback.

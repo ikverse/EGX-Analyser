@@ -458,12 +458,20 @@ tr:hover td { background: #131f33; }
 .analysis-history-table td { padding: .8rem .9rem; }
 .analysis-history-row { cursor: pointer; }
 .analysis-history-row:hover td { background: #172640; }
-.analysis-history-reference-row td { background: #101b2c; }
-.analysis-history-reference-row:hover td { background: #172c42; }
 .analysis-history-row strong { color: #bbf7d0; }
 .analysis-history-actions { white-space: nowrap; display: flex; gap: .5rem; }
 .analysis-history-expanded td { background: #0b1120; padding: 0 1rem 1rem; }
 .analysis-history-expanded .consolidated-table-wrap { margin-top: 1rem; }
+.analysis-section-list { border: 1px solid #26364d; border-radius: 10px; margin-top: 1rem; overflow: hidden; }
+.analysis-section-row { align-items: center; background: #101b2c; border: 0; border-bottom: 1px solid #26364d; border-radius: 0; color: #dbeafe; display: flex; justify-content: space-between; padding: .85rem 1rem; text-align: left; width: 100%; }
+.analysis-section-row:hover { background: #172c42; transform: none; }
+.analysis-section-row > span:first-child { display: grid; gap: .2rem; }
+.analysis-section-row strong { color: #bbf7d0; }
+.analysis-section-row small { color: #94a3b8; }
+.analysis-section-row > span:last-child { color: #cbd5e1; font-size: .82rem; white-space: nowrap; }
+.analysis-section-reference strong { color: #fbbf24; }
+.analysis-section-content { border-bottom: 1px solid #26364d; padding: 0 1rem 1rem; }
+.analysis-section-content:last-child { border-bottom: 0; }
 .analysis-result-search { display: grid; gap: .4rem; max-width: 560px; margin: 1rem 0 0; color: #cbd5e1; font-size: .86rem; }
 
 /* ── Report cards ── */
@@ -603,31 +611,30 @@ tr:hover td { background: #131f33; }
 .client-inquiry-group:last-child { border-bottom: none; }
 .client-inquiry-group h4 { margin: 0 0 .75rem; color: #f8fafc; }
 .client-inquiry-group h4 span { color: #fbbf24; margin-right: .4rem; }
-.client-inquiry-cards { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.client-inquiry-cards { display: grid; gap: .6rem; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
 .client-inquiry-card {
   background: #162335;
   border: 1px solid #31445f;
-  border-radius: 10px;
+  border-radius: 8px;
   color: #e5e7eb;
-  padding: 1rem;
+  padding: .75rem;
   text-align: right;
 }
-.client-inquiry-card-header { display: flex; direction: ltr; justify-content: space-between; gap: .75rem; align-items: flex-start; margin-bottom: .8rem; }
+.client-inquiry-card-header { display: flex; direction: ltr; justify-content: space-between; gap: .6rem; align-items: flex-start; margin-bottom: .55rem; }
 .client-inquiry-card-header strong { display: block; color: #fbbf24; }
 .client-inquiry-card-header span { display: block; color: #94a3b8; font-size: .8rem; margin-top: .15rem; }
 .client-inquiry-card .client-inquiry-trend { color: #bfdbfe; max-width: 55%; text-align: right; }
-.client-inquiry-card section { margin-top: .8rem; }
+.client-inquiry-card section { margin-top: .55rem; }
 .client-inquiry-card h5 { margin: 0 0 .2rem; color: #93c5fd; font-size: .86rem; }
-.client-inquiry-card p { margin: 0; line-height: 1.6; white-space: pre-wrap; }
-.client-inquiry-levels { display: grid; grid-template-columns: repeat(3, 1fr); gap: .45rem; margin: 1rem 0 0; text-align: left; }
+.client-inquiry-card p { font-size: .9rem; margin: 0; line-height: 1.45; white-space: pre-wrap; }
+.client-inquiry-levels { display: grid; grid-template-columns: repeat(3, 1fr); gap: .4rem; margin: .65rem 0 0; text-align: left; }
 .client-inquiry-levels div { background: #0f1e33; border-radius: 7px; padding: .45rem .55rem; }
 .client-inquiry-levels dt { color: #94a3b8; font-size: .72rem; }
 .client-inquiry-levels dd { color: #bbf7d0; font-weight: 700; margin: .15rem 0 0; }
-.client-inquiry-evidence { border-right: 3px solid #fbbf24; color: #cbd5e1; margin: 1rem 0 0; padding: .45rem .7rem; white-space: pre-wrap; }
-.client-inquiry-evidence strong { display: block; color: #fbbf24; direction: ltr; font-size: .76rem; margin-bottom: .35rem; }
 @media (max-width: 620px) {
   .client-inquiries-heading { align-items: flex-start; flex-direction: column; }
   .client-inquiry-levels { grid-template-columns: 1fr; }
+  .analysis-section-row { align-items: flex-start; flex-direction: column; gap: .4rem; }
 }
 .consolidated-table-title {
   display: flex;

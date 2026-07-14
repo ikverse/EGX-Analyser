@@ -21,13 +21,15 @@ The normal NSIS installer automatically downloads Microsoft WebView2 if Windows 
 
 ## Publish an update
 
-Update all three version fields to the same semantic version:
+Update every release-version field to the same semantic version:
 
 - `desktop/package.json`
 - `desktop/src-tauri/Cargo.toml`
 - `desktop/src-tauri/tauri.conf.json`
+- `pyproject.toml`
+- `app/main.py`
 
-Commit those changes, then create and push a matching Git tag, for example `v0.1.1`. GitHub Actions builds the bundled backend, creates the signed installer and signature, generates `latest.json`, and publishes all of them to the release. Existing installations discover the release automatically.
+Commit those changes, then create and push a matching Git tag, for example `v0.1.1`. GitHub Actions rejects a release when its tag and any bundled version differ. It then builds the bundled backend, creates the signed installer and signature, generates `latest.json`, and publishes all of them to the release. Existing installations discover the release automatically.
 
 For a local release build instead of GitHub Actions:
 

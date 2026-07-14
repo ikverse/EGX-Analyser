@@ -25,6 +25,7 @@ from app.collector.telegram import is_promotional_message
 from app.reports import ReportService
 from app.analysis_trace import export_analysis_trace
 from app.repositories import StockRepository
+from app.stock_catalog import EGXStockCatalog, normalize_stock_name
 
 
 QWEN_CONSOLIDATED_OUTPUT = {
@@ -80,6 +81,41 @@ async def test_message_ingestion_is_idempotent(session):
     payload = MessageCreate(channel_handle="EGXSignals", telegram_message_id=3, text="شراء CIB", published_at=datetime.now(timezone.utc))
     first, second = await service.ingest(payload), await service.ingest(payload)
     assert first.id == second.id
+
+
+async def test_egx_catalog_resolves_arabic_only_model_output_and_learns_aliases(session):
+    catalog = EGXStockCatalog(session, "https://catalog.invalid/stocks")
+    await catalog._upsert([{
+        "ticker": "COMI", "name_en": "Commercial International Bank Egypt", "name_ar": "البنك التجاري الدولي",
+        "aliases": "CIB|التجاري الدولي",
+    }])
+    payload = {
+        "top_consolidated_recommendations": [{
+            "stock_code": None, "stock_name_en": "", "stock_name_ar": "التجاري الدولي",
+            "data_points": [],
+        }],
+        "achieved_targets": [], "client_inquiry_responses": [], "text_based_categories": {},
+    }
+
+    await catalog.enrich_consolidated_output(payload)
+    stock = payload["top_consolidated_recommendations"][0]
+    hints = await catalog.matching_hints([{"text": "تحليل البنك التجاري الدولي", "transcripts": []}])
+
+    assert stock["stock_code"] == "COMI"
+    assert stock["stock_name_en"] == "Commercial International Bank Egypt"
+    assert stock["stock_name_ar"] == "البنك التجاري الدولي"
+    assert hints == ["COMI: Commercial International Bank Egypt / البنك التجاري الدولي"]
+    assert normalize_stock_name("إلـى البنك التجاري الدولي") == normalize_stock_name("الى البنك التجاري الدولي")
+
+
+async def test_egx_catalog_refresh_cache_waits_until_the_weekly_interval(session, tmp_path):
+    catalog = EGXStockCatalog(session, "https://catalog.invalid/stocks", tmp_path, refresh_days=7)
+    catalog._save_state({"last_successful_refresh": datetime.now(timezone.utc).isoformat()})
+
+    assert not catalog._refresh_due(catalog._state(), force=False)
+    assert catalog._refresh_due(catalog._state(), force=True)
+    catalog._save_state({"last_successful_refresh": (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()})
+    assert catalog._refresh_due(catalog._state(), force=False)
 
 
 async def test_analysis_results_returns_only_batch_analysis_reports(session):

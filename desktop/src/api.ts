@@ -8,6 +8,7 @@ export type SettingsInput = { ai_provider?: AiProvider; openai_api_key?: string;
 export type TelegramChat = { id: string; title: string; username: string; kind: string };
 export type DiagnosticEntry = { timestamp?: string; level: string; event: string; request_id?: string; method?: string; path?: string; status_code?: number; duration_ms?: number; error_type?: string };
 export type ContentUpdateStatus = { enabled: boolean; version: string | null; source: string };
+export type EgxCatalogStatus = { stock_count: number; last_successful_refresh?: string | null; last_refresh_attempt?: string | null; refresh_days: number; changed?: number; refreshed?: boolean };
 export type StockSourceRow = {
   ticker: string;
   company: string;
@@ -154,6 +155,8 @@ export class ApiClient {
   diagnostics() { return this.request<{ path: string; entries: DiagnosticEntry[] }>("/diagnostics/recent"); }
   contentUpdates() { return this.request<ContentUpdateStatus>("/content-updates"); }
   checkContentUpdates() { return this.request<{ updated: boolean; version: string }>("/content-updates/check", { method: "POST" }); }
+  egxCatalog() { return this.request<EgxCatalogStatus>("/egx-catalog"); }
+  refreshEgxCatalog() { return this.request<EgxCatalogStatus>("/egx-catalog/refresh", { method: "POST" }); }
   selectTelegramChat(chat: TelegramChat) { return this.request<Channel>("/telegram/chats/select", { method: "POST", body: JSON.stringify(chat) }); }
   runCollection() { return this.request<{ messages_collected: number }>("/collection/run", { method: "POST" }); }
   analyzeSelected(channel_ids: number[], content_types: AnalysisContentType[], analysis_mode: AnalysisMode = "next_day", target_date?: string) {

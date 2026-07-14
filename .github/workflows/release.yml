@@ -21,6 +21,25 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Verify release tag matches bundled version
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          if ($tag -notmatch '^v(?<version>\d+\.\d+\.\d+)$') {
+            throw "Release tags must use vMAJOR.MINOR.PATCH; received '$tag'."
+          }
+          $expected = $Matches.version
+          $tauriVersion = (Get-Content desktop/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $nodeVersion = (Get-Content desktop/package.json -Raw | ConvertFrom-Json).version
+          $cargoVersion = (Select-String -Path desktop/src-tauri/Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          $pythonVersion = (Select-String -Path pyproject.toml -Pattern '^version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          $apiVersion = (Select-String -Path app/main.py -Pattern 'version="([^"]+)"').Matches[0].Groups[1].Value
+          $versions = @{ tauri = $tauriVersion; node = $nodeVersion; cargo = $cargoVersion; python = $pythonVersion; api = $apiVersion }
+          $mismatches = $versions.GetEnumerator() | Where-Object { $_.Value -ne $expected }
+          if ($mismatches) {
+            $actual = ($versions.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ', '
+            throw "Release tag $tag requires every bundled version to be $expected. Found: $actual"
+          }
       - name: Install frontend and Python build dependencies
         shell: pwsh
         run: |

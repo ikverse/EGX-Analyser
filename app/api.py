@@ -17,6 +17,7 @@ from app.database import get_session
 from app.diagnostics import diagnostics_path, logger, recent_entries
 from app.models import Channel, Image, Media, Message, Recommendation, Report, Stock
 from app.reports import ReportService
+from app.stock_catalog import EGXStockCatalog
 from app.schemas import (ChannelCreate, ChannelUpdate, CollectionRequest, DailyReportRequest, MessageCreate, SearchRequest, SettingsUpdate, TelegramChatSelect,
                          TelegramCodeRequest, TelegramCodeVerification)
 from app.services import AnalyticsService, MessageService, SearchService
@@ -43,6 +44,25 @@ async def diagnostics(limit: int = 50) -> dict[str, object]:
 @router.get("/content-updates")
 async def content_update_status() -> dict[str, object]:
     return ContentUpdateService(get_settings()).status()
+
+
+def egx_catalog(session: AsyncSession) -> EGXStockCatalog:
+    settings = get_settings()
+    return EGXStockCatalog(session, settings.egx_catalog_url, settings.storage_root, settings.egx_catalog_refresh_days)
+
+
+@router.get("/egx-catalog")
+async def egx_catalog_status(session: AsyncSession = Depends(get_session)) -> dict[str, object]:
+    return await egx_catalog(session).status()
+
+
+@router.post("/egx-catalog/refresh")
+async def refresh_egx_catalog(session: AsyncSession = Depends(get_session)) -> dict[str, object]:
+    result = await egx_catalog(session).ensure(force=True)
+    await session.commit()
+    if not result["refreshed"]:
+        raise HTTPException(503, "Could not download the EGX catalog. Your saved local mapping is still available.")
+    return result
 
 
 @router.post("/content-updates/check")
@@ -257,13 +277,17 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
                 "image_paths": selected_images,
                 "transcripts": selected_transcripts,
             })
+        catalog = egx_catalog(session)
+        catalog_refresh = await catalog.ensure()
+        catalog_hints = await catalog.matching_hints(batch_messages)
         outcome = await AIAnalysisService(get_settings()).analyze_consolidated(
-            batch_messages, analysis_period, target_date.isoformat()
+            batch_messages, analysis_period, target_date.isoformat(), catalog_hints
         )
         model_completed = perf_counter()
         consolidated_source = json.loads(outcome.raw_response)
         if not isinstance(consolidated_source, dict):
             raise RuntimeError("The AI provider returned a non-object response for the consolidated analysis")
+        await catalog.enrich_consolidated_output(consolidated_source)
         collection["messages_analyzed"] = len(batch_messages)
         trace = await export_analysis_trace(
             session, get_settings().storage_root, payload.channel_ids, window_start, window_end, outcome.raw_response
@@ -291,6 +315,9 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
                 "collection_ms": collection_ms,
                 "report_generation_ms": report_generation_ms,
                 "total_analysis_ms": round((perf_counter() - analysis_started) * 1000),
+                "catalog_changes": catalog_refresh["changed"],
+                "catalog_refreshed": catalog_refresh["refreshed"],
+                "catalog_hints": len(catalog_hints),
                 **outcome.input_metrics,
             },
         )

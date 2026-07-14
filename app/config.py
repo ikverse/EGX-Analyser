@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     huggingface_api_key: str | None = None
     qwen_api_key: str | None = None
     qwen_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    egx_catalog_url: str = "https://demo.borsa.ashh.me/v1/stocks"
+    egx_catalog_refresh_days: int = 7
     content_pack_manifest_url: str = "https://raw.githubusercontent.com/ikverse/EGX-Analyser/main/remote-content/content-pack.json"
     ai_provider: str = ""
     openai_model: str = "openrouter/free"
