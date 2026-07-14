@@ -64,5 +64,4 @@ coll = COLLECT(
     upx=False,
     upx_exclude=[],
     name='egx-intelligence-api',
-    contents_directory='.',
 )

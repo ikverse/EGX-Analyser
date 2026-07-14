@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.51
+- Fixed python312.dll load failure — PyInstaller 6+ places runtime files in `_internal/` by default which the bootloader hardcodes; build script now flattens `_internal/` into the sidecar root after PyInstaller builds so the exe finds all DLLs next to itself
+- Removed ineffective `contents_directory='.'` from PyInstaller spec (PyInstaller 6 converts it to None internally, does not disable `_internal`)
+
 ## v0.1.50
 - Fixed python312.dll load failure — set `contents_directory='.'` in PyInstaller spec so all runtime files are placed flat in sidecar/ instead of inside `_internal/`
 
