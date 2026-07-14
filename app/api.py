@@ -4,6 +4,7 @@ from pathlib import Path
 import json
 import shutil
 import subprocess
+from time import perf_counter
 import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -214,8 +215,10 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
     source_end_date = (target_date if payload.analysis_mode == "specific_date" else window_end.astimezone(cairo).date()).isoformat()
     analysis_period = f"Source messages: {source_start_date} through {source_end_date}; target date: {target_date.isoformat()}"
     content_types = set(payload.content_types)
+    analysis_started = perf_counter()
     try:
         collection = await runtime.collect_once(payload.channel_ids, since=window_start, analyze_messages=False)
+        collection_ms = round((perf_counter() - analysis_started) * 1000)
         message_rows = (await session.execute(
             select(Message, Channel)
             .join(Channel, Message.channel_id == Channel.id)
@@ -257,6 +260,7 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
         outcome = await AIAnalysisService(get_settings()).analyze_consolidated(
             batch_messages, analysis_period, target_date.isoformat()
         )
+        model_completed = perf_counter()
         consolidated_source = json.loads(outcome.raw_response)
         if not isinstance(consolidated_source, dict):
             raise RuntimeError("The AI provider returned a non-object response for the consolidated analysis")
@@ -269,6 +273,7 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
             consolidated_source=consolidated_source, consolidated_raw_response=outcome.raw_response,
             report_label=report_label,
         )
+        report_generation_ms = round((perf_counter() - model_completed) * 1000)
         report.summary = {**report.summary, **{
             "analysis_result": True,
             "target_date": target_date.isoformat(),
@@ -280,6 +285,15 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
             "analysis_trace_directory": trace["directory"],
         }}
         await session.commit()
+        logger().info(
+            "analysis_performance",
+            extra={
+                "collection_ms": collection_ms,
+                "report_generation_ms": report_generation_ms,
+                "total_analysis_ms": round((perf_counter() - analysis_started) * 1000),
+                **outcome.input_metrics,
+            },
+        )
         channel_results = report.summary["channel_results"]
         return {"messages_collected": collection["messages_analyzed"], **collection,
                 "window_start": window_start, "window_end": window_end, "target_date": target_date.isoformat(),

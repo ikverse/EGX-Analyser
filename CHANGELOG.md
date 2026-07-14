@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.61
+- Reduced analysis payload overhead by reusing exact duplicate content and optimizing only oversized images before they are sent to the AI provider.
+- Added local, secret-free analysis timing diagnostics and clearer in-app analysis progress feedback.
+
 ## v0.1.60
 - Restored the proven GitHub release path by removing the updater signing preflight that blocked builds before the existing signing process could run.
 

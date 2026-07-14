@@ -391,6 +391,7 @@ function Channels({ channels, api, refresh, notify, showError, showSuccess }: {
   });
   const [loading, setLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [analysisProgress, setAnalysisProgress] = useState("");
   const [contentTypes, setContentTypes] = useState<AnalysisContentType[]>(["text", "images", "audio"]);
   const [analysisMode, setAnalysisMode] = useState<AnalysisMode>("next_day");
   const [targetDate, setTargetDate] = useState("");
@@ -458,6 +459,12 @@ function Channels({ channels, api, refresh, notify, showError, showSuccess }: {
     if (!contentTypes.length) return notify("warning", "Choose at least one input type to analyze.");
     if (analysisMode === "specific_date" && !targetDate) return notify("warning", "Choose the target date to analyze.");
     setAnalyzing(true);
+    setAnalysisProgress("Collecting selected chat data…");
+    const progressTimers = [
+      window.setTimeout(() => setAnalysisProgress("Preparing selected text, images, and audio…"), 1_500),
+      window.setTimeout(() => setAnalysisProgress("Analyzing selected content with the AI model…"), 5_000),
+      window.setTimeout(() => setAnalysisProgress("Creating your saved results and report…"), 20_000),
+    ];
     void api.analyzeSelected(ids, contentTypes, analysisMode, analysisMode === "specific_date" ? targetDate : undefined)
       .then((result) => {
         return refresh().then(() => {
@@ -472,7 +479,11 @@ function Channels({ channels, api, refresh, notify, showError, showSuccess }: {
         });
       })
       .catch((reason) => showError(fullError(reason)))
-      .finally(() => setAnalyzing(false));
+      .finally(() => {
+        progressTimers.forEach((timer) => window.clearTimeout(timer));
+        setAnalysisProgress("");
+        setAnalyzing(false);
+      });
   };
 
   const selectedRows = selectedChannels.map((channel) => ({
@@ -537,6 +548,7 @@ function Channels({ channels, api, refresh, notify, showError, showSuccess }: {
         <button onClick={analyze} disabled={busy}>
           {analyzing ? "Analyzing selected chats…" : "Analyze selected chats"}
         </button>
+        {analyzing && <p className="analysis-progress" role="status">{analysisProgress}</p>}
         <Table rows={selectedRows} />
       </div>
     </>

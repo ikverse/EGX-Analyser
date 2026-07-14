@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app import api
 from app.models import Base, Image, Recommendation, Report, StockMention
 from app.schemas import AnalysisResult, CollectionRequest, ExtractedRecommendation, ExtractedStockMention, MessageCreate, TelegramChatSelect
-from app.ai.service import _analysis_result_from_payload, analysis_output_schema
+from app.ai.service import _analysis_result_from_payload, _prepared_image_data_url, analysis_output_schema
 from app.reports import _client_inquiry_rows, _consolidated_source_table
 from app.services import AnalyticsService, MessageService, SearchService
 from app.config_store import load_secrets_into_environment, update_config
@@ -207,6 +207,22 @@ def test_qwen_consolidated_output_normalizes_to_recommendations():
     assert result.stock_mentions[0].table_data["stock_name_ar"] == "موبكو"
     assert result.recommendations[0].entry == 37.25
     assert result.recommendations[0].target_2 == 40.0
+
+
+def test_oversized_image_payload_is_optimized_without_losing_an_image_input(tmp_path):
+    from PIL import Image as PillowImage
+
+    image_path = tmp_path / "large-table.png"
+    image = PillowImage.effect_noise((2600, 1800), 100).convert("RGB")
+    image.save(image_path, format="PNG")
+
+    data_url, original_bytes, sent_bytes, optimized = _prepared_image_data_url(str(image_path))
+
+    assert data_url.startswith("data:image/")
+    assert original_bytes > 0
+    assert sent_bytes > 0
+    assert optimized
+    assert sent_bytes < original_bytes
 
 
 def test_client_inquiry_replies_are_kept_out_of_active_recommendations():

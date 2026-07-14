@@ -248,6 +248,24 @@ button.tab.active { background: #1f3c2d; color: #86efac; }
 .analysis-content-types legend { padding: 0 .35rem; color: #cbd5e1; font-size: .86rem; }
 .analysis-content-types label { display: inline-flex; align-items: center; gap: .45rem; color: #dbeafe; cursor: pointer; }
 .analysis-content-types input { accent-color: #70c96a; width: 1rem; height: 1rem; }
+.analysis-progress {
+  margin: .75rem 0 0;
+  color: #a7f3d0;
+  font-size: .9rem;
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+.analysis-progress::before {
+  content: "";
+  width: .8rem;
+  height: .8rem;
+  border: 2px solid rgba(167, 243, 208, .35);
+  border-top-color: #a7f3d0;
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* ── Reports ── */
 .report-controls {

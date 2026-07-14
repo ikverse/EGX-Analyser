@@ -40,7 +40,13 @@ class JsonDiagnosticFormatter(logging.Formatter):
             "level": record.levelname,
             "event": record.getMessage(),
         }
-        for key in ("request_id", "method", "path", "status_code", "duration_ms", "error_type"):
+        for key in (
+            "request_id", "method", "path", "status_code", "duration_ms", "error_type",
+            "collection_ms", "model_request_ms", "report_generation_ms", "total_analysis_ms",
+            "logical_message_count", "logical_image_count", "unique_image_count", "duplicate_image_count",
+            "optimized_image_count", "original_image_bytes", "sent_image_bytes", "prompt_characters",
+            "reused_text_count", "reused_transcript_count",
+        ):
             value = getattr(record, key, None)
             if value is not None:
                 payload[key] = value

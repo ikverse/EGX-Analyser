@@ -1,18 +1,30 @@
 import base64
+import hashlib
+import io
 import json
-from dataclasses import dataclass
+import mimetypes
+from dataclasses import dataclass, field
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 from openai import AsyncOpenAI
 from app.config import Settings
 from app.content_updates import ContentUpdateService
 from app.schemas import AnalysisResult
 
+try:
+    from PIL import Image as PillowImage
+    from PIL import ImageOps
+except ImportError:  # The desktop sidecar retains the original image when Pillow is unavailable.
+    PillowImage = None
+    ImageOps = None
+
 
 @dataclass(frozen=True)
 class AnalysisOutcome:
     result: AnalysisResult
     raw_response: str
+    input_metrics: dict[str, int] = field(default_factory=dict)
 
 
 _OUTPUT_CONTRACT = """Return only one JSON object in this consolidated EGX report structure:
@@ -24,6 +36,59 @@ _OUTPUT_CONTRACT = """Return only one JSON object in this consolidated EGX repor
 - text_based_categories: object with most_important_stocks, trading_stocks, and watchlist_stocks arrays. Each array item has stock_code, stock_name_en, and stock_name_ar.
 - daily_breakdown: object keyed by date; each item has total_mentions and top_stock_of_day.
 Use English EGX ticker codes in stock_code. Keep unavailable values as null. Do not invent price levels or targets."""
+
+_MAX_IMAGE_EDGE = 2_048
+_OPTIMIZE_IMAGE_OVER_BYTES = 1_500_000
+
+
+def _content_reference(value: str, references: dict[str, str], label: str, telegram_id: str) -> tuple[str, bool]:
+    """Reuse only byte-identical text/transcripts while retaining the message occurrence."""
+    text = value.strip()
+    if not text:
+        return "", False
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    original_id = references.get(digest)
+    if original_id:
+        return (
+            f"[{label} is byte-for-byte identical to TELEGRAM_ID {original_id}. "
+            "Keep this message as a separate source/date occurrence.]",
+            True,
+        )
+    references[digest] = telegram_id
+    return text, False
+
+
+def _image_digest(path: str) -> str:
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def _prepared_image_data_url(path: str) -> tuple[str, int, int, bool]:
+    """Optimize only oversized images and retain the original bytes when optimization is not beneficial."""
+    image_path = Path(path)
+    raw = image_path.read_bytes()
+    original_size = len(raw)
+    content = raw
+    mime_type = mimetypes.guess_type(image_path.name)[0] or "image/jpeg"
+    optimized = False
+    if PillowImage is not None and ImageOps is not None:
+        try:
+            with PillowImage.open(io.BytesIO(raw)) as image:
+                normalized = ImageOps.exif_transpose(image)
+                oversized = max(normalized.size) > _MAX_IMAGE_EDGE or original_size > _OPTIMIZE_IMAGE_OVER_BYTES
+                if oversized:
+                    normalized = normalized.convert("RGB")
+                    normalized.thumbnail((_MAX_IMAGE_EDGE, _MAX_IMAGE_EDGE))
+                    candidate = io.BytesIO()
+                    normalized.save(candidate, format="JPEG", quality=92, optimize=True, progressive=True)
+                    compressed = candidate.getvalue()
+                    if len(compressed) < original_size:
+                        content = compressed
+                        mime_type = "image/jpeg"
+                        optimized = True
+        except (OSError, ValueError):
+            pass
+    encoded = base64.b64encode(content).decode()
+    return f"data:{mime_type};base64,{encoded}", original_size, len(content), optimized
 
 
 def analysis_output_schema() -> dict[str, Any]:
@@ -200,54 +265,100 @@ class AIAnalysisService:
             "Do not treat a source label as a stock recommendation by itself.",
         ]
         image_paths: list[str] = []
+        image_references: dict[str, int] = {}
+        text_references: dict[str, str] = {}
+        transcript_references: dict[str, str] = {}
+        metrics = {
+            "logical_message_count": len(messages),
+            "logical_image_count": 0,
+            "duplicate_image_count": 0,
+            "reused_text_count": 0,
+            "reused_transcript_count": 0,
+        }
         for item in messages:
             source = str(item.get("source") or "Unknown chat")
             timestamp = str(item.get("published_at") or "")
             telegram_id = str(item.get("telegram_message_id") or "")
-            text = str(item.get("text") or "[No text]")
+            original_text = str(item.get("text") or "")
+            text, reused_text = _content_reference(original_text, text_references, "TEXT_REF", telegram_id)
+            metrics["reused_text_count"] += int(reused_text)
             transcripts = item.get("transcripts") if isinstance(item.get("transcripts"), list) else []
             parts.extend([
                 "", f"--- MESSAGE | SOURCE: {source} | DATE: {timestamp} | TELEGRAM_ID: {telegram_id} ---",
-                text,
+                text or "[No text]",
             ])
             if transcripts:
-                parts.append("Audio transcript:\n" + "\n".join(str(value) for value in transcripts if value))
+                original_transcript = "\n".join(str(value) for value in transcripts if value).strip()
+                transcript, reused_transcript = _content_reference(
+                    original_transcript, transcript_references, "AUDIO_REF", telegram_id,
+                )
+                metrics["reused_transcript_count"] += int(reused_transcript)
+                if transcript:
+                    parts.append("Audio transcript:\n" + transcript)
             for index, image_path in enumerate(item.get("image_paths") or [], start=1):
-                parts.append(f"Image {index} for this message follows.")
-                image_paths.append(str(image_path))
-        return await self._analyze_prompt("\n".join(parts), image_paths)
+                metrics["logical_image_count"] += 1
+                path = str(image_path)
+                try:
+                    digest = _image_digest(path)
+                except OSError:
+                    parts.append(f"Image {index} is unavailable and was not sent.")
+                    continue
+                reference = image_references.get(digest)
+                if reference is not None:
+                    metrics["duplicate_image_count"] += 1
+                    parts.append(
+                        f"Image {index} is an exact duplicate of IMAGE_REF {reference}. "
+                        "Reuse its visible content while retaining this source/date occurrence."
+                    )
+                    continue
+                reference = len(image_paths) + 1
+                image_references[digest] = reference
+                parts.append(f"Image {index} for this message is IMAGE_REF {reference}; it follows below.")
+                image_paths.append(path)
+        return await self._analyze_prompt("\n".join(parts), image_paths, metrics)
 
-    async def _analyze_prompt(self, source_data: str, image_paths: list[str]) -> AnalysisOutcome:
+    async def _analyze_prompt(self, source_data: str, image_paths: list[str], input_metrics: dict[str, int] | None = None) -> AnalysisOutcome:
         if self.client is None:
             raise RuntimeError("An API key is required for the selected AI provider")
         analysis_prompt = self.settings.analysis_instructions.strip() or self.prompt
         prompt = f"{analysis_prompt}\n\n{_OUTPUT_CONTRACT}\n\n{source_data}"
+        metrics = dict(input_metrics or {})
+        prepared_images = [_prepared_image_data_url(path) for path in image_paths]
+        metrics.update({
+            "unique_image_count": len(prepared_images),
+            "original_image_bytes": sum(item[1] for item in prepared_images),
+            "sent_image_bytes": sum(item[2] for item in prepared_images),
+            "optimized_image_count": sum(int(item[3]) for item in prepared_images),
+            "prompt_characters": len(prompt),
+        })
+        request_started = perf_counter()
         if self.settings.ai_provider != "openai":
             content: list[dict[str, object]] = [{"type": "text", "text": prompt}]
-            for image_path in image_paths:
-                encoded = base64.b64encode(Path(image_path).read_bytes()).decode()
-                content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded}"}})
+            for data_url, _, _, _ in prepared_images:
+                content.append({"type": "image_url", "image_url": {"url": data_url}})
             response_format: dict[str, object] = {"type": "json_object"}
             response = await self.client.chat.completions.create(
                 model=self.settings.openai_model,
                 messages=[{"role": "user", "content": content}],
                 response_format=response_format,
             )
+            metrics["model_request_ms"] = round((perf_counter() - request_started) * 1000)
             output = response.choices[0].message.content or "{}"
             output = output.removeprefix("```json").removesuffix("```").strip()
-            return AnalysisOutcome(result=_analysis_result_from_payload(json.loads(output)), raw_response=output)
+            return AnalysisOutcome(result=_analysis_result_from_payload(json.loads(output)), raw_response=output, input_metrics=metrics)
 
         content = [{"type": "input_text", "text": prompt}]
-        for image_path in image_paths:
-            encoded = base64.b64encode(Path(image_path).read_bytes()).decode()
-            content.append({"type": "input_image", "image_url": f"data:image/jpeg;base64,{encoded}", "detail": "high"})
+        for data_url, _, _, _ in prepared_images:
+            content.append({"type": "input_image", "image_url": data_url, "detail": "high"})
         response = await self.client.responses.create(
             model=self.settings.openai_model,
             input=[{"role": "user", "content": content}],
             text={"format": {"type": "json_object"}},
         )
+        metrics["model_request_ms"] = round((perf_counter() - request_started) * 1000)
         return AnalysisOutcome(
-            result=_analysis_result_from_payload(json.loads(response.output_text)), raw_response=response.output_text
+            result=_analysis_result_from_payload(json.loads(response.output_text)), raw_response=response.output_text,
+            input_metrics=metrics,
         )
 
     async def transcribe(self, audio_path: str) -> str:
