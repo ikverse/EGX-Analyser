@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.1.60
+- Restored the proven GitHub release path by removing the updater signing preflight that blocked builds before the existing signing process could run.
+
 ## v0.1.59
 - Fixed Windows GitHub Actions updater signing verification by invoking the installed Tauri CLI directly instead of resolving it through `npx`.
 
