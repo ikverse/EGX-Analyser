@@ -65,6 +65,10 @@ try {
     $sidecarsDir = Join-Path $root "desktop\src-tauri\sidecar"
     if (Test-Path $sidecarsDir) { Remove-Item $sidecarsDir -Recurse -Force }
     Copy-Item "dist\egx-intelligence-api" $sidecarsDir -Recurse -Force
+    $sidecarExe = Join-Path $sidecarsDir "egx-intelligence-api.exe"
+    $pythonDll = Join-Path $sidecarsDir "_internal\python312.dll"
+    if (-not (Test-Path $sidecarExe)) { throw "Sidecar executable was not produced: $sidecarExe" }
+    if (-not (Test-Path $pythonDll)) { throw "PyInstaller sidecar is missing python312.dll: $pythonDll" }
     Write-Host "Sidecar folder copied to $sidecarsDir" -ForegroundColor Green
     Push-Location "desktop\src-tauri"
     try {

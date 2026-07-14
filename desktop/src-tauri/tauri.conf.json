@@ -29,7 +29,7 @@
                                ],
                    "createUpdaterArtifacts":  true,
                    "resources":  {
-                                     "sidecar/**/*":  "sidecar/"
+                                     "sidecar":  "sidecar"
                                  },
                    "windows":  {
                                    "webviewInstallMode":  {

@@ -1,14 +1,21 @@
 # Changelog
 
 ## v0.1.51
-- Fixed python312.dll load failure — PyInstaller 6+ places runtime files in `_internal/` by default which the bootloader hardcodes; build script now flattens `_internal/` into the sidecar root after PyInstaller builds so the exe finds all DLLs next to itself
-- Removed ineffective `contents_directory='.'` from PyInstaller spec (PyInstaller 6 converts it to None internally, does not disable `_internal`)
+- Restored PyInstaller's supported _internal sidecar layout and package the complete sidecar directory.
+- Added a pre-package check for sidecar\_internal\python312.dll to stop broken installers from being produced.
+- Added the sidecar runtime directory to the child process DLL search path.
+- Aligned desktop and Python version metadata.
+## v0.1.51
+- Restored PyInstaller's supported `_internal` sidecar layout and package the complete sidecar directory.
+- Added a pre-package check for `sidecar\\_internal\\python312.dll` to stop broken installers from being produced.
+- Added the sidecar runtime directory to the child process DLL search path.
+- Aligned desktop and Python version metadata.
 
 ## v0.1.50
-- Fixed python312.dll load failure — set `contents_directory='.'` in PyInstaller spec so all runtime files are placed flat in sidecar/ instead of inside `_internal/`
+- Fixed python312.dll load failure â€” set `contents_directory='.'` in PyInstaller spec so all runtime files are placed flat in sidecar/ instead of inside `_internal/`
 
 ## v0.1.49
-- Fixed python312.dll load failure — removed nonexistent `_internal` path from sidecar PATH injection, DLL files are flat in sidecar/
+- Fixed python312.dll load failure â€” removed nonexistent `_internal` path from sidecar PATH injection, DLL files are flat in sidecar/
 
 ## v0.1.48
 - Renamed installer artifacts from `egx-intelligence-*` to `egx-analyzer-*`

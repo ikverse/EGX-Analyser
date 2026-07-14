@@ -1,9 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::process::Child;
-use std::sync::Mutex;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
+use std::process::Child;
+use std::sync::Mutex;
 
 use tauri::{Manager, RunEvent, WindowEvent};
 
@@ -63,11 +63,17 @@ fn start_local_engine(app: &tauri::App) -> Result<Child, Box<dyn std::error::Err
 
     let sidecar_dir = exe.parent().unwrap_or(&resource_dir);
 
-    // Prepend sidecar dir to PATH so Windows resolves python312.dll and
-    // VC++ runtime deps from the flat onedir layout without a system-wide install.
+    // Preserve PyInstaller's standard _internal directory and make both
+    // directories available for Python and VC++ runtime DLL resolution.
+    let internal_dir = sidecar_dir.join("_internal");
     let new_path = match std::env::var("PATH") {
-        Ok(existing) => format!("{};{}", sidecar_dir.display(), existing),
-        Err(_) => sidecar_dir.display().to_string(),
+        Ok(existing) => format!(
+            "{};{};{}",
+            sidecar_dir.display(),
+            internal_dir.display(),
+            existing
+        ),
+        Err(_) => format!("{};{}", sidecar_dir.display(), internal_dir.display()),
     };
 
     let mut cmd = std::process::Command::new(&exe);
