@@ -62,14 +62,12 @@ fn start_local_engine(app: &tauri::App) -> Result<Child, Box<dyn std::error::Err
         .join("egx-intelligence-api.exe");
 
     let sidecar_dir = exe.parent().unwrap_or(&resource_dir);
-    let internal_dir = sidecar_dir.join("_internal");
 
-    // Prepend the sidecar and _internal dirs to PATH so Windows can resolve
-    // python312.dll and its VC++ runtime dependencies without a system-wide install.
-    let path_extra = format!("{};{}", sidecar_dir.display(), internal_dir.display());
+    // Prepend sidecar dir to PATH so Windows resolves python312.dll and
+    // VC++ runtime deps from the flat onedir layout without a system-wide install.
     let new_path = match std::env::var("PATH") {
-        Ok(existing) => format!("{};{}", path_extra, existing),
-        Err(_) => path_extra,
+        Ok(existing) => format!("{};{}", sidecar_dir.display(), existing),
+        Err(_) => sidecar_dir.display().to_string(),
     };
 
     let mut cmd = std::process::Command::new(&exe);
