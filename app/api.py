@@ -257,6 +257,7 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
                            "original_ai_response_pdf_path": report.summary["original_ai_response_pdf_path"]}, "channel_results": channel_results,
                 "stock_code_summary": report.summary["stock_code_summary"],
                 "stock_code_details": report.summary["stock_code_details"],
+                "stock_source_table": report.summary["stock_source_table"],
                 "trace": trace,
                 "not_stock_related": [item["channel"] for item in channel_results if item["status"] == "not_stock_related"]}
     except RuntimeError as error:

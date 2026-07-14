@@ -477,6 +477,49 @@ tr:hover td { background: #131f33; }
 .stock-card-body-table { overflow-x: auto; border-top: 1px solid #26364d; }
 .stock-card-empty { color: #475569; font-size: .82rem; padding: .75rem 1.1rem; margin: 0; }
 
+/* ── Consolidated stock/source table ── */
+.consolidated-table-wrap {
+  margin-top: 1.25rem;
+  background: #111c2e;
+  border: 1px solid #26364d;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.consolidated-table-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: baseline;
+  padding: 1rem 1.15rem;
+  border-bottom: 1px solid #26364d;
+}
+.consolidated-table-title strong { color: #e5e7eb; }
+.consolidated-table-title span { color: #94a3b8; font-size: .8rem; text-align: right; }
+.consolidated-table-scroll { overflow-x: auto; }
+.consolidated-table { min-width: 1320px; font-size: .82rem; }
+.consolidated-table th { background: #0f1e33; padding: .65rem .7rem; white-space: nowrap; text-transform: none; }
+.consolidated-table td { padding: .6rem .7rem; vertical-align: top; }
+.consolidated-table .consolidated-stock-group td {
+  background: #13263d;
+  border-top: 2px solid #314b6d;
+  color: #e5e7eb;
+  padding: .65rem .8rem;
+}
+.consolidated-stock-group strong { color: #86efac; margin-right: .7rem; }
+.consolidated-stock-group span { margin-right: .7rem; }
+.consolidated-rank { color: #94a3b8; font-variant-numeric: tabular-nums; }
+.consolidated-company-ar { direction: rtl; color: #cbd5e1; }
+.consolidated-mentions { float: right; color: #94a3b8; font-size: .78rem; }
+.consolidated-table .numeric { text-align: right; font-variant-numeric: tabular-nums; }
+.consolidated-table .positive { color: #86efac; }
+.consolidated-table .negative { color: #fca5a5; }
+.source-cell { color: #e5e7eb; font-weight: 600; white-space: nowrap; }
+.analysis-summary { direction: rtl; text-align: right; color: #cbd5e1; min-width: 240px; line-height: 1.5; }
+.status-pill { display: inline-block; padding: .15rem .45rem; border-radius: 999px; font-size: .72rem; font-weight: 700; }
+.status-pill.active { background: #1a3d24; color: #86efac; }
+.status-pill.neutral { background: #172033; color: #94a3b8; }
+.compact { padding: .38rem .65rem; font-size: .8rem; }
+
 /* ── Responsive ── */
 @media (max-width: 700px) {
   .shell { grid-template-columns: 1fr; }
@@ -487,4 +530,6 @@ tr:hover td { background: #131f33; }
   .error-modal-actions { flex-direction: column-reverse; }
   .report-card { flex-direction: column; align-items: flex-start; }
   .header-actions { flex-direction: column; gap: .4rem; }
+  .consolidated-table-title { flex-direction: column; align-items: flex-start; }
+  .consolidated-table-title span { text-align: left; }
 }

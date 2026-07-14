@@ -27,6 +27,28 @@ export type StockSummaryRow = {
   data_samples: Array<{ channel: string; data: Record<string, string>; context?: string }>;
 };
 
+export type StockSourceTableRow = {
+  rank?: number;
+  ticker: string;
+  company: string;
+  company_ar?: string;
+  source: string;
+  source_entries: number;
+  source_dates: string[];
+  latest_date?: string | null;
+  mention_count: number;
+  status?: string;
+  analysis_summary_ar?: string;
+  buy_price?: number | null;
+  target_1?: number | null;
+  target_2?: number | null;
+  stop_loss?: number | null;
+  support?: number | null;
+  resistance?: number | null;
+  expected_return_pct?: number | null;
+  risk_pct?: number | null;
+};
+
 export type SelectedAnalysisResult = {
   messages_collected: number;
   messages_in_window: number;
@@ -53,6 +75,7 @@ export type SelectedAnalysisResult = {
   channel_results: Array<{ channel: string; status: string; messages: number; recommendations: number; stock_codes: number }>;
   stock_code_summary: StockSummaryRow[];
   stock_code_details: StockSourceRow[];
+  stock_source_table: StockSourceTableRow[];
   not_stock_related: string[];
 };
 

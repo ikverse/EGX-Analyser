@@ -7,7 +7,7 @@ import { check } from "@tauri-apps/plugin-updater";
 import {
   AiProvider, ApiClient, Channel, Consensus, ContentUpdateStatus,
   DiagnosticEntry, SelectedAnalysisResult, SettingsInput, SettingsStatus, TelegramChat,
-  StockSourceRow, StockSummaryRow,
+  StockSourceRow, StockSourceTableRow, StockSummaryRow,
 } from "./api";
 
 type Page = "Dashboard" | "Channels" | "Results" | "Reports" | "Settings";
@@ -350,6 +350,7 @@ function Reports({ api, rows, setRows, notify, showError }: {
 }) {
   const [mode, setMode] = useState<"calendar" | "session">("calendar");
   const [generating, setGenerating] = useState(false);
+  const [openTableId, setOpenTableId] = useState<number | null>(null);
   const generate = () => {
     setGenerating(true);
     void api.generateReport(mode)
@@ -363,7 +364,11 @@ function Reports({ api, rows, setRows, notify, showError }: {
   type ReportRow = Record<string, unknown> & {
     id?: number; date?: string;
     markdown_path?: string; html_path?: string; pdf_path?: string;
-    summary?: { original_ai_response_text_path?: string; original_ai_response_pdf_path?: string };
+    summary?: {
+      original_ai_response_text_path?: string;
+      original_ai_response_pdf_path?: string;
+      stock_source_table?: StockSourceTableRow[];
+    };
   };
   const typedRows = rows as ReportRow[];
 
@@ -389,6 +394,11 @@ function Reports({ api, rows, setRows, notify, showError }: {
             {report.date ? String(report.date).slice(0, 16).replace("T", " ") : `Report #${report.id}`}
           </strong>
           <div className="report-links">
+            {(report.summary?.stock_source_table?.length ?? 0) > 0 && (
+              <button className="secondary compact" onClick={() => setOpenTableId((current) => current === report.id ? null : report.id ?? null)}>
+                {openTableId === report.id ? "Hide table" : "View table in app"}
+              </button>
+            )}
             {report.html_path && (
               <a href={`file:///${String(report.html_path).replace(/\\/g, "/")}`}
                 target="_blank" rel="noreferrer" className="report-link">
@@ -414,6 +424,9 @@ function Reports({ api, rows, setRows, notify, showError }: {
               </a>
             )}
           </div>
+          {openTableId === report.id && report.summary?.stock_source_table && (
+            <ConsolidatedStockTable rows={report.summary.stock_source_table} />
+          )}
         </div>
       ))}
     </>
@@ -560,6 +573,7 @@ function Channels({ channels, api, refresh, notify, showError }: {
         <AnalysisResultTable
           summary={lastAnalysis.stock_code_summary}
           details={lastAnalysis.stock_code_details}
+          sourceRows={lastAnalysis.stock_source_table}
           channelResults={lastAnalysis.channel_results}
           reportHtmlPath={lastAnalysis.report.html_path}
           reportPdfPath={lastAnalysis.report.pdf_path}
@@ -610,15 +624,74 @@ const PRICE_FIELDS: Array<{ key: string; label: string }> = [
   { key: "date",                label: "Date" },
 ];
 
-function num(v: string | undefined): string {
-  if (!v || v === "None" || v === "null") return "—";
-  const n = parseFloat(v);
-  return isNaN(n) ? v : String(n);
+function num(v: unknown): string {
+  if (v === undefined || v === null || v === "" || v === "None" || v === "null") return "—";
+  const n = Number(v);
+  return Number.isNaN(n) ? String(v) : String(n);
 }
 
-function AnalysisResultTable({ summary, details, channelResults, reportHtmlPath, reportPdfPath, aiResponsePdfPath, aiResponseTextPath, tracePath }: {
+function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
+  const grouped = new Map<string, StockSourceTableRow[]>();
+  rows.forEach((row) => {
+    const group = grouped.get(row.ticker) ?? [];
+    group.push(row);
+    grouped.set(row.ticker, group);
+  });
+  if (!rows.length) return <p className="empty">No structured EGX recommendations were found.</p>;
+
+  return (
+    <div className="consolidated-table-wrap">
+      <div className="consolidated-table-title">
+        <strong>EGX recommendations by source</strong>
+        <span>One current row per source. Values use the latest non-empty level found in the selected period.</span>
+      </div>
+      <div className="consolidated-table-scroll">
+        <table className="consolidated-table">
+          <thead><tr>
+            <th>Source</th><th>Dates</th><th>Entries</th><th>Entry</th><th>TP1</th><th>TP2</th>
+            <th>Stop</th><th>Support</th><th>Resistance</th><th>Return %</th><th>Risk %</th><th>Status</th><th>Arabic analysis</th>
+          </tr></thead>
+          {[...grouped.entries()].map(([ticker, stockRows]) => {
+            const first = stockRows[0];
+            return (
+              <tbody key={ticker}>
+                <tr className="consolidated-stock-group"><td colSpan={13}>
+                  <span className="consolidated-rank">#{first.rank ?? "—"}</span>
+                  <strong>{first.ticker}</strong>
+                  <span>{first.company}</span>
+                  {first.company_ar && <span className="consolidated-company-ar">{first.company_ar}</span>}
+                  <span className="consolidated-mentions">{first.mention_count} total mentions</span>
+                </td></tr>
+                {stockRows.map((row) => (
+                  <tr key={`${row.ticker}-${row.source}`}>
+                    <td className="source-cell">{row.source}</td>
+                    <td>{row.source_dates.join(", ") || "—"}</td>
+                    <td className="numeric">{row.source_entries}</td>
+                    <td className="numeric">{num(row.buy_price)}</td>
+                    <td className="numeric positive">{num(row.target_1)}</td>
+                    <td className="numeric positive">{num(row.target_2)}</td>
+                    <td className="numeric negative">{num(row.stop_loss)}</td>
+                    <td className="numeric">{num(row.support)}</td>
+                    <td className="numeric">{num(row.resistance)}</td>
+                    <td className="numeric positive">{num(row.expected_return_pct)}</td>
+                    <td className="numeric negative">{num(row.risk_pct)}</td>
+                    <td><span className={`status-pill ${row.status === "active" ? "active" : "neutral"}`}>{row.status || "—"}</span></td>
+                    <td className="analysis-summary">{row.analysis_summary_ar || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            );
+          })}
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function AnalysisResultTable({ summary, details, sourceRows = [], channelResults, reportHtmlPath, reportPdfPath, aiResponsePdfPath, aiResponseTextPath, tracePath }: {
   summary: StockSummaryRow[];
   details: StockSourceRow[];
+  sourceRows: StockSourceTableRow[];
   channelResults: Array<{ channel: string; status: string; messages: number; recommendations: number; stock_codes: number }>;
   reportHtmlPath: string;
   reportPdfPath: string;
@@ -681,7 +754,9 @@ function AnalysisResultTable({ summary, details, channelResults, reportHtmlPath,
         <p style={{ color: "#94a3b8", fontStyle: "italic" }}>No EGX stock codes were found in this analysis window.</p>
       )}
 
-      {stocks.map((stock) => {
+      {sourceRows.length > 0 && <ConsolidatedStockTable rows={sourceRows} />}
+
+      {sourceRows.length === 0 && stocks.map((stock) => {
         const open = expanded.has(stock.ticker);
         return (
           <div key={stock.ticker} className="stock-card">

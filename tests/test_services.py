@@ -302,6 +302,29 @@ async def test_selected_chat_report_prefers_explicit_batch_result_and_preserves_
     assert raw_response in Path(report.summary["original_ai_response_text_path"]).read_text(encoding="utf-8")
 
 
+async def test_consolidated_report_has_one_current_row_per_stock_source(session, tmp_path):
+    message = await MessageService(session).ingest(MessageCreate(
+        channel_handle="signals", telegram_message_id=17, text="MFPC updates", published_at=datetime.now(timezone.utc)
+    ))
+    payload = json.loads(json.dumps(QWEN_CONSOLIDATED_OUTPUT))
+    payload["top_consolidated_recommendations"][0]["data_points"].append({
+        "date": "2026-07-13", "source": "CFI", "buy_price": 38.0, "target_1": 39.2,
+        "target_2": 40.5, "stop_loss": 36.0, "support": 37.0, "resistance": 39.2,
+        "expected_return_pct": 3.1, "risk_pct": -1.9,
+    })
+    await session.flush()
+    report = await ReportService(session, type("Settings", (), {"storage_root": tmp_path})()).generate_selected_chat_report(
+        [message.channel_id], datetime.now(timezone.utc) - timedelta(days=1), datetime.now(timezone.utc) + timedelta(minutes=1),
+        1, consolidated_source=payload, consolidated_raw_response=json.dumps(payload),
+    )
+    rows = report.summary["stock_source_table"]
+    assert len(rows) == 1
+    assert rows[0]["source"] == "CFI"
+    assert rows[0]["source_entries"] == 2
+    assert rows[0]["buy_price"] == 38.0
+    assert rows[0]["source_dates"] == ["2026-07-12", "2026-07-13"]
+
+
 async def test_analysis_trace_saves_message_text_and_images(session, tmp_path):
     message = await MessageService(session).ingest(MessageCreate(
         channel_handle="signals", telegram_message_id=8, text="BUY CIB", published_at=datetime.now(timezone.utc)

@@ -162,8 +162,10 @@ class ReportService:
         stock_code_summary.sort(key=lambda item: (-item["occurrences"], item["ticker"]))
         stock_code_details.sort(key=lambda item: (item["ticker"], item["channel"]))
         consolidated_source = consolidated_source or _consolidated_source_output(message_rows)
+        stock_source_table: list[dict] = []
         if consolidated_source is not None:
             consensus, stock_code_summary, stock_code_details = _source_driven_tables(consolidated_source)
+            stock_source_table = _consolidated_source_table(consolidated_source)
             source_counts = _consolidated_source_counts(consolidated_source)
             for channel in channels:
                 label = channel.title or channel.handle
@@ -195,20 +197,17 @@ class ReportService:
         lines += [f"- {item['channel']}: {item['status']} | Messages {item['messages']} | Recommendations {item['recommendations']}" for item in channel_results]
         if consolidated_source is not None:
             lines += ["", "## Qwen consolidated analysis", f"- Analysis period: {consolidated_source.get('analysis_period') or report_mode}"]
-            lines += ["", "| Rank | Code | Company (EN) | Company (AR) | Mentions | Status | Source | Buy | Target 1 | Target 2 | Stop loss |", "| ---: | --- | --- | --- | ---: | --- | --- | ---: | ---: | ---: | ---: |"]
-            for item in consolidated_source.get("top_consolidated_recommendations", []):
-                if not isinstance(item, dict):
-                    continue
-                points = item.get("data_points") if isinstance(item.get("data_points"), list) else []
-                for point in points or [{}]:
-                    point = point if isinstance(point, dict) else {}
-                    lines.append(
-                        f"| {item.get('rank') or '-'} | {item.get('stock_code') or '-'} | {item.get('stock_name_en') or '-'} | {item.get('stock_name_ar') or '-'} | "
-                        f"{item.get('mention_count') or 0} | {item.get('status') or '-'} | {point.get('source') or '-'} | "
-                        f"{point.get('buy_price') or '-'} | {point.get('target_1') or '-'} | {point.get('target_2') or '-'} | {point.get('stop_loss') or '-'} |"
-                    )
-                if item.get("analysis_summary_ar"):
-                    lines.append(f"- {item.get('stock_code')}: {item['analysis_summary_ar']}")
+            lines += ["", "| Rank | Code | Company (EN) | Company (AR) | Source | Dates | Source entries | Entry | TP1 | TP2 | Stop | Support | Resistance | Return % | Risk % | Status |", "| ---: | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |"]
+            for row in stock_source_table:
+                lines.append(
+                    f"| {row['rank'] or '-'} | {row['ticker']} | {row['company']} | {row['company_ar'] or '-'} | "
+                    f"{row['source']} | {', '.join(row['source_dates']) or '-'} | {row['source_entries']} | "
+                    f"{row['buy_price'] or '-'} | {row['target_1'] or '-'} | {row['target_2'] or '-'} | "
+                    f"{row['stop_loss'] or '-'} | {row['support'] or '-'} | {row['resistance'] or '-'} | "
+                    f"{row['expected_return_pct'] or '-'} | {row['risk_pct'] or '-'} | {row['status'] or '-'} |"
+                )
+                if row["analysis_summary_ar"]:
+                    lines.append(f"- {row['ticker']} / {row['source']}: {row['analysis_summary_ar']}")
             lines += ["", "## Achieved targets"]
             for item in consolidated_source.get("achieved_targets", []):
                 if isinstance(item, dict):
@@ -253,7 +252,7 @@ class ReportService:
         html_path.write_text(
             _build_html_report(generated_at, report_mode, message_rows, recommendation_rows,
                                channel_results, consensus, stock_code_details,
-                               consolidated_source),
+                               consolidated_source, stock_source_table),
             encoding="utf-8",
         )
         canvas = Canvas(str(pdf_path), pagesize=A4)
@@ -296,6 +295,7 @@ class ReportService:
             "mode": report_mode, "consensus": consensus, "message_count": len(message_rows),
             "recommendation_count": display_recommendation_count, "channel_results": channel_results,
             "stock_code_summary": stock_code_summary, "stock_code_details": stock_code_details,
+            "stock_source_table": stock_source_table,
             "consolidated_source": consolidated_source,
             "analysis_mode": "consolidated_batch" if consolidated_raw_response else "per_message",
             "original_ai_response_text_path": str(raw_text_path),
@@ -360,6 +360,56 @@ def _consolidated_source_counts(payload: dict) -> dict[str, dict[str, int]]:
             values["recommendations"] += 1
             values["stock_codes"] += 1
     return counts
+
+
+_SOURCE_VALUE_FIELDS = (
+    "buy_price", "target_1", "target_2", "stop_loss", "support", "resistance",
+    "expected_return_pct", "risk_pct",
+)
+
+
+def _consolidated_source_table(payload: dict) -> list[dict]:
+    """Create one current, readable row for each EGX code and source.
+
+    A source can publish several posts for a stock in the selected window. The row
+    keeps the newest non-empty value for each price field and retains all dates so
+    the report remains concise without discarding the audit history.
+    """
+    rows: list[dict] = []
+    for item in payload.get("top_consolidated_recommendations", []):
+        if not isinstance(item, dict) or not item.get("stock_code"):
+            continue
+        points_by_source: dict[str, list[dict]] = {}
+        for point in item.get("data_points", []):
+            if not isinstance(point, dict):
+                continue
+            source = str(point.get("source") or "Unspecified")
+            points_by_source.setdefault(source, []).append(point)
+        for source, points in points_by_source.items():
+            ordered_points = sorted(points, key=lambda point: str(point.get("date") or ""))
+            values: dict[str, object | None] = {field: None for field in _SOURCE_VALUE_FIELDS}
+            for point in ordered_points:
+                for field in _SOURCE_VALUE_FIELDS:
+                    if point.get(field) not in (None, ""):
+                        values[field] = point[field]
+            dates = list(dict.fromkeys(
+                str(point["date"])[:10] for point in ordered_points if point.get("date")
+            ))
+            rows.append({
+                "rank": item.get("rank"),
+                "ticker": str(item["stock_code"]).upper(),
+                "company": str(item.get("stock_name_en") or item["stock_code"]),
+                "company_ar": str(item.get("stock_name_ar") or ""),
+                "source": source,
+                "source_entries": len(ordered_points),
+                "source_dates": dates,
+                "latest_date": dates[-1] if dates else None,
+                "mention_count": int(item.get("mention_count") or len(ordered_points)),
+                "status": str(item.get("status") or ""),
+                "analysis_summary_ar": str(item.get("analysis_summary_ar") or ""),
+                **values,
+            })
+    return sorted(rows, key=lambda row: (int(row["rank"] or 999), row["ticker"], row["source"]))
 
 
 def _source_driven_tables(payload: dict) -> tuple[list[dict], list[dict], list[dict]]:
@@ -481,6 +531,7 @@ def _build_html_report(
     consensus: list[dict],
     stock_code_details: list[dict],
     consolidated_source: dict | None,
+    stock_source_table: list[dict],
 ) -> str:
     css = """
     <style>
@@ -549,47 +600,37 @@ def _build_html_report(
         sections.append(f'<h2>Qwen consolidated analysis</h2>'
                         f'<p>Analysis period: <strong>{e(period)}</strong></p>')
 
-        recs = consolidated_source.get("top_consolidated_recommendations", [])
-        if recs:
+        if stock_source_table:
             sections.append(
                 '<table><thead><tr>'
                 '<th>Rank</th><th>Code</th><th>Company (EN)</th><th>Company (AR)</th>'
-                '<th class="num">Mentions</th><th>Status</th><th>Source</th>'
-                '<th class="num">Buy</th><th class="num">Target 1</th>'
-                '<th class="num">Target 2</th><th class="num">Stop loss</th>'
+                '<th>Source</th><th>Dates</th><th class="num">Entries</th><th>Status</th>'
+                '<th class="num">Entry</th><th class="num">TP1</th><th class="num">TP2</th>'
+                '<th class="num">Stop loss</th><th class="num">Support</th><th class="num">Resistance</th>'
                 '<th class="num">Return %</th><th class="num">Risk %</th>'
                 '</tr></thead><tbody>'
             )
-            for item in recs:
-                if not isinstance(item, dict):
-                    continue
-                points = item.get("data_points") if isinstance(item.get("data_points"), list) else [{}]
-                row_status = str(item.get("status") or "")
-                for point in (points or [{}]):
-                    point = point if isinstance(point, dict) else {}
-                    sections.append(
-                        f'<tr>'
-                        f'<td class="num">{e(item.get("rank", "-"))}</td>'
-                        f'<td><strong>{e(item.get("stock_code", "-"))}</strong></td>'
-                        f'<td>{e(item.get("stock_name_en", "-"))}</td>'
-                        f'<td class="ar">{e(item.get("stock_name_ar", ""))}</td>'
-                        f'<td class="num">{e(item.get("mention_count", 0))}</td>'
-                        f'<td>{badge(row_status if row_status else "HOLD")}</td>'
-                        f'<td>{e(point.get("source", "-"))}</td>'
-                        f'<td class="num">{e(point.get("buy_price", "-"))}</td>'
-                        f'<td class="num">{e(point.get("target_1", "-"))}</td>'
-                        f'<td class="num">{e(point.get("target_2", "-"))}</td>'
-                        f'<td class="num">{e(point.get("stop_loss", "-"))}</td>'
-                        f'<td class="num">{e(point.get("expected_return_pct", "-"))}</td>'
-                        f'<td class="num">{e(point.get("risk_pct", "-"))}</td>'
-                        f'</tr>'
-                    )
-                summary_ar = item.get("analysis_summary_ar")
-                if summary_ar:
-                    sections.append(
-                        f'<tr><td colspan="13" class="ar" style="color:#94a3b8;font-size:.82rem">'
-                        f'{e(summary_ar)}</td></tr>'
-                    )
+            for row in stock_source_table:
+                sections.append(
+                    f'<tr>'
+                    f'<td class="num">{e(row["rank"] or "-")}</td>'
+                    f'<td><strong>{e(row["ticker"])}</strong></td>'
+                    f'<td>{e(row["company"])}</td>'
+                    f'<td class="ar">{e(row["company_ar"])}</td>'
+                    f'<td>{e(row["source"])}</td>'
+                    f'<td>{e(", ".join(row["source_dates"]) or "-")}</td>'
+                    f'<td class="num">{e(row["source_entries"])}</td>'
+                    f'<td>{badge(row["status"] or "HOLD")}</td>'
+                    f'<td class="num">{e(row["buy_price"] or "-")}</td>'
+                    f'<td class="num">{e(row["target_1"] or "-")}</td>'
+                    f'<td class="num">{e(row["target_2"] or "-")}</td>'
+                    f'<td class="num">{e(row["stop_loss"] or "-")}</td>'
+                    f'<td class="num">{e(row["support"] or "-")}</td>'
+                    f'<td class="num">{e(row["resistance"] or "-")}</td>'
+                    f'<td class="num">{e(row["expected_return_pct"] or "-")}</td>'
+                    f'<td class="num">{e(row["risk_pct"] or "-")}</td>'
+                    f'</tr>'
+                )
             sections.append('</tbody></table>')
 
         achieved = consolidated_source.get("achieved_targets", [])

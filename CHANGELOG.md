@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.55
+- Added a persistent in-app EGX table grouped by stock code and name with one current row per source.
+- Show entry, TP1, TP2, stop loss, support, resistance, expected return, risk, dates, status, and Arabic analysis in the app and exports.
+- Preserve the latest non-empty levels from repeated source posts while retaining all source dates for traceability.
+
 ## v0.1.53
 - Removed the invalid sidecar flattening step so PyInstaller can load `python312.dll` from its required `_internal` directory.
 
