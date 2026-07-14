@@ -1,17 +1,17 @@
-import { FormEvent, isValidElement, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, Fragment, isValidElement, useCallback, useEffect, useMemo, useState } from "react";
 import type React from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { check } from "@tauri-apps/plugin-updater";
 
 import {
-  AiProvider, ApiClient, Channel, Consensus, ContentUpdateStatus,
-  DiagnosticEntry, SelectedAnalysisResult, SettingsInput, SettingsStatus, TelegramChat,
+  AiProvider, AnalysisResultHistory, ApiClient, Channel, Consensus, ContentUpdateStatus,
+  DiagnosticEntry, SettingsInput, SettingsStatus, TelegramChat,
   StockSourceRow, StockSourceTableRow, StockSummaryRow,
 } from "./api";
 
 type Page = "Dashboard" | "Channels" | "Results" | "Reports" | "Settings";
-type ResultTab = "Recommendations" | "Search";
+type ResultTab = "Analysis" | "Recommendations" | "Search";
 type Toast = { kind: "success" | "warning"; text: string } | null;
 type UpdateCandidate = {
   version: string;
@@ -52,14 +52,16 @@ function ErrorModal({ message, onClose }: { message: string; onClose: () => void
 export default function App() {
   const [connected, setConnected] = useState(false);
   const [page, setPage] = useState<Page>("Dashboard");
-  const [resultTab, setResultTab] = useState<ResultTab>("Recommendations");
+  const [resultTab, setResultTab] = useState<ResultTab>("Analysis");
   const [channels, setChannels] = useState<Channel[]>([]);
   const [consensus, setConsensus] = useState<Consensus[]>([]);
   const [rows, setRows] = useState<Array<Record<string, unknown>>>([]);
+  const [analysisResults, setAnalysisResults] = useState<AnalysisResultHistory[]>([]);
   const [settings, setSettings] = useState<SettingsStatus | null>(null);
   const [engineStarting, setEngineStarting] = useState(true);
   const [toast, setToast] = useState<Toast>(null);
   const [errorModal, setErrorModal] = useState<string | null>(null);
+  const [successModal, setSuccessModal] = useState<string | null>(null);
   const [availableUpdate, setAvailableUpdate] = useState<UpdateCandidate | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [downloadingUpdate, setDownloadingUpdate] = useState(false);
@@ -73,6 +75,7 @@ export default function App() {
     const short = fullText.length > 120 ? `${fullText.slice(0, 117)}…` : fullText;
     setToast({ kind: "warning", text: short });
   }, []);
+  const showSuccess = useCallback((message: string) => setSuccessModal(message), []);
 
   const refresh = async (showFailure = true): Promise<boolean> => {
     try {
@@ -161,6 +164,9 @@ export default function App() {
   }, [connected]);
 
   useEffect(() => {
+    if (connected && page === "Results" && resultTab === "Analysis") {
+      void api.analysisResults().then(setAnalysisResults).catch((reason) => showError(fullError(reason)));
+    }
     if (connected && page === "Results" && resultTab === "Recommendations") {
       setRows([]);
       void api.recommendations().then(setRows);
@@ -169,7 +175,7 @@ export default function App() {
       setRows([]);
       void api.reports().then(setRows);
     }
-  }, [api, connected, page, resultTab]);
+  }, [api, connected, page, resultTab, showError]);
 
   if (!connected) {
     return (
@@ -220,7 +226,7 @@ export default function App() {
           )}
 
           {page === "Dashboard" && <Dashboard channels={channels} consensus={consensus} />}
-          {page === "Channels" && <Channels channels={channels} api={api} refresh={refresh} notify={notify} showError={showError} />}
+          {page === "Channels" && <Channels channels={channels} api={api} refresh={refresh} notify={notify} showError={showError} showSuccess={showSuccess} />}
           {page === "Results" && (
             <Results
               api={api}
@@ -230,6 +236,7 @@ export default function App() {
               setTab={setResultTab}
               notify={notify}
               showError={showError}
+              analysisResults={analysisResults}
             />
           )}
           {page === "Reports" && <Reports api={api} rows={rows} setRows={setRows} notify={notify} showError={showError} />}
@@ -248,6 +255,7 @@ export default function App() {
       </main>
 
       {errorModal && <ErrorModal message={errorModal} onClose={() => setErrorModal(null)} />}
+      {successModal && <SuccessModal message={successModal} onClose={() => setSuccessModal(null)} />}
 
       {toast && (
         <div className={`toast ${toast.kind}`} role="status">
@@ -267,6 +275,7 @@ type Notify = (kind: "success" | "warning", text: string) => void;
 const SIGNAL_COLOR: Record<string, string> = { BUY: "#86efac", SELL: "#fca5a5", HOLD: "#fde68a" };
 const SIGNAL_BG: Record<string, string> = { BUY: "#1a3d24", SELL: "#3d1a1a", HOLD: "#2e2a14" };
 type ShowError = (message: string) => void;
+type ShowSuccess = (message: string) => void;
 
 // ── Dashboard check button (lives in header) ──────────────────────────────────
 
@@ -435,9 +444,9 @@ function Reports({ api, rows, setRows, notify, showError }: {
 
 // ── Channels ──────────────────────────────────────────────────────────────────
 
-function Channels({ channels, api, refresh, notify, showError }: {
+function Channels({ channels, api, refresh, notify, showError, showSuccess }: {
   channels: Channel[]; api: ApiClient;
-  refresh: () => Promise<boolean>; notify: Notify; showError: ShowError;
+  refresh: () => Promise<boolean>; notify: Notify; showError: ShowError; showSuccess: ShowSuccess;
 }) {
   const [handle, setHandle] = useState("");
   const [chats, setChats] = useState<TelegramChat[]>(() => {
@@ -451,8 +460,6 @@ function Channels({ channels, api, refresh, notify, showError }: {
   });
   const [loading, setLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  const [lastAnalysis, setLastAnalysis] = useState<SelectedAnalysisResult | null>(null);
-  const [lookbackDays, setLookbackDays] = useState(3);
 
   const busy = loading || analyzing;
 
@@ -508,17 +515,17 @@ function Channels({ channels, api, refresh, notify, showError }: {
     const ids = selectedChannels.map((channel) => channel.id);
     if (!ids.length) return notify("warning", "Select at least one chat first.");
     setAnalyzing(true);
-    void api.analyzeSelected(ids, lookbackDays)
+    void api.analyzeSelected(ids)
       .then((result) => {
-        setLastAnalysis(result);
-        return refresh().then(() =>
-          notify(result.not_stock_related.length ? "warning" : "success",
-            `${result.messages_analyzed} of ${result.messages_in_window} messages freshly analyzed ` +
-            `from the last ${result.lookback_days} day(s) (${result.messages_reanalyzed} re-analyzed). ` +
-            `Report and local trace created.` +
-            (result.not_stock_related.length ? ` No stock-related context: ${result.not_stock_related.join(", ")}.` : "")
-          )
-        );
+        return refresh().then(() => {
+          const noStockContext = result.not_stock_related.length
+            ? ` No stock-related context: ${result.not_stock_related.join(", ")}.`
+            : "";
+          showSuccess(
+            `${result.messages_analyzed} of ${result.messages_in_window} messages were freshly analyzed from yesterday through now. ` +
+            `Target suggestion date: ${result.target_date}. The result is saved in Results.${noStockContext}`
+          );
+        });
       })
       .catch((reason) => showError(fullError(reason)))
       .finally(() => setAnalyzing(false));
@@ -554,49 +561,33 @@ function Channels({ channels, api, refresh, notify, showError }: {
 
       <div className="channels-section">
         <h3 className="section-heading">Analyze selected chats ({selectedChannels.length})</h3>
-        <div className="lookback-row">
-          <label className="lookback-label">
-            Analysis window
-            <span className="lookback-value">{lookbackDays} day{lookbackDays === 1 ? "" : "s"}</span>
-          </label>
-          <input type="range" min="1" max="5" step="1" value={lookbackDays}
-            onChange={(e) => setLookbackDays(Number(e.target.value))} disabled={busy}
-            className="lookback-slider" />
+        <div className="analysis-window-note">
+          <strong>Automatic next-day analysis</strong>
+          <p>Uses selected-chat messages, images, and available audio from yesterday at 00:00 Cairo time through the moment you press Analyze. The model keeps only suggestions intended for the next day based on dates and context inside the content.</p>
         </div>
         <button onClick={analyze} disabled={busy}>
           {analyzing ? "Analyzing selected chats…" : "Analyze selected chats"}
         </button>
         <Table rows={selectedRows} />
       </div>
-
-      {lastAnalysis && (
-        <AnalysisResultTable
-          summary={lastAnalysis.stock_code_summary}
-          details={lastAnalysis.stock_code_details}
-          sourceRows={lastAnalysis.stock_source_table}
-          channelResults={lastAnalysis.channel_results}
-          reportHtmlPath={lastAnalysis.report.html_path}
-          reportPdfPath={lastAnalysis.report.pdf_path}
-          aiResponsePdfPath={lastAnalysis.report.original_ai_response_pdf_path}
-          aiResponseTextPath={lastAnalysis.report.original_ai_response_text_path}
-          tracePath={lastAnalysis.trace.text_path}
-        />
-      )}
     </>
   );
 }
 
 // ── Results (merged Recommendations + Search) ─────────────────────────────────
 
-function Results({ api, rows, setRows, tab, setTab, notify, showError }: {
+function Results({ api, rows, setRows, tab, setTab, notify, showError, analysisResults }: {
   api: ApiClient; rows: Array<Record<string, unknown>>;
   setRows: (rows: Array<Record<string, unknown>>) => void;
   tab: ResultTab; setTab: (t: ResultTab) => void;
-  notify: Notify; showError: ShowError;
+  notify: Notify; showError: ShowError; analysisResults: AnalysisResultHistory[];
 }) {
   return (
     <>
       <div className="tab-bar">
+        <button className={tab === "Analysis" ? "tab active" : "tab"} onClick={() => setTab("Analysis")}>
+          Analysis results
+        </button>
         <button className={tab === "Recommendations" ? "tab active" : "tab"} onClick={() => setTab("Recommendations")}>
           Recommendations
         </button>
@@ -604,9 +595,55 @@ function Results({ api, rows, setRows, tab, setTab, notify, showError }: {
           Search
         </button>
       </div>
+      {tab === "Analysis" && <AnalysisResultHistoryTable items={analysisResults} />}
       {tab === "Recommendations" && <Recommendations rows={rows} />}
       {tab === "Search" && <Search api={api} onResult={setRows} notify={notify} showError={showError} />}
     </>
+  );
+}
+
+function formatGeneratedAt(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function AnalysisResultHistoryTable({ items }: { items: AnalysisResultHistory[] }) {
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  if (!items.length) return <p className="empty">No saved analysis results yet. Run Analyze selected chats to create one.</p>;
+
+  return (
+    <div className="analysis-history-wrap">
+      <p className="analysis-history-help">Select a generated result to expand its complete EGX recommendations table.</p>
+      <table className="analysis-history-table">
+        <thead>
+          <tr><th>Generated result</th><th>Target date</th><th>Messages analyzed</th><th>Stocks</th><th /></tr>
+        </thead>
+        <tbody>
+          {items.map((item) => {
+            const isOpen = expandedId === item.id;
+            return (
+              <Fragment key={item.id}>
+                <tr className="analysis-history-row" onClick={() => setExpandedId(isOpen ? null : item.id)}>
+                  <td><strong>Analysis · {formatGeneratedAt(item.generated_at)}</strong></td>
+                  <td>{item.target_date || "—"}</td>
+                  <td>{item.messages_analyzed}</td>
+                  <td>{new Set(item.stock_source_table.map((row) => row.ticker)).size}</td>
+                  <td><button type="button" className="secondary compact" onClick={(event) => {
+                    event.stopPropagation();
+                    setExpandedId(isOpen ? null : item.id);
+                  }}>{isOpen ? "Hide" : "View"}</button></td>
+                </tr>
+                {isOpen && (
+                  <tr className="analysis-history-expanded">
+                    <td colSpan={5}><ConsolidatedStockTable rows={item.stock_source_table} /></td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -628,6 +665,20 @@ function num(v: unknown): string {
   if (v === undefined || v === null || v === "" || v === "None" || v === "null") return "—";
   const n = Number(v);
   return Number.isNaN(n) ? String(v) : String(n);
+}
+
+function SuccessModal({ message, onClose }: { message: string; onClose: () => void }) {
+  return (
+    <div className="error-modal-backdrop" role="dialog" aria-modal="true" aria-label="Analysis completed">
+      <div className="error-modal-card success-modal-card">
+        <h2 className="error-modal-title success-modal-title">Analysis completed</h2>
+        <p className="success-modal-body">{message}</p>
+        <div className="error-modal-actions">
+          <button type="button" onClick={onClose}>OK</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {

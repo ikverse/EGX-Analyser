@@ -56,7 +56,8 @@ export type SelectedAnalysisResult = {
   messages_reanalyzed: number;
   messages_already_saved: number;
   window_start: string;
-  lookback_days: number;
+  window_end: string;
+  target_date: string;
   report: {
     id: number;
     markdown_path: string;
@@ -77,6 +78,14 @@ export type SelectedAnalysisResult = {
   stock_code_details: StockSourceRow[];
   stock_source_table: StockSourceTableRow[];
   not_stock_related: string[];
+};
+
+export type AnalysisResultHistory = {
+  id: number;
+  generated_at: string;
+  target_date?: string | null;
+  messages_analyzed: number;
+  stock_source_table: StockSourceTableRow[];
 };
 
 export class ApiError extends Error {
@@ -121,11 +130,16 @@ export class ApiClient {
   checkContentUpdates() { return this.request<{ updated: boolean; version: string }>("/content-updates/check", { method: "POST" }); }
   selectTelegramChat(chat: TelegramChat) { return this.request<Channel>("/telegram/chats/select", { method: "POST", body: JSON.stringify(chat) }); }
   runCollection() { return this.request<{ messages_collected: number }>("/collection/run", { method: "POST" }); }
-  analyzeSelected(channel_ids: number[], lookback_days: number) { return this.request<SelectedAnalysisResult>("/collection/analyze-selected", { method: "POST", body: JSON.stringify({ channel_ids, analyze: true, lookback_days }) }); }
+  analyzeSelected(channel_ids: number[]) {
+    return this.request<SelectedAnalysisResult>("/collection/analyze-selected", {
+      method: "POST", body: JSON.stringify({ channel_ids, analyze: true }),
+    });
+  }
   addChannel(handle: string, title?: string) { return this.request<Channel>("/channels", { method: "POST", body: JSON.stringify({ handle, title }) }); }
   setChannelActive(id: number, active: boolean) { return this.request<Channel>(`/channels/${id}`, { method: "PATCH", body: JSON.stringify({ active }) }); }
   consensus() { return this.request<Consensus[]>("/analytics/consensus"); }
   recommendations() { return this.request<Array<Record<string, unknown>>>("/recommendations"); }
+  analysisResults() { return this.request<AnalysisResultHistory[]>("/analysis-results"); }
   reports() { return this.request<Array<Record<string, unknown>>>("/reports"); }
   generateReport(report_mode: "calendar" | "session") { return this.request<Record<string, unknown>>("/reports/daily", { method: "POST", body: JSON.stringify({ report_mode }) }); }
   search(query: string) { return this.request<Array<Record<string, unknown>>>("/search", { method: "POST", body: JSON.stringify({ query }) }); }

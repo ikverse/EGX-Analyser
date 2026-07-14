@@ -50,9 +50,10 @@ class ReportService:
 
     async def generate_selected_chat_report(self, channel_ids: list[int], start: datetime, end: datetime,
                                              lookback_days: int, consolidated_source: dict | None = None,
-                                             consolidated_raw_response: str | None = None) -> Report:
+                                             consolidated_raw_response: str | None = None,
+                                             report_label: str | None = None) -> Report:
         return await self._generate(
-            start, end, f"selected chats ({lookback_days} days)", channel_ids,
+            start, end, report_label or f"selected chats ({lookback_days} days)", channel_ids,
             consolidated_source=consolidated_source, consolidated_raw_response=consolidated_raw_response,
         )
 

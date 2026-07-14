@@ -22,6 +22,7 @@ from app.repositories import get_or_create_channel
 from app.telegram_auth import TelegramAuthenticator
 from telethon import TelegramClient
 from openai import APIConnectionError, APIStatusError, AsyncOpenAI, AuthenticationError, BadRequestError, RateLimitError
+from zoneinfo import ZoneInfo
 
 router = APIRouter()
 telegram_authenticator = TelegramAuthenticator()
@@ -196,9 +197,12 @@ async def run_collection() -> dict:
 @router.post("/collection/analyze-selected")
 async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSession = Depends(get_session)) -> dict:
     from app.main import runtime
-    from app.runtime import selected_analysis_start
-    window_start = selected_analysis_start(payload.lookback_days)
-    window_end = datetime.now(timezone.utc)
+    from app.runtime import next_day_analysis_window
+    window_start, window_end, target_date = next_day_analysis_window()
+    cairo = ZoneInfo("Africa/Cairo")
+    source_start_date = window_start.astimezone(cairo).date().isoformat()
+    source_end_date = window_end.astimezone(cairo).date().isoformat()
+    analysis_period = f"Source messages: {source_start_date} through {source_end_date}; target date: {target_date.isoformat()}"
     try:
         collection = await runtime.collect_once(payload.channel_ids, since=window_start, analyze_messages=False)
         message_rows = (await session.execute(
@@ -226,7 +230,7 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
         batch_messages = [
             {
                 "source": channel.title or channel.handle,
-                "published_at": message.published_at.isoformat(),
+                "published_at": message.published_at.astimezone(cairo).isoformat(),
                 "telegram_message_id": message.telegram_message_id,
                 "text": message.text,
                 "image_paths": images_by_message.get(message.id, []),
@@ -234,8 +238,9 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
             }
             for message, channel in message_rows
         ]
-        analysis_period = f"{window_start.date().isoformat()} to {window_end.date().isoformat()}"
-        outcome = await AIAnalysisService(get_settings()).analyze_consolidated(batch_messages, analysis_period)
+        outcome = await AIAnalysisService(get_settings()).analyze_consolidated(
+            batch_messages, analysis_period, target_date.isoformat()
+        )
         consolidated_source = json.loads(outcome.raw_response)
         if not isinstance(consolidated_source, dict):
             raise RuntimeError("The AI provider returned a non-object response for the consolidated analysis")
@@ -244,13 +249,20 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
             session, get_settings().storage_root, payload.channel_ids, window_start, window_end, outcome.raw_response
         )
         report = await ReportService(session, get_settings()).generate_selected_chat_report(
-            payload.channel_ids, window_start, window_end, payload.lookback_days,
+            payload.channel_ids, window_start, window_end, 2,
             consolidated_source=consolidated_source, consolidated_raw_response=outcome.raw_response,
+            report_label=f"next-day suggestions ({target_date.isoformat()})",
         )
+        report.summary = {**report.summary, **{
+            "analysis_result": True,
+            "target_date": target_date.isoformat(),
+            "source_window_start": window_start.isoformat(),
+            "source_window_end": window_end.isoformat(),
+        }}
         await session.commit()
         channel_results = report.summary["channel_results"]
         return {"messages_collected": collection["messages_analyzed"], **collection,
-                "window_start": window_start, "lookback_days": payload.lookback_days,
+                "window_start": window_start, "window_end": window_end, "target_date": target_date.isoformat(),
                 "report": {"id": report.id, "markdown_path": report.markdown_path, "html_path": report.html_path,
                            "pdf_path": report.pdf_path,
                            "original_ai_response_text_path": report.summary["original_ai_response_text_path"],
@@ -350,6 +362,23 @@ async def create_report(payload: DailyReportRequest = DailyReportRequest(), sess
 async def reports(session: AsyncSession = Depends(get_session)) -> list[dict]:
     return [{"id": item.id, "date": item.report_date, "summary": item.summary, "markdown_path": item.markdown_path,
              "html_path": item.html_path, "pdf_path": item.pdf_path} for item in (await session.scalars(select(Report).order_by(Report.report_date.desc()))).all()]
+
+
+@router.get("/analysis-results")
+async def analysis_results(session: AsyncSession = Depends(get_session)) -> list[dict]:
+    """Return saved batch-analysis outputs for the expandable Results history."""
+    stored_reports = (await session.scalars(select(Report).order_by(Report.report_date.desc()))).all()
+    return [
+        {
+            "id": item.id,
+            "generated_at": item.report_date,
+            "target_date": item.summary.get("target_date"),
+            "messages_analyzed": item.summary.get("messages_analyzed", 0),
+            "stock_source_table": item.summary.get("stock_source_table", []),
+        }
+        for item in stored_reports
+        if item.summary.get("analysis_result") or item.summary.get("analysis_mode") == "consolidated_batch"
+    ]
 
 
 @router.post("/search")

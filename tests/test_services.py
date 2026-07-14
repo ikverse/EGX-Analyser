@@ -10,14 +10,14 @@ from httpx import Request, Response
 from openai import AuthenticationError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app import api
-from app.models import Base, Image, Recommendation, StockMention
+from app.models import Base, Image, Recommendation, Report, StockMention
 from app.schemas import AnalysisResult, ExtractedRecommendation, ExtractedStockMention, MessageCreate, TelegramChatSelect
 from app.ai.service import _analysis_result_from_payload, analysis_output_schema
 from app.services import AnalyticsService, MessageService, SearchService
 from app.config_store import load_secrets_into_environment, update_config
 from app.content_updates import ContentUpdateService, generate_seed, public_key_from_seed, sign_bytes, verify_bytes
 from app.telegram_auth import TelegramAuthenticator
-from app.runtime import selected_analysis_start
+from app.runtime import next_day_analysis_window
 from app.collector.telegram import is_promotional_message
 from app.reports import ReportService
 from app.analysis_trace import export_analysis_trace
@@ -77,6 +77,38 @@ async def test_message_ingestion_is_idempotent(session):
     payload = MessageCreate(channel_handle="EGXSignals", telegram_message_id=3, text="شراء CIB", published_at=datetime.now(timezone.utc))
     first, second = await service.ingest(payload), await service.ingest(payload)
     assert first.id == second.id
+
+
+async def test_analysis_results_returns_only_batch_analysis_reports(session):
+    now = datetime.now(timezone.utc)
+    session.add_all([
+        Report(
+            report_date=now,
+            markdown_path="analysis.md",
+            html_path="analysis.html",
+            pdf_path="analysis.pdf",
+            summary={
+                "analysis_result": True,
+                "target_date": "2026-07-15",
+                "messages_analyzed": 4,
+                "stock_source_table": [{"ticker": "COMI", "source": "CFI"}],
+            },
+        ),
+        Report(
+            report_date=now - timedelta(minutes=1),
+            markdown_path="daily.md",
+            html_path="daily.html",
+            pdf_path="daily.pdf",
+            summary={"mode": "calendar"},
+        ),
+    ])
+    await session.commit()
+
+    results = await api.analysis_results(session)
+
+    assert len(results) == 1
+    assert results[0]["target_date"] == "2026-07-15"
+    assert results[0]["stock_source_table"][0]["ticker"] == "COMI"
 
 
 async def test_channel_creation_normalizes_and_reuses_telegram_chat(session):
@@ -227,10 +259,14 @@ def test_content_pack_installs_prompt_and_aliases(tmp_path):
     assert manager.stock_aliases()["cib arabic"] == "CIB"
 
 
-def test_selected_analysis_starts_three_days_before_request():
+def test_next_day_analysis_window_uses_yesterday_to_now_in_cairo():
+    from datetime import date
+
     requested_at = datetime(2026, 7, 13, 12, tzinfo=timezone.utc)
-    assert selected_analysis_start(now=requested_at) == datetime(2026, 7, 10, 12, tzinfo=timezone.utc)
-    assert selected_analysis_start(5, requested_at) == datetime(2026, 7, 8, 12, tzinfo=timezone.utc)
+    start, end, target_date = next_day_analysis_window(requested_at)
+    assert start == datetime(2026, 7, 11, 21, tzinfo=timezone.utc)
+    assert end == requested_at
+    assert target_date == date(2026, 7, 14)
 
 
 def test_promotional_messages_are_skipped_without_hiding_trade_posts():

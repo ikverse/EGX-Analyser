@@ -1,7 +1,7 @@
 """Local background work used by the standalone desktop application."""
 import asyncio
 from contextlib import suppress
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 import structlog
 from sqlalchemy import select
 from app.ai.service import AIAnalysisService
@@ -10,9 +10,9 @@ from app.config import get_settings
 from app.database import SessionLocal
 from app.models import Channel
 from app.services import MessageService
+from zoneinfo import ZoneInfo
 
 log = structlog.get_logger()
-MAX_SELECTED_ANALYSIS_LOOKBACK_DAYS = 5
 
 
 def empty_collection_summary() -> dict[str, int]:
@@ -80,7 +80,10 @@ class LocalRuntime:
             await asyncio.sleep(60)
 
 
-def selected_analysis_start(lookback_days: int = 3, now: datetime | None = None) -> datetime:
-    if not 1 <= lookback_days <= MAX_SELECTED_ANALYSIS_LOOKBACK_DAYS:
-        raise ValueError(f"The selected analysis range must be between 1 and {MAX_SELECTED_ANALYSIS_LOOKBACK_DAYS} days")
-    return (now or datetime.now(timezone.utc)) - timedelta(days=lookback_days)
+def next_day_analysis_window(now: datetime | None = None) -> tuple[datetime, datetime, date]:
+    """Use yesterday's Cairo midnight through now as evidence for tomorrow's suggestions."""
+    cairo = ZoneInfo("Africa/Cairo")
+    current = (now or datetime.now(timezone.utc)).astimezone(cairo)
+    start = datetime.combine(current.date() - timedelta(days=1), time.min, tzinfo=cairo).astimezone(timezone.utc)
+    end = current.astimezone(timezone.utc)
+    return start, end, current.date() + timedelta(days=1)

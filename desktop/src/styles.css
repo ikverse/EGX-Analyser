@@ -208,6 +208,15 @@ button.tab.active { background: #1f3c2d; color: #86efac; }
   font-size: 1rem;
 }
 .lookback-slider { flex: 1; accent-color: #70c96a; }
+.analysis-window-note {
+  margin: .85rem 0 1rem;
+  padding: .85rem 1rem;
+  background: #111c2e;
+  border: 1px solid #26364d;
+  border-radius: 10px;
+}
+.analysis-window-note strong { color: #86efac; font-size: .9rem; }
+.analysis-window-note p { margin: .35rem 0 0; color: #94a3b8; font-size: .82rem; line-height: 1.5; }
 
 /* ── Reports ── */
 .report-controls {
@@ -369,6 +378,9 @@ tr:hover td { background: #131f33; }
   box-shadow: 0 24px 80px #0009;
 }
 .error-modal-title { margin: 0; font-size: 1.1rem; color: #fca5a5; }
+.success-modal-card { border-color: #4ade80; }
+.success-modal-title { color: #bbf7d0; }
+.success-modal-body { margin: 0; color: #d1fae5; line-height: 1.6; white-space: pre-wrap; }
 .error-modal-body {
   margin: 0;
   background: #0b1120;
@@ -386,6 +398,18 @@ tr:hover td { background: #131f33; }
   overflow: auto;
 }
 .error-modal-actions { display: flex; gap: .75rem; justify-content: flex-end; }
+
+/* ── Expandable analysis-result history ── */
+.analysis-history-wrap { overflow-x: auto; }
+.analysis-history-help { color: #94a3b8; margin: 0 0 .85rem; }
+.analysis-history-table { width: 100%; min-width: 720px; border: 1px solid #26364d; border-radius: 12px; overflow: hidden; }
+.analysis-history-table th { background: #0f1e33; padding: .75rem .9rem; text-align: left; }
+.analysis-history-table td { padding: .8rem .9rem; }
+.analysis-history-row { cursor: pointer; }
+.analysis-history-row:hover td { background: #172640; }
+.analysis-history-row strong { color: #bbf7d0; }
+.analysis-history-expanded td { background: #0b1120; padding: 0 1rem 1rem; }
+.analysis-history-expanded .consolidated-table-wrap { margin-top: 1rem; }
 
 /* ── Report cards ── */
 .report-card {

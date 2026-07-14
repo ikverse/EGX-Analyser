@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.56
+- Analyze selected chats from yesterday at Cairo midnight through the current moment, then retain recommendations intended for the next trading day based on dates in text, images, and audio.
+- Added saved, expandable analysis-result rows in Results; each generated result opens its full EGX recommendation table.
+- Replaced the automatic analysis-complete toast with an OK-required completion popup.
+
 ## v0.1.55
 - Added a persistent in-app EGX table grouped by stock code and name with one current row per source.
 - Show entry, TP1, TP2, stop loss, support, resistance, expected return, risk, dates, status, and Arabic analysis in the app and exports.

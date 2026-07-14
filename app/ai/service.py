@@ -156,7 +156,8 @@ class AIAnalysisService:
             f"Post:\n{text}\n\nAudio transcript:\n{transcript_text}", image_paths
         )
 
-    async def analyze_consolidated(self, messages: list[dict[str, Any]], analysis_period: str) -> AnalysisOutcome:
+    async def analyze_consolidated(self, messages: list[dict[str, Any]], analysis_period: str,
+                                   target_trading_date: str) -> AnalysisOutcome:
         """Analyze one fresh, selected-chat window in a single model request."""
         if not messages:
             empty = {
@@ -173,6 +174,11 @@ class AIAnalysisService:
         parts = [
             "Selected Telegram chat data follows. Analyze the complete set as one consolidated EGX window.",
             f"Analysis period: {analysis_period}",
+            f"Target effective trading date: {target_trading_date}.",
+            "Only include active recommendations intended for the target effective trading date. Resolve explicit dates, "
+            "Arabic/English relative dates such as tomorrow or next session, and dates shown in images or audio relative "
+            "to the Cairo message timestamp. data_points[].date must be the effective recommendation date, not the post date. "
+            "Exclude recommendations whose effective date is missing, ambiguous, already past, or different from the target date.",
             "Use each SOURCE exactly as written below in every data_points[].source value. "
             "Do not treat a source label as a stock recommendation by itself.",
         ]
