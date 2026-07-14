@@ -7,12 +7,17 @@ param(
     [ValidatePattern("^\d+\.\d+\.\d+([-.+][0-9A-Za-z.-]+)?$")]
     [string]$Version,
     [string]$ReleaseNotes = "",
-    [string]$SigningKeyPath = (Join-Path $HOME ".tauri\egx-analyzer.key"),
+    [string]$SigningKeyPath = "",
     [string]$SigningKeyPassword = ""
 )
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
+$preferredSigningKey = Join-Path $HOME ".tauri\egx-analyzer.key"
+$legacySigningKey = Join-Path $HOME ".tauri\egx-intelligence.key"
+if (-not $SigningKeyPath) {
+    $SigningKeyPath = if (Test-Path $preferredSigningKey) { $preferredSigningKey } elseif (Test-Path $legacySigningKey) { $legacySigningKey } else { $preferredSigningKey }
+}
 if (-not (Test-Path $SigningKeyPath)) { throw "Signing key not found: $SigningKeyPath. Run scripts\enable-updater.ps1 first." }
 $packageVersion = (Get-Content (Join-Path $root "desktop\package.json") -Raw | ConvertFrom-Json).version
 $tauriVersion = (Get-Content (Join-Path $root "desktop\src-tauri\tauri.conf.json") -Raw | ConvertFrom-Json).version

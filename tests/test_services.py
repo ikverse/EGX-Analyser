@@ -4,15 +4,18 @@ import io
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 from httpx import Request, Response
 from openai import AuthenticationError
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app import api
 from app.models import Base, Image, Recommendation, Report, StockMention
-from app.schemas import AnalysisResult, ExtractedRecommendation, ExtractedStockMention, MessageCreate, TelegramChatSelect
+from app.schemas import AnalysisResult, CollectionRequest, ExtractedRecommendation, ExtractedStockMention, MessageCreate, TelegramChatSelect
 from app.ai.service import _analysis_result_from_payload, analysis_output_schema
+from app.reports import _client_inquiry_rows, _consolidated_source_table
 from app.services import AnalyticsService, MessageService, SearchService
 from app.config_store import load_secrets_into_environment, update_config
 from app.content_updates import ContentUpdateService, generate_seed, public_key_from_seed, sign_bytes, verify_bytes
@@ -111,6 +114,45 @@ async def test_analysis_results_returns_only_batch_analysis_reports(session):
     assert results[0]["stock_source_table"][0]["ticker"] == "COMI"
 
 
+def test_selected_analysis_requires_valid_content_types():
+    assert CollectionRequest(channel_ids=[1]).content_types == {"text", "images", "audio"}
+    assert CollectionRequest(channel_ids=[1], content_types={"images"}).content_types == {"images"}
+    with pytest.raises(ValidationError):
+        CollectionRequest(channel_ids=[1], content_types=set())
+    with pytest.raises(ValidationError):
+        CollectionRequest(channel_ids=[1], content_types={"video"})
+
+
+async def test_delete_analysis_result_removes_managed_files(session, tmp_path, monkeypatch):
+    report_file = tmp_path / "reports" / "result.pdf"
+    raw_file = tmp_path / "reports" / "raw.txt"
+    trace_directory = tmp_path / "analysis-traces" / "2026-07-14" / "120000"
+    report_file.parent.mkdir(parents=True)
+    trace_directory.mkdir(parents=True)
+    report_file.write_text("report")
+    raw_file.write_text("raw")
+    (trace_directory / "messages.txt").write_text("trace")
+    report = Report(
+        markdown_path=str(report_file), html_path=str(report_file), pdf_path=str(report_file),
+        summary={
+            "analysis_result": True,
+            "original_ai_response_text_path": str(raw_file),
+            "analysis_trace_directory": str(trace_directory),
+        },
+    )
+    session.add(report)
+    await session.commit()
+    monkeypatch.setattr(api, "get_settings", lambda: SimpleNamespace(storage_root=tmp_path))
+
+    response = await api.delete_analysis_result(report.id, session)
+
+    assert response == {"deleted": True}
+    assert not report_file.exists()
+    assert not raw_file.exists()
+    assert not trace_directory.exists()
+    assert await session.get(Report, report.id) is None
+
+
 async def test_channel_creation_normalizes_and_reuses_telegram_chat(session):
     first = await api.get_or_create_channel(session, "@EGXSignals")
     second = await api.get_or_create_channel(session, "egxsignals")
@@ -165,6 +207,29 @@ def test_qwen_consolidated_output_normalizes_to_recommendations():
     assert result.stock_mentions[0].table_data["stock_name_ar"] == "موبكو"
     assert result.recommendations[0].entry == 37.25
     assert result.recommendations[0].target_2 == 40.0
+
+
+def test_client_inquiry_replies_are_kept_out_of_active_recommendations():
+    payload = {
+        "top_consolidated_recommendations": [{
+            "stock_code": "COMI", "stock_name_en": "CIB", "stock_name_ar": "البنك التجاري الدولي",
+            "rank": 1, "mention_count": 1, "status": "active", "analysis_summary_ar": "توصية شراء",
+            "data_points": [{"source": "CFI", "date": "2026-07-15", "buy_price": 140}],
+        }],
+        "client_inquiry_responses": [{
+            "stock_code": "ALUM", "stock_name_en": "Aluminium Arabia", "stock_name_ar": "الألومنيوم العربية",
+            "source": "Ostoul Capital", "date": "2026-07-14", "question_summary_ar": "استفسار عن السهم",
+            "reply_summary_ar": "اتجاه عرضي بين الدعم والمقاومة", "support": 20.60, "resistance": 26.40,
+        }],
+    }
+
+    active_rows = _consolidated_source_table(payload)
+    inquiry_rows = _client_inquiry_rows(payload)
+
+    assert [row["ticker"] for row in active_rows] == ["COMI"]
+    assert [row["ticker"] for row in inquiry_rows] == ["ALUM"]
+    assert inquiry_rows[0]["reply_summary_ar"] == "اتجاه عرضي بين الدعم والمقاومة"
+
 
 
 def test_local_settings_encrypt_secrets(monkeypatch, tmp_path):

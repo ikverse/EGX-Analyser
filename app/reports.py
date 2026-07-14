@@ -164,9 +164,11 @@ class ReportService:
         stock_code_details.sort(key=lambda item: (item["ticker"], item["channel"]))
         consolidated_source = consolidated_source or _consolidated_source_output(message_rows)
         stock_source_table: list[dict] = []
+        client_inquiry_responses: list[dict] = []
         if consolidated_source is not None:
             consensus, stock_code_summary, stock_code_details = _source_driven_tables(consolidated_source)
             stock_source_table = _consolidated_source_table(consolidated_source)
+            client_inquiry_responses = _client_inquiry_rows(consolidated_source)
             source_counts = _consolidated_source_counts(consolidated_source)
             for channel in channels:
                 label = channel.title or channel.handle
@@ -213,6 +215,14 @@ class ReportService:
             for item in consolidated_source.get("achieved_targets", []):
                 if isinstance(item, dict):
                     lines.append(f"- {item.get('stock_code') or '-'} | {item.get('stock_name_en') or '-'} | {item.get('status_ar') or '-'} | {item.get('date') or '-'} | {item.get('source') or '-'}")
+            lines += ["", "## Client inquiry responses (reference only)", "| Code | Company | Source | Date | Customer inquiry | Reply / advice |", "| --- | --- | --- | --- | --- | --- |"]
+            for item in client_inquiry_responses:
+                lines.append(
+                    f"| {item['ticker']} | {item['company']} | {item['source']} | {item['date'] or '-'} | "
+                    f"{item['question_summary_ar'] or '-'} | {item['reply_summary_ar'] or item['advice_ar'] or '-'} |"
+                )
+            if not client_inquiry_responses:
+                lines.append("| - | - | - | - | No stock-specific customer inquiry replies were found. | - |")
             lines += ["", "## Text-based categories"]
             categories = consolidated_source.get("text_based_categories")
             if isinstance(categories, dict):
@@ -253,7 +263,7 @@ class ReportService:
         html_path.write_text(
             _build_html_report(generated_at, report_mode, message_rows, recommendation_rows,
                                channel_results, consensus, stock_code_details,
-                               consolidated_source, stock_source_table),
+                               consolidated_source, stock_source_table, client_inquiry_responses),
             encoding="utf-8",
         )
         canvas = Canvas(str(pdf_path), pagesize=A4)
@@ -297,6 +307,7 @@ class ReportService:
             "recommendation_count": display_recommendation_count, "channel_results": channel_results,
             "stock_code_summary": stock_code_summary, "stock_code_details": stock_code_details,
             "stock_source_table": stock_source_table,
+            "client_inquiry_responses": client_inquiry_responses,
             "consolidated_source": consolidated_source,
             "analysis_mode": "consolidated_batch" if consolidated_raw_response else "per_message",
             "original_ai_response_text_path": str(raw_text_path),
@@ -411,6 +422,33 @@ def _consolidated_source_table(payload: dict) -> list[dict]:
                 **values,
             })
     return sorted(rows, key=lambda row: (int(row["rank"] or 999), row["ticker"], row["source"]))
+
+
+def _client_inquiry_rows(payload: dict) -> list[dict]:
+    """Normalize model-extracted customer inquiry replies without promoting them to signals."""
+    rows: list[dict] = []
+    for item in payload.get("client_inquiry_responses", []):
+        if not isinstance(item, dict):
+            continue
+        ticker = str(item.get("stock_code") or "").strip().upper()
+        if not ticker:
+            continue
+        rows.append({
+            "ticker": ticker,
+            "company": str(item.get("stock_name_en") or ticker),
+            "company_ar": str(item.get("stock_name_ar") or ""),
+            "source": str(item.get("source") or "Unspecified"),
+            "date": str(item.get("date") or "")[:10] or None,
+            "question_summary_ar": str(item.get("question_summary_ar") or ""),
+            "reply_summary_ar": str(item.get("reply_summary_ar") or ""),
+            "current_trend_ar": str(item.get("current_trend_ar") or ""),
+            "last_price": item.get("last_price"),
+            "support": item.get("support"),
+            "resistance": item.get("resistance"),
+            "advice_ar": str(item.get("advice_ar") or ""),
+            "alternate_scenario_ar": str(item.get("alternate_scenario_ar") or ""),
+        })
+    return sorted(rows, key=lambda row: (row["ticker"], row["source"], row["date"] or ""))
 
 
 def _source_driven_tables(payload: dict) -> tuple[list[dict], list[dict], list[dict]]:
@@ -533,6 +571,7 @@ def _build_html_report(
     stock_code_details: list[dict],
     consolidated_source: dict | None,
     stock_source_table: list[dict],
+    client_inquiry_responses: list[dict],
 ) -> str:
     css = """
     <style>
@@ -631,6 +670,20 @@ def _build_html_report(
                     f'<td class="num">{e(row["expected_return_pct"] or "-")}</td>'
                     f'<td class="num">{e(row["risk_pct"] or "-")}</td>'
                     f'</tr>'
+                )
+            sections.append('</tbody></table>')
+
+        if client_inquiry_responses:
+            sections.append('<h3>Client inquiry responses (reference only)</h3>'
+                            '<p>These replies are deliberately excluded from active recommendations.</p>'
+                            '<table><thead><tr><th>Code</th><th>Company</th><th>Source</th><th>Date</th>'
+                            '<th>Customer inquiry</th><th>Reply / advice</th></tr></thead><tbody>')
+            for row in client_inquiry_responses:
+                sections.append(
+                    f'<tr><td><strong>{e(row["ticker"])}</strong></td><td>{e(row["company"])}</td>'
+                    f'<td>{e(row["source"])}</td><td>{e(row["date"] or "-")}</td>'
+                    f'<td class="ar">{e(row["question_summary_ar"] or "-")}</td>'
+                    f'<td class="ar">{e(row["reply_summary_ar"] or row["advice_ar"] or "-")}</td></tr>'
                 )
             sections.append('</tbody></table>')
 

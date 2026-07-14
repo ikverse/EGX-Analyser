@@ -49,6 +49,24 @@ export type StockSourceTableRow = {
   risk_pct?: number | null;
 };
 
+export type ClientInquiryResponse = {
+  ticker: string;
+  company: string;
+  company_ar?: string;
+  source: string;
+  date?: string | null;
+  question_summary_ar?: string;
+  reply_summary_ar?: string;
+  current_trend_ar?: string;
+  last_price?: number | null;
+  support?: number | null;
+  resistance?: number | null;
+  advice_ar?: string;
+  alternate_scenario_ar?: string;
+};
+
+export type AnalysisContentType = "text" | "images" | "audio";
+
 export type SelectedAnalysisResult = {
   messages_collected: number;
   messages_in_window: number;
@@ -58,6 +76,7 @@ export type SelectedAnalysisResult = {
   window_start: string;
   window_end: string;
   target_date: string;
+  content_types: AnalysisContentType[];
   report: {
     id: number;
     markdown_path: string;
@@ -77,6 +96,7 @@ export type SelectedAnalysisResult = {
   stock_code_summary: StockSummaryRow[];
   stock_code_details: StockSourceRow[];
   stock_source_table: StockSourceTableRow[];
+  client_inquiry_responses: ClientInquiryResponse[];
   not_stock_related: string[];
 };
 
@@ -85,7 +105,9 @@ export type AnalysisResultHistory = {
   generated_at: string;
   target_date?: string | null;
   messages_analyzed: number;
+  content_types: AnalysisContentType[];
   stock_source_table: StockSourceTableRow[];
+  client_inquiry_responses: ClientInquiryResponse[];
 };
 
 export class ApiError extends Error {
@@ -130,9 +152,9 @@ export class ApiClient {
   checkContentUpdates() { return this.request<{ updated: boolean; version: string }>("/content-updates/check", { method: "POST" }); }
   selectTelegramChat(chat: TelegramChat) { return this.request<Channel>("/telegram/chats/select", { method: "POST", body: JSON.stringify(chat) }); }
   runCollection() { return this.request<{ messages_collected: number }>("/collection/run", { method: "POST" }); }
-  analyzeSelected(channel_ids: number[]) {
+  analyzeSelected(channel_ids: number[], content_types: AnalysisContentType[]) {
     return this.request<SelectedAnalysisResult>("/collection/analyze-selected", {
-      method: "POST", body: JSON.stringify({ channel_ids, analyze: true }),
+      method: "POST", body: JSON.stringify({ channel_ids, content_types, analyze: true }),
     });
   }
   addChannel(handle: string, title?: string) { return this.request<Channel>("/channels", { method: "POST", body: JSON.stringify({ handle, title }) }); }
@@ -140,6 +162,7 @@ export class ApiClient {
   consensus() { return this.request<Consensus[]>("/analytics/consensus"); }
   recommendations() { return this.request<Array<Record<string, unknown>>>("/recommendations"); }
   analysisResults() { return this.request<AnalysisResultHistory[]>("/analysis-results"); }
+  deleteAnalysisResult(id: number) { return this.request<{ deleted: boolean }>(`/analysis-results/${id}`, { method: "DELETE" }); }
   reports() { return this.request<Array<Record<string, unknown>>>("/reports"); }
   generateReport(report_mode: "calendar" | "session") { return this.request<Record<string, unknown>>("/reports/daily", { method: "POST", body: JSON.stringify({ report_mode }) }); }
   search(query: string) { return this.request<Array<Record<string, unknown>>>("/search", { method: "POST", body: JSON.stringify({ query }) }); }

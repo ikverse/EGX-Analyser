@@ -14,9 +14,11 @@ $tauriConfig = Get-Content (Join-Path $root "desktop\src-tauri\tauri.conf.json")
 $loadedDefaultSigningKey = $false
 $loadedDefaultSigningPassword = $false
 if ($tauriConfig.plugins.updater.pubkey -and -not $env:TAURI_SIGNING_PRIVATE_KEY) {
-    $defaultSigningKey = Join-Path $HOME ".tauri\egx-analyzer.key"
+    $preferredSigningKey = Join-Path $HOME ".tauri\egx-analyzer.key"
+    $legacySigningKey = Join-Path $HOME ".tauri\egx-intelligence.key"
+    $defaultSigningKey = if (Test-Path $preferredSigningKey) { $preferredSigningKey } elseif (Test-Path $legacySigningKey) { $legacySigningKey } else { $preferredSigningKey }
     if (-not (Test-Path $defaultSigningKey)) {
-        throw "OTA updates are configured but the signing key is missing. Run scripts\enable-updater.ps1 or set TAURI_SIGNING_PRIVATE_KEY before building."
+        throw "OTA updates are configured but no signing key was found. Restore the original $legacySigningKey (preferred for installed users) or set TAURI_SIGNING_PRIVATE_KEY before building."
     }
     $env:TAURI_SIGNING_PRIVATE_KEY = $defaultSigningKey
     $securePassword = Read-Host "Enter the update signing-key password" -AsSecureString

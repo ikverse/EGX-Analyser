@@ -20,6 +20,7 @@ _OUTPUT_CONTRACT = """Return only one JSON object in this consolidated EGX repor
 - top_consolidated_recommendations: ranked array. Each item has stock_code, stock_name_en, stock_name_ar, mention_count, rank, status, analysis_summary_ar, and data_points.
 - data_points: array for each stock. Each item has date, source, buy_price, target_1, target_2, stop_loss, support, resistance, expected_return_pct, and risk_pct.
 - achieved_targets: array with stock_code, stock_name_en, status_ar, date, and source.
+- client_inquiry_responses: array for stock-specific replies to customer/member questions. Each item has stock_code, stock_name_en, stock_name_ar, source, date, question_summary_ar, reply_summary_ar, current_trend_ar, last_price, support, resistance, advice_ar, and alternate_scenario_ar.
 - text_based_categories: object with most_important_stocks, trading_stocks, and watchlist_stocks arrays. Each array item has stock_code, stock_name_en, and stock_name_ar.
 - daily_breakdown: object keyed by date; each item has total_mentions and top_stock_of_day.
 Use English EGX ticker codes in stock_code. Keep unavailable values as null. Do not invent price levels or targets."""
@@ -164,6 +165,7 @@ class AIAnalysisService:
                 "analysis_period": analysis_period,
                 "top_consolidated_recommendations": [],
                 "achieved_targets": [],
+                "client_inquiry_responses": [],
                 "text_based_categories": {
                     "most_important_stocks": [], "trading_stocks": [], "watchlist_stocks": [],
                 },
@@ -175,10 +177,25 @@ class AIAnalysisService:
             "Selected Telegram chat data follows. Analyze the complete set as one consolidated EGX window.",
             f"Analysis period: {analysis_period}",
             f"Target effective trading date: {target_trading_date}.",
-            "Only include active recommendations intended for the target effective trading date. Resolve explicit dates, "
-            "Arabic/English relative dates such as tomorrow or next session, and dates shown in images or audio relative "
-            "to the Cairo message timestamp. data_points[].date must be the effective recommendation date, not the post date. "
+            "Only include active, actionable EGX BUY recommendations intended for the target effective trading date. "
+            "A candidate is valid only when the selected text, image, or audio contains a visible/explicit date that resolves "
+            "to the target date, or explicitly says T+1, next session, or tomorrow relative to its Cairo message timestamp. "
+            "A dated same-day buy signal without T+1/next-session/tomorrow wording is valid only for that same day and MUST be excluded. "
+            "Undated stock tables, watchlists, charts, and price levels MUST be excluded; never infer their effective date from "
+            "the Telegram posting time alone. data_points[].date must be the effective recommendation date, not the post date. "
             "Exclude recommendations whose effective date is missing, ambiguous, already past, or different from the target date.",
+            "Extract only explicit recommendations with a stock code and actionable price/risk levels such as buy/entry zone, "
+            "TP1, TP2, stop loss, support, or resistance. Images may use different source layouts: identify headings rather than "
+            "assuming column positions. For example, Arabic headings may include منطقة الشراء, هدف أول, هدف ثاني, إيقاف الخسارة, "
+            "الدعم, المقاومة, or إشارة تداول - شراء. Keep each source's values separate.",
+            "Strictly ignore advertisements, links, disclaimers, greetings, general market commentary, corporate/economic news, "
+            "memes, and stock mentions without a dated actionable recommendation. Do not turn news into a trading signal.",
+            "IMPORTANT — client/member inquiry replies are reference information, not main recommendations. If a message says "
+            "'ردًا على استفسارات عملائنا', 'ردا على استفسارات عملائنا', 'رد على استفسار', 'استفسارات العملاء', "
+            "or clearly answers a member/customer question about a particular stock, NEVER place it in "
+            "top_consolidated_recommendations, achieved_targets, or text_based_categories. Instead place one clean, "
+            "stock-specific record in client_inquiry_responses. Preserve its source, date, levels, trend, advice, and "
+            "alternative scenario when explicitly present. Do not invent a buy recommendation from an inquiry reply.",
             "Use each SOURCE exactly as written below in every data_points[].source value. "
             "Do not treat a source label as a stock recommendation by itself.",
         ]

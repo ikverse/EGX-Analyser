@@ -5,13 +5,12 @@ import { getVersion } from "@tauri-apps/api/app";
 import { check } from "@tauri-apps/plugin-updater";
 
 import {
-  AiProvider, AnalysisResultHistory, ApiClient, Channel, Consensus, ContentUpdateStatus,
+  AiProvider, AnalysisContentType, AnalysisResultHistory, ApiClient, Channel, ClientInquiryResponse, ContentUpdateStatus,
   DiagnosticEntry, SettingsInput, SettingsStatus, TelegramChat,
   StockSourceRow, StockSourceTableRow, StockSummaryRow,
 } from "./api";
 
-type Page = "Dashboard" | "Channels" | "Results" | "Reports" | "Settings";
-type ResultTab = "Analysis" | "Recommendations" | "Search";
+type Page = "Channels" | "Results" | "Reports" | "Settings";
 type Toast = { kind: "success" | "warning"; text: string } | null;
 type UpdateCandidate = {
   version: string;
@@ -19,7 +18,7 @@ type UpdateCandidate = {
   downloadAndInstall: (onEvent: (event: { event: string; data: { contentLength?: number; chunkLength?: number } }) => void) => Promise<void>;
 };
 
-const pages: Page[] = ["Dashboard", "Channels", "Results", "Reports", "Settings"];
+const pages: Page[] = ["Channels", "Results", "Reports", "Settings"];
 
 // ── Error Modal ───────────────────────────────────────────────────────────────
 
@@ -51,10 +50,8 @@ function ErrorModal({ message, onClose }: { message: string; onClose: () => void
 
 export default function App() {
   const [connected, setConnected] = useState(false);
-  const [page, setPage] = useState<Page>("Dashboard");
-  const [resultTab, setResultTab] = useState<ResultTab>("Analysis");
+  const [page, setPage] = useState<Page>("Channels");
   const [channels, setChannels] = useState<Channel[]>([]);
-  const [consensus, setConsensus] = useState<Consensus[]>([]);
   const [rows, setRows] = useState<Array<Record<string, unknown>>>([]);
   const [analysisResults, setAnalysisResults] = useState<AnalysisResultHistory[]>([]);
   const [settings, setSettings] = useState<SettingsStatus | null>(null);
@@ -79,11 +76,10 @@ export default function App() {
 
   const refresh = async (showFailure = true): Promise<boolean> => {
     try {
-      const [nextChannels, nextConsensus, nextSettings] = await Promise.all([
-        api.channels(), api.consensus(), api.settings(),
+      const [nextChannels, nextSettings] = await Promise.all([
+        api.channels(), api.settings(),
       ]);
       setChannels(nextChannels);
-      setConsensus(nextConsensus);
       setSettings(nextSettings);
       setConnected(true);
       setEngineStarting(false);
@@ -164,18 +160,14 @@ export default function App() {
   }, [connected]);
 
   useEffect(() => {
-    if (connected && page === "Results" && resultTab === "Analysis") {
+    if (connected && page === "Results") {
       void api.analysisResults().then(setAnalysisResults).catch((reason) => showError(fullError(reason)));
-    }
-    if (connected && page === "Results" && resultTab === "Recommendations") {
-      setRows([]);
-      void api.recommendations().then(setRows);
     }
     if (connected && page === "Reports") {
       setRows([]);
       void api.reports().then(setRows);
     }
-  }, [api, connected, page, resultTab, showError]);
+  }, [api, connected, page, showError]);
 
   if (!connected) {
     return (
@@ -208,9 +200,6 @@ export default function App() {
               </span>
             </div>
             <div className="header-actions">
-              {page === "Dashboard" && (
-                <DashboardCheckButton api={api} refresh={refresh} notify={notify} showError={showError} />
-              )}
               <button className="secondary" onClick={() => void refresh()}>Refresh</button>
             </div>
           </header>
@@ -225,18 +214,14 @@ export default function App() {
             />
           )}
 
-          {page === "Dashboard" && <Dashboard channels={channels} consensus={consensus} />}
           {page === "Channels" && <Channels channels={channels} api={api} refresh={refresh} notify={notify} showError={showError} showSuccess={showSuccess} />}
           {page === "Results" && (
             <Results
               api={api}
-              rows={rows}
-              setRows={setRows}
-              tab={resultTab}
-              setTab={setResultTab}
               notify={notify}
               showError={showError}
               analysisResults={analysisResults}
+              onAnalysisDeleted={(id) => setAnalysisResults((current) => current.filter((item) => item.id !== id))}
             />
           )}
           {page === "Reports" && <Reports api={api} rows={rows} setRows={setRows} notify={notify} showError={showError} />}
@@ -245,6 +230,7 @@ export default function App() {
               api={api}
               status={settings}
               onSaved={refresh}
+              onRunTelegramCheck={refresh}
               notify={notify}
               showError={showError}
               checkingUpdate={checkingUpdate}
@@ -277,77 +263,14 @@ const SIGNAL_BG: Record<string, string> = { BUY: "#1a3d24", SELL: "#3d1a1a", HOL
 type ShowError = (message: string) => void;
 type ShowSuccess = (message: string) => void;
 
-// ── Dashboard check button (lives in header) ──────────────────────────────────
+const CONTENT_TYPE_LABEL: Record<AnalysisContentType, string> = {
+  text: "Text messages",
+  images: "Images / photos",
+  audio: "Audio transcripts",
+};
 
-function DashboardCheckButton({ api, refresh, notify, showError }: {
-  api: ApiClient; refresh: () => Promise<boolean>; notify: Notify; showError: ShowError;
-}) {
-  const [running, setRunning] = useState(false);
-  const run = () => {
-    setRunning(true);
-    void api.runCollection()
-      .then(() => refresh())
-      .then(() => notify("success", "Telegram check completed."))
-      .catch((reason) => showError(fullError(reason)))
-      .finally(() => setRunning(false));
-  };
-  return (
-    <button onClick={run} disabled={running}>
-      {running ? "Checking Telegram…" : "Check Telegram now"}
-    </button>
-  );
-}
-
-// ── Dashboard ─────────────────────────────────────────────────────────────────
-
-function Dashboard({ channels, consensus }: {
-  channels: Channel[]; consensus: Consensus[];
-}) {
-  return (
-    <>
-      <div className="metrics">
-        <Metric value={consensus.length} label="Stocks discussed" />
-        <Metric value={consensus.filter((item) => item.sentiment === "BUY").length} label="Buy consensus" />
-        <Metric value={channels.filter((item) => item.active).length} label="Active channels" />
-      </div>
-      {consensus.length === 0
-        ? <p className="empty">No consensus data yet. Run a Telegram check to populate this page.</p>
-        : (
-          <div className="table">
-            <table>
-              <thead>
-                <tr>
-                  {Object.keys(consensus[0]).map((h) => (
-                    <th key={h}>{h.replaceAll("_", " ")}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {consensus.map((row, i) => (
-                  <tr key={i}>
-                    {Object.entries(row).map(([k, v]) => (
-                      <td key={k}>
-                        {k === "sentiment" ? (
-                          <span style={{
-                            display: "inline-block", padding: ".2rem .55rem", borderRadius: "4px",
-                            fontSize: ".78rem", fontWeight: 700,
-                            background: SIGNAL_BG[String(v)] ?? "#172033",
-                            color: SIGNAL_COLOR[String(v)] ?? "#e5e7eb",
-                          }}>
-                            {String(v ?? "—")}
-                          </span>
-                        ) : String(v ?? "—")}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )
-      }
-    </>
-  );
+function contentTypeLabel(contentTypes: AnalysisContentType[]): string {
+  return contentTypes.map((item) => CONTENT_TYPE_LABEL[item]).join(", ");
 }
 
 // ── Reports ───────────────────────────────────────────────────────────────────
@@ -460,6 +383,7 @@ function Channels({ channels, api, refresh, notify, showError, showSuccess }: {
   });
   const [loading, setLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [contentTypes, setContentTypes] = useState<AnalysisContentType[]>(["text", "images", "audio"]);
 
   const busy = loading || analyzing;
 
@@ -511,11 +435,18 @@ function Channels({ channels, api, refresh, notify, showError, showSuccess }: {
   const selected = new Set(selectedHandles);
   const selectedChannels = channels.filter((channel) => selected.has(channel.handle));
 
+  const toggleContentType = (contentType: AnalysisContentType) => {
+    setContentTypes((current) => current.includes(contentType)
+      ? current.filter((item) => item !== contentType)
+      : [...current, contentType]);
+  };
+
   const analyze = () => {
     const ids = selectedChannels.map((channel) => channel.id);
     if (!ids.length) return notify("warning", "Select at least one chat first.");
+    if (!contentTypes.length) return notify("warning", "Choose at least one input type to analyze.");
     setAnalyzing(true);
-    void api.analyzeSelected(ids)
+    void api.analyzeSelected(ids, contentTypes)
       .then((result) => {
         return refresh().then(() => {
           const noStockContext = result.not_stock_related.length
@@ -523,7 +454,8 @@ function Channels({ channels, api, refresh, notify, showError, showSuccess }: {
             : "";
           showSuccess(
             `${result.messages_analyzed} of ${result.messages_in_window} messages were freshly analyzed from yesterday through now. ` +
-            `Target suggestion date: ${result.target_date}. The result is saved in Results.${noStockContext}`
+            `Target suggestion date: ${result.target_date}. Inputs sent to the model: ${contentTypeLabel(result.content_types)}. ` +
+            `The result is saved in Results.${noStockContext}`
           );
         });
       })
@@ -565,6 +497,19 @@ function Channels({ channels, api, refresh, notify, showError, showSuccess }: {
           <strong>Automatic next-day analysis</strong>
           <p>Uses selected-chat messages, images, and available audio from yesterday at 00:00 Cairo time through the moment you press Analyze. The model keeps only suggestions intended for the next day based on dates and context inside the content.</p>
         </div>
+        <fieldset className="analysis-content-types" disabled={busy}>
+          <legend>Send to the model</legend>
+          {(Object.keys(CONTENT_TYPE_LABEL) as AnalysisContentType[]).map((contentType) => (
+            <label key={contentType}>
+              <input
+                type="checkbox"
+                checked={contentTypes.includes(contentType)}
+                onChange={() => toggleContentType(contentType)}
+              />
+              {CONTENT_TYPE_LABEL[contentType]}
+            </label>
+          ))}
+        </fieldset>
         <button onClick={analyze} disabled={busy}>
           {analyzing ? "Analyzing selected chats…" : "Analyze selected chats"}
         </button>
@@ -576,29 +521,13 @@ function Channels({ channels, api, refresh, notify, showError, showSuccess }: {
 
 // ── Results (merged Recommendations + Search) ─────────────────────────────────
 
-function Results({ api, rows, setRows, tab, setTab, notify, showError, analysisResults }: {
-  api: ApiClient; rows: Array<Record<string, unknown>>;
-  setRows: (rows: Array<Record<string, unknown>>) => void;
-  tab: ResultTab; setTab: (t: ResultTab) => void;
+function Results({ api, notify, showError, analysisResults, onAnalysisDeleted }: {
+  api: ApiClient;
   notify: Notify; showError: ShowError; analysisResults: AnalysisResultHistory[];
+  onAnalysisDeleted: (id: number) => void;
 }) {
   return (
-    <>
-      <div className="tab-bar">
-        <button className={tab === "Analysis" ? "tab active" : "tab"} onClick={() => setTab("Analysis")}>
-          Analysis results
-        </button>
-        <button className={tab === "Recommendations" ? "tab active" : "tab"} onClick={() => setTab("Recommendations")}>
-          Recommendations
-        </button>
-        <button className={tab === "Search" ? "tab active" : "tab"} onClick={() => setTab("Search")}>
-          Search
-        </button>
-      </div>
-      {tab === "Analysis" && <AnalysisResultHistoryTable items={analysisResults} />}
-      {tab === "Recommendations" && <Recommendations rows={rows} />}
-      {tab === "Search" && <Search api={api} onResult={setRows} notify={notify} showError={showError} />}
-    </>
+    <AnalysisResultHistoryTable items={analysisResults} api={api} notify={notify} showError={showError} onDeleted={onAnalysisDeleted} />
   );
 }
 
@@ -607,35 +536,117 @@ function formatGeneratedAt(value: string): string {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
-function AnalysisResultHistoryTable({ items }: { items: AnalysisResultHistory[] }) {
+function normalizeStockSearch(value: string): string {
+  return value
+    .toLocaleLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u064B-\u065F\u0670]/g, "")
+    .replace(/[أإآ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ة/g, "ه")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+function editDistance(left: string, right: string): number {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    let diagonal = previous[0];
+    previous[0] = leftIndex;
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      const above = previous[rightIndex];
+      previous[rightIndex] = Math.min(
+        previous[rightIndex] + 1,
+        previous[rightIndex - 1] + 1,
+        diagonal + (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1),
+      );
+      diagonal = above;
+    }
+  }
+  return previous[right.length];
+}
+
+function matchesStockQuery(row: StockSourceTableRow, query: string): boolean {
+  const normalizedQuery = normalizeStockSearch(query);
+  if (!normalizedQuery) return true;
+  const candidates = [row.ticker, row.company, row.company_ar || ""]
+    .flatMap((value) => [normalizeStockSearch(value), ...normalizeStockSearch(value).split(" ")])
+    .filter(Boolean);
+  const allowedDistance = normalizedQuery.length >= 6 ? 2 : 1;
+  return candidates.some((candidate) => candidate.includes(normalizedQuery) || editDistance(candidate, normalizedQuery) <= allowedDistance);
+}
+
+function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted }: {
+  items: AnalysisResultHistory[]; api: ApiClient; notify: Notify; showError: ShowError; onDeleted: (id: number) => void;
+}) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [stockQuery, setStockQuery] = useState("");
+  const [deleteCandidate, setDeleteCandidate] = useState<AnalysisResultHistory | null>(null);
+  const [deleting, setDeleting] = useState(false);
   if (!items.length) return <p className="empty">No saved analysis results yet. Run Analyze selected chats to create one.</p>;
+
+  const confirmDelete = () => {
+    if (!deleteCandidate) return;
+    setDeleting(true);
+    void api.deleteAnalysisResult(deleteCandidate.id)
+      .then(() => {
+        if (expandedId === deleteCandidate.id) setExpandedId(null);
+        onDeleted(deleteCandidate.id);
+        setDeleteCandidate(null);
+        notify("success", "Analysis result and its generated files were deleted.");
+      })
+      .catch((reason) => showError(fullError(reason)))
+      .finally(() => setDeleting(false));
+  };
+
+  const toggleExpanded = (id: number) => {
+    setExpandedId((current) => current === id ? null : id);
+    setStockQuery("");
+  };
 
   return (
     <div className="analysis-history-wrap">
       <p className="analysis-history-help">Select a generated result to expand its complete EGX recommendations table.</p>
       <table className="analysis-history-table">
         <thead>
-          <tr><th>Generated result</th><th>Target date</th><th>Messages analyzed</th><th>Stocks</th><th /></tr>
+          <tr><th>Generated result</th><th>Target date</th><th>Inputs sent</th><th>Messages analyzed</th><th>Stocks</th><th /></tr>
         </thead>
         <tbody>
           {items.map((item) => {
             const isOpen = expandedId === item.id;
             return (
               <Fragment key={item.id}>
-                <tr className="analysis-history-row" onClick={() => setExpandedId(isOpen ? null : item.id)}>
+                <tr className="analysis-history-row" onClick={() => toggleExpanded(item.id)}>
                   <td><strong>Analysis · {formatGeneratedAt(item.generated_at)}</strong></td>
                   <td>{item.target_date || "—"}</td>
+                  <td>{contentTypeLabel(item.content_types)}</td>
                   <td>{item.messages_analyzed}</td>
                   <td>{new Set(item.stock_source_table.map((row) => row.ticker)).size}</td>
-                  <td><button type="button" className="secondary compact" onClick={(event) => {
-                    event.stopPropagation();
-                    setExpandedId(isOpen ? null : item.id);
-                  }}>{isOpen ? "Hide" : "View"}</button></td>
+                  <td className="analysis-history-actions">
+                    <button type="button" className="secondary compact" onClick={(event) => {
+                      event.stopPropagation();
+                      toggleExpanded(item.id);
+                    }}>{isOpen ? "Hide" : "View"}</button>
+                    <button type="button" className="danger compact" onClick={(event) => {
+                      event.stopPropagation();
+                      setDeleteCandidate(item);
+                    }}>Delete</button>
+                  </td>
                 </tr>
                 {isOpen && (
                   <tr className="analysis-history-expanded">
-                    <td colSpan={5}><ConsolidatedStockTable rows={item.stock_source_table} /></td>
+                    <td colSpan={6}>
+                      <label className="analysis-result-search">
+                        Find stock code or name
+                        <input
+                          value={stockQuery}
+                          onChange={(event) => setStockQuery(event.target.value)}
+                          placeholder="COMI, Commercial International Bank, البنك التجاري…"
+                        />
+                      </label>
+                      <ConsolidatedStockTable rows={item.stock_source_table.filter((row) => matchesStockQuery(row, stockQuery))} />
+                      <ClientInquiryResponses rows={item.client_inquiry_responses} />
+                    </td>
                   </tr>
                 )}
               </Fragment>
@@ -643,6 +654,33 @@ function AnalysisResultHistoryTable({ items }: { items: AnalysisResultHistory[] 
           })}
         </tbody>
       </table>
+      {deleteCandidate && (
+        <DeleteAnalysisResultModal
+          item={deleteCandidate}
+          deleting={deleting}
+          onCancel={() => setDeleteCandidate(null)}
+          onConfirm={confirmDelete}
+        />
+      )}
+    </div>
+  );
+}
+
+function DeleteAnalysisResultModal({ item, deleting, onCancel, onConfirm }: {
+  item: AnalysisResultHistory; deleting: boolean; onCancel: () => void; onConfirm: () => void;
+}) {
+  return (
+    <div className="error-modal-backdrop" role="dialog" aria-modal="true" aria-label="Delete analysis result">
+      <div className="error-modal-card delete-modal-card">
+        <h2 className="error-modal-title delete-modal-title">Delete analysis result?</h2>
+        <p className="success-modal-body">
+          Delete the result generated on {formatGeneratedAt(item.generated_at)}? This permanently removes its table, reports, AI response files, and saved trace.
+        </p>
+        <div className="error-modal-actions">
+          <button type="button" className="secondary" onClick={onCancel} disabled={deleting}>Cancel</button>
+          <button type="button" className="danger" onClick={onConfirm} disabled={deleting}>{deleting ? "Deleting…" : "Delete permanently"}</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -736,6 +774,29 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
         </table>
       </div>
     </div>
+  );
+}
+
+function ClientInquiryResponses({ rows }: { rows: ClientInquiryResponse[] }) {
+  if (!rows.length) return null;
+  return (
+    <details className="client-inquiries">
+      <summary>Client inquiry responses ({rows.length}) <span>Reference only — excluded from active recommendations</span></summary>
+      <div className="consolidated-table-scroll">
+        <table className="consolidated-table client-inquiry-table">
+          <thead><tr><th>Stock</th><th>Source</th><th>Date</th><th>Customer inquiry</th><th>Reply / advice</th><th>Levels</th></tr></thead>
+          <tbody>{rows.map((row, index) => (
+            <tr key={`${row.ticker}-${row.source}-${row.date ?? ""}-${index}`}>
+              <td><strong>{row.ticker}</strong><br /><span>{row.company}</span>{row.company_ar && <><br /><span className="consolidated-company-ar">{row.company_ar}</span></>}</td>
+              <td>{row.source}</td><td>{row.date || "—"}</td>
+              <td className="analysis-summary">{row.question_summary_ar || "—"}</td>
+              <td className="analysis-summary">{row.reply_summary_ar || row.advice_ar || "—"}{row.alternate_scenario_ar && <><br /><small>Alternative: {row.alternate_scenario_ar}</small></>}</td>
+              <td className="numeric">Last {num(row.last_price)}<br />Support {num(row.support)}<br />Resistance {num(row.resistance)}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+    </details>
   );
 }
 
@@ -1048,8 +1109,9 @@ function SettingsSection({ title, description, open, onToggle, children }: {
   );
 }
 
-function CloudSettings({ api, status, onSaved, notify, showError, checkingUpdate, onCheckForUpdates }: {
+function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showError, checkingUpdate, onCheckForUpdates }: {
   api: ApiClient; status: SettingsStatus | null; onSaved: () => Promise<boolean>;
+  onRunTelegramCheck: () => Promise<boolean>;
   notify: Notify; showError: ShowError; checkingUpdate: boolean; onCheckForUpdates: () => void;
 }) {
   const [values, setValues] = useState<SettingsInput>({
@@ -1066,6 +1128,7 @@ function CloudSettings({ api, status, onSaved, notify, showError, checkingUpdate
   const [codeSent, setCodeSent] = useState(false);
   const [sendingCode, setSendingCode] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  const [checkingTelegram, setCheckingTelegram] = useState(false);
   const [diagnostics, setDiagnostics] = useState<DiagnosticEntry[]>([]);
   const [loadingDiagnostics, setLoadingDiagnostics] = useState(false);
   const [contentStatus, setContentStatus] = useState<ContentUpdateStatus | null>(null);
@@ -1265,6 +1328,23 @@ function CloudSettings({ api, status, onSaved, notify, showError, checkingUpdate
             </label>
             <button disabled={verifying}>{verifying ? "Verifying…" : "Verify code"}</button>
           </form>
+        )}
+
+        {status?.telegram_authorized && (
+          <div className="settings-subsection">
+            <strong>Manual Telegram check</strong>
+            <p>Fetches the latest messages from active saved channels. Use Analyze selected chats in Channels for the next-day recommendation report.</p>
+            <button type="button" disabled={checkingTelegram} onClick={() => {
+              setCheckingTelegram(true);
+              void api.runCollection()
+                .then(onRunTelegramCheck)
+                .then(() => notify("success", "Telegram check completed."))
+                .catch((reason) => showError(`Telegram check failed: ${fullError(reason)}`))
+                .finally(() => setCheckingTelegram(false));
+            }}>
+              {checkingTelegram ? "Checking Telegram…" : "Check Telegram now"}
+            </button>
+          </div>
         )}
       </SettingsSection>
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.57
+- Added selection controls for text, images, and audio transcripts; each saved analysis now records the exact inputs sent to the model.
+- Improved next-day EGX recommendation filtering, source-level Results tables, fuzzy stock lookup, deletion of saved result artifacts, and Telegram session UX.
+- Added a separate client-inquiry response section for `ردًا على استفسارات عملائنا`-style replies so they remain available without appearing as actionable recommendations.
+- Removed stale dashboard analytics, moved manual Telegram collection into Settings, and added loading states and clearer request feedback.
+- Hardened desktop update signing: local release scripts retain compatibility with the original signing key and GitHub Actions verifies the signing key before publishing an update.
+
 ## v0.1.56
 - Analyze selected chats from yesterday at Cairo midnight through the current moment, then retain recommendations intended for the next trading day based on dates in text, images, and audio.
 - Added saved, expandable analysis-result rows in Results; each generated result opens its full EGX recommendation table.

@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory)]
     [ValidatePattern("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")]
     [string]$Repository,
-    [string]$SigningKeyPath = (Join-Path $HOME ".tauri\egx-analyzer.key"),
+    [string]$SigningKeyPath = "",
     [string]$SigningKeyPassword = "",
     [switch]$RotateSigningKey
 )
@@ -12,6 +12,11 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $desktop = Join-Path $root "desktop"
 $configPath = Join-Path $desktop "src-tauri\tauri.conf.json"
+$preferredSigningKey = Join-Path $HOME ".tauri\egx-analyzer.key"
+$legacySigningKey = Join-Path $HOME ".tauri\egx-intelligence.key"
+if (-not $SigningKeyPath) {
+    $SigningKeyPath = if (Test-Path $preferredSigningKey) { $preferredSigningKey } elseif (Test-Path $legacySigningKey) { $legacySigningKey } else { $preferredSigningKey }
+}
 
 function Read-SigningKeyPassword {
     $securePassword = Read-Host "Create a password for the update signing key" -AsSecureString

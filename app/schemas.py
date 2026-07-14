@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from pydantic import BaseModel, Field
 from app.models import Signal
 
@@ -61,6 +62,9 @@ class ChannelUpdate(BaseModel):
 class CollectionRequest(BaseModel):
     channel_ids: list[int] = Field(min_length=1)
     analyze: bool = True
+    content_types: set[Literal["text", "images", "audio"]] = Field(
+        default_factory=lambda: {"text", "images", "audio"}, min_length=1
+    )
 
 
 class DailyReportRequest(BaseModel):

@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from datetime import datetime, timezone
 from pathlib import Path
 import json
+import shutil
 import subprocess
 import httpx
 from sqlalchemy import select
@@ -203,6 +204,7 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
     source_start_date = window_start.astimezone(cairo).date().isoformat()
     source_end_date = window_end.astimezone(cairo).date().isoformat()
     analysis_period = f"Source messages: {source_start_date} through {source_end_date}; target date: {target_date.isoformat()}"
+    content_types = set(payload.content_types)
     try:
         collection = await runtime.collect_once(payload.channel_ids, since=window_start, analyze_messages=False)
         message_rows = (await session.execute(
@@ -218,26 +220,31 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
         message_ids = [message.id for message, _ in message_rows]
         images_by_message: dict[int, list[str]] = {}
         transcripts_by_message: dict[int, list[str]] = {}
-        if message_ids:
+        if message_ids and "images" in content_types:
             image_rows = (await session.scalars(select(Image).where(Image.message_id.in_(message_ids)))).all()
-            media_rows = (await session.scalars(select(Media).where(Media.message_id.in_(message_ids)))).all()
             for image in image_rows:
                 if Path(image.path).is_file():
                     images_by_message.setdefault(image.message_id, []).append(image.path)
+        if message_ids and "audio" in content_types:
+            media_rows = (await session.scalars(select(Media).where(Media.message_id.in_(message_ids)))).all()
             for media in media_rows:
                 if media.transcript:
                     transcripts_by_message.setdefault(media.message_id, []).append(media.transcript)
-        batch_messages = [
-            {
+        batch_messages = []
+        for message, channel in message_rows:
+            selected_text = message.text if "text" in content_types else ""
+            selected_images = images_by_message.get(message.id, [])
+            selected_transcripts = transcripts_by_message.get(message.id, [])
+            if not selected_text.strip() and not selected_images and not selected_transcripts:
+                continue
+            batch_messages.append({
                 "source": channel.title or channel.handle,
                 "published_at": message.published_at.astimezone(cairo).isoformat(),
                 "telegram_message_id": message.telegram_message_id,
-                "text": message.text,
-                "image_paths": images_by_message.get(message.id, []),
-                "transcripts": transcripts_by_message.get(message.id, []),
-            }
-            for message, channel in message_rows
-        ]
+                "text": selected_text,
+                "image_paths": selected_images,
+                "transcripts": selected_transcripts,
+            })
         outcome = await AIAnalysisService(get_settings()).analyze_consolidated(
             batch_messages, analysis_period, target_date.isoformat()
         )
@@ -258,11 +265,15 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
             "target_date": target_date.isoformat(),
             "source_window_start": window_start.isoformat(),
             "source_window_end": window_end.isoformat(),
+            "content_types": sorted(content_types),
+            "messages_analyzed": len(batch_messages),
+            "analysis_trace_directory": trace["directory"],
         }}
         await session.commit()
         channel_results = report.summary["channel_results"]
         return {"messages_collected": collection["messages_analyzed"], **collection,
                 "window_start": window_start, "window_end": window_end, "target_date": target_date.isoformat(),
+                "content_types": sorted(content_types),
                 "report": {"id": report.id, "markdown_path": report.markdown_path, "html_path": report.html_path,
                            "pdf_path": report.pdf_path,
                            "original_ai_response_text_path": report.summary["original_ai_response_text_path"],
@@ -270,6 +281,7 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
                 "stock_code_summary": report.summary["stock_code_summary"],
                 "stock_code_details": report.summary["stock_code_details"],
                 "stock_source_table": report.summary["stock_source_table"],
+                "client_inquiry_responses": report.summary["client_inquiry_responses"],
                 "trace": trace,
                 "not_stock_related": [item["channel"] for item in channel_results if item["status"] == "not_stock_related"]}
     except RuntimeError as error:
@@ -374,11 +386,53 @@ async def analysis_results(session: AsyncSession = Depends(get_session)) -> list
             "generated_at": item.report_date,
             "target_date": item.summary.get("target_date"),
             "messages_analyzed": item.summary.get("messages_analyzed", 0),
+            "content_types": item.summary.get("content_types", ["text", "images", "audio"]),
             "stock_source_table": item.summary.get("stock_source_table", []),
+            "client_inquiry_responses": item.summary.get("client_inquiry_responses", []),
         }
         for item in stored_reports
         if item.summary.get("analysis_result") or item.summary.get("analysis_mode") == "consolidated_batch"
     ]
+
+
+def _delete_managed_artifact(storage_root: Path, value: object, directory: bool = False) -> None:
+    if not isinstance(value, str) or not value:
+        return
+    try:
+        root = storage_root.resolve()
+        candidate = Path(value).resolve()
+        if candidate != root and root not in candidate.parents:
+            return
+        if directory:
+            if candidate.is_dir():
+                shutil.rmtree(candidate)
+        elif candidate.is_file():
+            candidate.unlink()
+    except OSError:
+        return
+
+
+@router.delete("/analysis-results/{report_id}")
+async def delete_analysis_result(report_id: int, session: AsyncSession = Depends(get_session)) -> dict[str, bool]:
+    """Delete one saved batch result and its report/trace artifacts."""
+    report = await session.get(Report, report_id)
+    if report is None or not (report.summary.get("analysis_result") or report.summary.get("analysis_mode") == "consolidated_batch"):
+        raise HTTPException(404, "Analysis result not found")
+
+    settings = get_settings()
+    summary = report.summary
+    for path in (
+        report.markdown_path,
+        report.html_path,
+        report.pdf_path,
+        summary.get("original_ai_response_text_path"),
+        summary.get("original_ai_response_pdf_path"),
+    ):
+        _delete_managed_artifact(settings.storage_root, path)
+    _delete_managed_artifact(settings.storage_root, summary.get("analysis_trace_directory"), directory=True)
+    await session.delete(report)
+    await session.commit()
+    return {"deleted": True}
 
 
 @router.post("/search")
