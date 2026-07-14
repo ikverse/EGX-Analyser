@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.1.59
+- Fixed Windows GitHub Actions updater signing verification by invoking the installed Tauri CLI directly instead of resolving it through `npx`.
+
 ## v0.1.58
 - Added target-date analysis: retain the default next-day workflow or choose a historical target date.
 - Historical analysis reads content from the prior Cairo day at 00:00 through 23:59 on the selected date, then keeps only recommendations explicitly intended for that selected date.

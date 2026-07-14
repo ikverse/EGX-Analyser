@@ -44,15 +44,15 @@ jobs:
           $configuredPublicKey = (Get-Content desktop/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).plugins.updater.pubkey
           if (-not $configuredPublicKey) { throw "The updater public key is missing from desktop/src-tauri/tauri.conf.json." }
           $probePath = Join-Path $env:RUNNER_TEMP 'egx-updater-key-check.txt'
+          $tauriCli = Join-Path $PWD 'desktop\node_modules\.bin\tauri.cmd'
+          if (-not (Test-Path $tauriCli)) { throw "The local Tauri CLI was not installed at $tauriCli." }
           Set-Content -Path $probePath -Value 'EGX Analyzer updater signing-key verification' -NoNewline
-          Push-Location desktop
           try {
-            & npx --no-install tauri signer sign --private-key $env:TAURI_SIGNING_PRIVATE_KEY $probePath
+            & $tauriCli signer sign --private-key $env:TAURI_SIGNING_PRIVATE_KEY $probePath
             if ($LASTEXITCODE -ne 0) { throw "Could not sign the updater verification probe. Check TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD." }
-            & npx --no-install tauri signer verify $probePath $configuredPublicKey
+            & $tauriCli signer verify $probePath $configuredPublicKey
             if ($LASTEXITCODE -ne 0) { throw "The GitHub TAURI_SIGNING_PRIVATE_KEY secret does not match the updater public key embedded in the app. Restore the original egx-intelligence.key secret; do not rotate the updater key." }
           } finally {
-            Pop-Location
             Remove-Item $probePath, "$probePath.sig" -Force -ErrorAction SilentlyContinue
           }
       - name: Build signed update artifacts
