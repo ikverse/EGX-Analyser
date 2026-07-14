@@ -14,7 +14,13 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app import api
 from app.models import Base, Image, Recommendation, Report, StockMention
 from app.schemas import AnalysisResult, CollectionRequest, ExtractedRecommendation, ExtractedStockMention, MessageCreate, TelegramChatSelect
-from app.ai.service import _analysis_result_from_payload, _prepared_image_data_url, analysis_output_schema
+from app.ai.service import (
+    _analysis_result_from_payload,
+    _prepared_image_data_url,
+    analysis_output_schema,
+    is_client_inquiry_message,
+    keep_message_local_client_inquiries,
+)
 from app.reports import _client_inquiry_rows, _consolidated_source_table
 from app.services import AnalyticsService, MessageService, SearchService
 from app.config_store import load_secrets_into_environment, update_config
@@ -298,6 +304,25 @@ def test_client_inquiry_replies_are_kept_out_of_active_recommendations():
     assert [row["ticker"] for row in active_rows] == ["COMI"]
     assert [row["ticker"] for row in inquiry_rows] == ["ALUM"]
     assert inquiry_rows[0]["reply_summary_ar"] == "اتجاه عرضي بين الدعم والمقاومة"
+
+
+def test_client_inquiry_records_must_match_an_explicitly_marked_message():
+    payload = {
+        "client_inquiry_responses": [
+            {"stock_code": "ALUM", "source_message_id": "100"},
+            {"stock_code": "COMI", "source_message_id": "200"},
+        ],
+    }
+    messages = [
+        {"telegram_message_id": 100, "text": "ردًا على استفسارات عملائنا عن السهم"},
+        {"telegram_message_id": 200, "text": "إشارة تداول - شراء"},
+    ]
+
+    keep_message_local_client_inquiries(payload, messages)
+
+    assert is_client_inquiry_message(messages[0]["text"])
+    assert not is_client_inquiry_message(messages[1]["text"])
+    assert payload["client_inquiry_responses"] == [{"stock_code": "ALUM", "source_message_id": "100"}]
 
 
 

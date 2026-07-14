@@ -3,6 +3,7 @@ import hashlib
 import io
 import json
 import mimetypes
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import perf_counter
@@ -39,6 +40,38 @@ Use English EGX ticker codes in stock_code. Keep unavailable values as null. Do 
 
 _MAX_IMAGE_EDGE = 2_048
 _OPTIMIZE_IMAGE_OVER_BYTES = 1_500_000
+_CLIENT_INQUIRY_MARKERS = (
+    "ردا على استفسارات عملائنا",
+    "رد على استفسار",
+    "استفسارات العملاء",
+    "استفسارات عملائنا",
+)
+
+
+def is_client_inquiry_message(text: str) -> bool:
+    """Identify explicit customer-inquiry replies from the message itself only."""
+    normalized = unicodedata.normalize("NFKC", text or "").casefold()
+    normalized = normalized.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا")
+    normalized = normalized.replace("ى", "ي").replace("ة", "ه").replace("ً", "")
+    return any(marker in normalized for marker in _CLIENT_INQUIRY_MARKERS)
+
+
+def keep_message_local_client_inquiries(payload: dict[str, Any], messages: list[dict[str, Any]]) -> None:
+    """Remove inquiry records not supported by an explicitly marked source message."""
+    inquiry_message_ids = {
+        str(item.get("telegram_message_id") or "")
+        for item in messages
+        if is_client_inquiry_message(str(item.get("text") or ""))
+    }
+    values = payload.get("client_inquiry_responses")
+    if not isinstance(values, list):
+        payload["client_inquiry_responses"] = []
+        return
+    payload["client_inquiry_responses"] = [
+        item for item in values
+        if isinstance(item, dict)
+        and str(item.get("source_message_id") or item.get("telegram_message_id") or "") in inquiry_message_ids
+    ]
 
 
 def _content_reference(value: str, references: dict[str, str], label: str, telegram_id: str) -> tuple[str, bool]:
@@ -257,7 +290,10 @@ class AIAnalysisService:
             "memes, and stock mentions without a dated actionable recommendation. Do not turn news into a trading signal.",
             "IMPORTANT — client/member inquiry replies are reference information, not main recommendations. If a message says "
             "'ردًا على استفسارات عملائنا', 'ردا على استفسارات عملائنا', 'رد على استفسار', 'استفسارات العملاء', "
-            "or clearly answers a member/customer question about a particular stock, NEVER place it in "
+            "Only classify a record as a client inquiry when its exact TELEGRAM_ID is marked "
+            "CLIENT_INQUIRY_REPLY below. Never classify a normal table, chart, photo, or signal as an inquiry because "
+            "the same source/channel posted an inquiry elsewhere. A valid dated buy table remains a main recommendation. "
+            "A marked message that clearly answers a member/customer question about a particular stock must NEVER appear in "
             "top_consolidated_recommendations, achieved_targets, or text_based_categories. Instead place one clean, "
             "stock-specific record in client_inquiry_responses. Preserve its source, date, levels, trend, advice, and "
             "alternative scenario when explicitly present. Every inquiry record MUST include source_message_id equal to the "
@@ -291,8 +327,13 @@ class AIAnalysisService:
             text, reused_text = _content_reference(original_text, text_references, "TEXT_REF", telegram_id)
             metrics["reused_text_count"] += int(reused_text)
             transcripts = item.get("transcripts") if isinstance(item.get("transcripts"), list) else []
+            classification = (
+                "CLIENT_INQUIRY_REPLY"
+                if is_client_inquiry_message(original_text)
+                else "MAIN_RECOMMENDATION_CANDIDATE_OR_OTHER"
+            )
             parts.extend([
-                "", f"--- MESSAGE | SOURCE: {source} | DATE: {timestamp} | TELEGRAM_ID: {telegram_id} ---",
+                "", f"--- MESSAGE | SOURCE: {source} | DATE: {timestamp} | TELEGRAM_ID: {telegram_id} | CLASSIFICATION: {classification} ---",
                 text or "[No text]",
             ])
             if transcripts:

@@ -8,7 +8,7 @@ from time import perf_counter
 import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.ai.service import AIAnalysisService
+from app.ai.service import AIAnalysisService, keep_message_local_client_inquiries
 from app.analysis_trace import export_analysis_trace
 from app.config import get_settings
 from app.config_store import update_config
@@ -320,6 +320,7 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
         consolidated_source = json.loads(outcome.raw_response)
         if not isinstance(consolidated_source, dict):
             raise RuntimeError("The AI provider returned a non-object response for the consolidated analysis")
+        keep_message_local_client_inquiries(consolidated_source, batch_messages)
         await catalog.enrich_consolidated_output(consolidated_source)
         collection["messages_analyzed"] = len(batch_messages)
         trace = await export_analysis_trace(

@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.65
+- Fixed client-inquiry classification so it is tied to the exact marked Telegram message instead of the whole source/channel.
+- Prevented normal dated recommendation tables, charts, photos, and signals from being moved into the client-inquiry output.
+
 ## v0.1.64
 - Lists every Qwen model exposed to the account that supports text-and-image analysis, with the most capable available Qwen vision model selected first.
 - Uses `qwen3-vl-plus` as the default model for new Qwen configurations.
