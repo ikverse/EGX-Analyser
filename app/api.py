@@ -9,7 +9,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.service import AIAnalysisService
-from app.analysis_trace import export_analysis_trace
+from app.analysis_trace import create_selected_input_trace, save_consolidated_response
 from app.config import get_settings
 from app.config_store import update_config
 from app.content_updates import ContentUpdateError, ContentUpdateService
@@ -345,8 +345,12 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
                 "image_paths": selected_images,
                 "transcripts": selected_transcripts,
             })
+        trace = create_selected_input_trace(
+            get_settings().storage_root, batch_messages, window_start, window_end,
+            analysis_period, target_date.isoformat(), content_types,
+        )
         outcome = await AIAnalysisService(get_settings()).analyze_consolidated(
-            batch_messages, analysis_period, target_date.isoformat()
+            batch_messages, analysis_period, target_date.isoformat(), Path(str(trace["directory"]))
         )
         model_completed = perf_counter()
         consolidated_source = json.loads(outcome.raw_response)
@@ -356,9 +360,7 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
         catalog_refresh = await catalog.ensure()
         await catalog.enrich_consolidated_output(consolidated_source)
         collection["messages_analyzed"] = len(batch_messages)
-        trace = await export_analysis_trace(
-            session, get_settings().storage_root, payload.channel_ids, window_start, window_end, outcome.raw_response
-        )
+        trace = save_consolidated_response(trace, outcome.raw_response)
         report = await ReportService(session, get_settings()).generate_selected_chat_report(
             payload.channel_ids, window_start, window_end, 2,
             consolidated_source=consolidated_source, consolidated_raw_response=outcome.raw_response,

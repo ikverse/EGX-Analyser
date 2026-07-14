@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import base64
 import asyncio
 import io
 import json
@@ -17,6 +18,7 @@ from app.schemas import AnalysisResult, CollectionRequest, ExtractedRecommendati
 from app.ai.service import (
     _analysis_result_from_payload,
     _prepared_image_data_url,
+    _write_provider_request_trace,
     analysis_output_schema,
 )
 from app.reports import _client_inquiry_rows, _consolidated_source_table
@@ -27,7 +29,7 @@ from app.telegram_auth import TelegramAuthenticator
 from app.runtime import next_day_analysis_window, selected_date_analysis_window
 from app.collector.telegram import is_promotional_message
 from app.reports import ReportService
-from app.analysis_trace import export_analysis_trace
+from app.analysis_trace import create_selected_input_trace, export_analysis_trace, save_consolidated_response
 from app.repositories import StockRepository
 from app.stock_catalog import EGXStockCatalog, normalize_stock_name
 
@@ -591,6 +593,43 @@ async def test_analysis_trace_saves_consolidated_response(session, tmp_path):
         datetime.now(timezone.utc) + timedelta(minutes=1), '{"top_consolidated_recommendations": []}',
     )
     assert Path(str(trace["consolidated_response_path"])).read_text(encoding="utf-8") == '{"top_consolidated_recommendations": []}'
+
+
+def test_selected_input_trace_contains_only_the_model_batch(tmp_path):
+    source_image = tmp_path / "selected-chart.jpg"
+    source_image.write_bytes(b"selected-image")
+    start = datetime(2026, 7, 14, tzinfo=timezone.utc)
+    end = start + timedelta(days=1)
+    trace = create_selected_input_trace(
+        tmp_path / "storage",
+        [{
+            "source": "Selected channel", "published_at": start.isoformat(), "telegram_message_id": 42,
+            "text": "Selected text only", "transcripts": ["Selected transcript"],
+            "image_paths": [str(source_image)],
+        }],
+        start, end, "Source messages: 2026-07-14", "2026-07-15", {"text", "images", "audio"},
+    )
+    payload = json.loads(Path(str(trace["json_path"])).read_text(encoding="utf-8"))
+    assert payload["messages"] == [{
+        "source": "Selected channel", "published_at": start.isoformat(), "telegram_message_id": 42,
+        "text": "Selected text only", "audio_transcripts": ["Selected transcript"],
+        "image_files": ["images/42_1_selected-chart.jpg"],
+    }]
+    assert Path(str(trace["images_path"])).joinpath("42_1_selected-chart.jpg").read_bytes() == b"selected-image"
+    completed = save_consolidated_response(trace, '{"top_consolidated_recommendations": []}')
+    assert Path(str(completed["consolidated_response_path"])).is_file()
+
+
+def test_provider_request_trace_saves_final_prompt_and_sent_image_bytes(tmp_path):
+    data_url = "data:image/jpeg;base64," + base64.b64encode(b"provider-image").decode()
+    _write_provider_request_trace(tmp_path, "Exact prompt sent to the model", [(data_url, 30, 14, True)])
+    assert (tmp_path / "provider-prompt.txt").read_text(encoding="utf-8") == "Exact prompt sent to the model"
+    assert (tmp_path / "sent-images" / "image-1.jpg").read_bytes() == b"provider-image"
+    manifest = json.loads((tmp_path / "sent-images.json").read_text(encoding="utf-8"))
+    assert manifest == [{
+        "reference": 1, "file": "sent-images/image-1.jpg", "mime_type": "image/jpeg",
+        "original_bytes": 30, "sent_bytes": 14, "optimized": True,
+    }]
 
 
 async def test_stock_repository_persists_learned_ticker_name_mapping(session):

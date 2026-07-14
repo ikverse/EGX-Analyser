@@ -89,6 +89,27 @@ def _prepared_image_data_url(path: str) -> tuple[str, int, int, bool]:
     return f"data:{mime_type};base64,{encoded}", original_size, len(content), optimized
 
 
+def _write_provider_request_trace(directory: Path, prompt: str,
+                                  prepared_images: list[tuple[str, int, int, bool]]) -> None:
+    """Save the final text and optimized image bytes supplied to a provider."""
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "provider-prompt.txt").write_text(prompt, encoding="utf-8")
+    image_directory = directory / "sent-images"
+    image_directory.mkdir(exist_ok=True)
+    manifest: list[dict[str, object]] = []
+    for index, (data_url, original_bytes, sent_bytes, optimized) in enumerate(prepared_images, start=1):
+        header, encoded = data_url.split(",", 1)
+        mime_type = header.removeprefix("data:").split(";", 1)[0]
+        extension = mimetypes.guess_extension(mime_type) or ".bin"
+        filename = f"image-{index}{extension}"
+        (image_directory / filename).write_bytes(base64.b64decode(encoded))
+        manifest.append({
+            "reference": index, "file": (Path("sent-images") / filename).as_posix(), "mime_type": mime_type,
+            "original_bytes": original_bytes, "sent_bytes": sent_bytes, "optimized": optimized,
+        })
+    (directory / "sent-images.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+
 def analysis_output_schema() -> dict[str, Any]:
     schema = AnalysisResult.model_json_schema()
 
@@ -222,7 +243,7 @@ class AIAnalysisService:
         )
 
     async def analyze_consolidated(self, messages: list[dict[str, Any]], analysis_period: str,
-                                   target_trading_date: str) -> AnalysisOutcome:
+                                   target_trading_date: str, trace_directory: Path | None = None) -> AnalysisOutcome:
         """Analyze one fresh, selected-chat window in a single model request."""
         if not messages:
             empty = {
@@ -332,9 +353,10 @@ class AIAnalysisService:
                 image_references[digest] = reference
                 parts.append(f"Image {index} for this message is IMAGE_REF {reference}; it follows below.")
                 image_paths.append(path)
-        return await self._analyze_prompt("\n".join(parts), image_paths, metrics)
+        return await self._analyze_prompt("\n".join(parts), image_paths, metrics, trace_directory)
 
-    async def _analyze_prompt(self, source_data: str, image_paths: list[str], input_metrics: dict[str, int] | None = None) -> AnalysisOutcome:
+    async def _analyze_prompt(self, source_data: str, image_paths: list[str], input_metrics: dict[str, int] | None = None,
+                              trace_directory: Path | None = None) -> AnalysisOutcome:
         if self.client is None:
             raise RuntimeError("An API key is required for the selected AI provider")
         analysis_prompt = self.settings.analysis_instructions.strip() or self.prompt
@@ -348,6 +370,8 @@ class AIAnalysisService:
             "optimized_image_count": sum(int(item[3]) for item in prepared_images),
             "prompt_characters": len(prompt),
         })
+        if trace_directory is not None:
+            _write_provider_request_trace(trace_directory, prompt, prepared_images)
         request_started = perf_counter()
         if self.settings.ai_provider != "openai":
             content: list[dict[str, object]] = [{"type": "text", "text": prompt}]

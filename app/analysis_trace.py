@@ -1,11 +1,97 @@
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 import shutil
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Channel, Image, Message, Recommendation
+
+
+def create_selected_input_trace(storage_root: Path, messages: list[dict[str, Any]],
+                                start: datetime, end: datetime, analysis_period: str,
+                                target_date: str, content_types: set[str]) -> dict[str, object]:
+    """Persist the exact date/type-filtered source payload before an AI request.
+
+    The trace intentionally uses the already assembled batch rather than querying
+    every stored message again, so deselected text, images, and audio are absent.
+    It is created before the provider call and therefore remains available when a
+    provider rejects or times out on an analysis request.
+    """
+    created_at = datetime.now(timezone.utc)
+    directory = storage_root / "analysis-traces" / created_at.strftime("%Y-%m-%d") / created_at.strftime("%H%M%S_%f")
+    image_directory = directory / "images"
+    image_directory.mkdir(parents=True, exist_ok=True)
+    copied_images = 0
+    serialized_messages: list[dict[str, object]] = []
+    text_lines = [
+        "EGX Intelligence selected model input",
+        f"Created: {created_at.isoformat()}",
+        f"Window: {start.isoformat()} to {end.isoformat()}",
+        f"Analysis period: {analysis_period}",
+        f"Target date: {target_date}",
+        f"Content types: {', '.join(sorted(content_types))}",
+        f"Selected messages: {len(messages)}",
+        "",
+    ]
+    for item in messages:
+        message_id = str(item.get("telegram_message_id") or "unknown")
+        copied_paths: list[str] = []
+        for index, value in enumerate(item.get("image_paths") or [], start=1):
+            source = Path(str(value))
+            destination = image_directory / f"{message_id}_{index}_{source.name}"
+            if source.is_file():
+                shutil.copy2(source, destination)
+                copied_images += 1
+                copied_paths.append((Path("images") / destination.name).as_posix())
+            else:
+                copied_paths.append(f"unavailable:{source}")
+        record = {
+            "source": str(item.get("source") or "Unknown chat"),
+            "published_at": str(item.get("published_at") or ""),
+            "telegram_message_id": item.get("telegram_message_id"),
+            "text": str(item.get("text") or ""),
+            "audio_transcripts": [str(value) for value in item.get("transcripts") or [] if value],
+            "image_files": copied_paths,
+        }
+        serialized_messages.append(record)
+        text_lines += [
+            f"--- MESSAGE | SOURCE: {record['source']} | DATE: {record['published_at']} | TELEGRAM_ID: {message_id} ---",
+            str(record["text"]) or "[No selected text]",
+        ]
+        if record["audio_transcripts"]:
+            text_lines.append("Selected audio transcript:\n" + "\n".join(record["audio_transcripts"]))
+        for path in copied_paths:
+            text_lines.append(f"Selected image: {path}")
+        text_lines.append("")
+    payload = {
+        "created_at": created_at.isoformat(),
+        "window_start": start.isoformat(),
+        "window_end": end.isoformat(),
+        "analysis_period": analysis_period,
+        "target_date": target_date,
+        "content_types": sorted(content_types),
+        "messages": serialized_messages,
+    }
+    json_path = directory / "model-input.json"
+    text_path = directory / "model-input.txt"
+    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    text_path.write_text("\n".join(text_lines), encoding="utf-8")
+    return {
+        "directory": str(directory), "text_path": str(text_path), "json_path": str(json_path),
+        "images_path": str(image_directory), "consolidated_response_path": None,
+        "message_count": len(serialized_messages), "image_count": copied_images,
+    }
+
+
+def save_consolidated_response(trace: dict[str, object], response: str) -> dict[str, object]:
+    """Add a provider response to its already-created selected-input trace."""
+    directory = Path(str(trace["directory"]))
+    response_path = directory / "consolidated-ai-response.json"
+    response_path.write_text(response, encoding="utf-8")
+    return {**trace, "consolidated_response_path": str(response_path)}
 
 
 async def export_analysis_trace(session: AsyncSession, storage_root: Path, channel_ids: list[int],

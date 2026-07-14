@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.69
+- Saves a dedicated local trace folder before every selected-chat model request, containing only the chosen date-window and media types.
+- Records the final provider prompt, selected source files, optimized image bytes actually sent to the model, and the returned JSON response in the same trace folder.
+- Keeps the trace available when an AI provider rejects, fails, or times out on a request.
+
 ## v0.1.68
 - Added an explicit two-list model workflow: customer inquiry replies are returned only in the separate client-inquiries output, while cleaned recommendations are returned only in the main table.
 - Added BUY/SELL classification and per-source Arabic notes for dated narrative or chart recommendations without a standard table.
