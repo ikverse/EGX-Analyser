@@ -87,3 +87,15 @@ def next_day_analysis_window(now: datetime | None = None) -> tuple[datetime, dat
     start = datetime.combine(current.date() - timedelta(days=1), time.min, tzinfo=cairo).astimezone(timezone.utc)
     end = current.astimezone(timezone.utc)
     return start, end, current.date() + timedelta(days=1)
+
+
+def selected_date_analysis_window(target_date: date) -> tuple[datetime, datetime, date]:
+    """Use the prior Cairo day through the selected Cairo day as evidence for one target date.
+
+    The exclusive end timestamp represents 00:00 of the following Cairo day, so
+    all messages posted through 23:59:59 on the selected date are included.
+    """
+    cairo = ZoneInfo("Africa/Cairo")
+    start = datetime.combine(target_date - timedelta(days=1), time.min, tzinfo=cairo).astimezone(timezone.utc)
+    end = datetime.combine(target_date + timedelta(days=1), time.min, tzinfo=cairo).astimezone(timezone.utc)
+    return start, end, target_date

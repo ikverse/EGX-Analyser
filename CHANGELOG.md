@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.58
+- Added target-date analysis: retain the default next-day workflow or choose a historical target date.
+- Historical analysis reads content from the prior Cairo day at 00:00 through 23:59 on the selected date, then keeps only recommendations explicitly intended for that selected date.
+
 ## v0.1.57
 - Added selection controls for text, images, and audio transcripts; each saved analysis now records the exact inputs sent to the model.
 - Improved next-day EGX recommendation filtering, source-level Results tables, fuzzy stock lookup, deletion of saved result artifacts, and Telegram session UX.

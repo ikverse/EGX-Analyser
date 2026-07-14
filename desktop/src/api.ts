@@ -66,6 +66,7 @@ export type ClientInquiryResponse = {
 };
 
 export type AnalysisContentType = "text" | "images" | "audio";
+export type AnalysisMode = "next_day" | "specific_date";
 
 export type SelectedAnalysisResult = {
   messages_collected: number;
@@ -76,6 +77,7 @@ export type SelectedAnalysisResult = {
   window_start: string;
   window_end: string;
   target_date: string;
+  analysis_mode: AnalysisMode;
   content_types: AnalysisContentType[];
   report: {
     id: number;
@@ -152,9 +154,9 @@ export class ApiClient {
   checkContentUpdates() { return this.request<{ updated: boolean; version: string }>("/content-updates/check", { method: "POST" }); }
   selectTelegramChat(chat: TelegramChat) { return this.request<Channel>("/telegram/chats/select", { method: "POST", body: JSON.stringify(chat) }); }
   runCollection() { return this.request<{ messages_collected: number }>("/collection/run", { method: "POST" }); }
-  analyzeSelected(channel_ids: number[], content_types: AnalysisContentType[]) {
+  analyzeSelected(channel_ids: number[], content_types: AnalysisContentType[], analysis_mode: AnalysisMode = "next_day", target_date?: string) {
     return this.request<SelectedAnalysisResult>("/collection/analyze-selected", {
-      method: "POST", body: JSON.stringify({ channel_ids, content_types, analyze: true }),
+      method: "POST", body: JSON.stringify({ channel_ids, content_types, analysis_mode, target_date, analyze: true }),
     });
   }
   addChannel(handle: string, title?: string) { return this.request<Channel>("/channels", { method: "POST", body: JSON.stringify({ handle, title }) }); }

@@ -228,6 +228,23 @@ button.tab.active { background: #1f3c2d; color: #86efac; }
   border: 1px solid #26364d;
   border-radius: 10px;
 }
+
+.analysis-date-mode {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .85rem 1.1rem;
+  margin: 1rem 0;
+  padding: .85rem 1rem;
+  border: 1px solid #334155;
+  border-radius: 10px;
+}
+
+.analysis-date-mode legend { padding: 0 .35rem; color: #cbd5e1; font-size: .86rem; }
+.analysis-date-mode label { display: inline-flex; align-items: center; gap: .45rem; color: #dbeafe; cursor: pointer; }
+.analysis-date-mode input[type="radio"] { accent-color: #70c96a; }
+.analysis-date-mode .analysis-date-picker { margin-left: auto; color: #94a3b8; font-size: .86rem; }
+.analysis-date-picker input { width: auto; min-width: 152px; }
 .analysis-content-types legend { padding: 0 .35rem; color: #cbd5e1; font-size: .86rem; }
 .analysis-content-types label { display: inline-flex; align-items: center; gap: .45rem; color: #dbeafe; cursor: pointer; }
 .analysis-content-types input { accent-color: #70c96a; width: 1rem; height: 1rem; }

@@ -20,7 +20,7 @@ from app.services import AnalyticsService, MessageService, SearchService
 from app.config_store import load_secrets_into_environment, update_config
 from app.content_updates import ContentUpdateService, generate_seed, public_key_from_seed, sign_bytes, verify_bytes
 from app.telegram_auth import TelegramAuthenticator
-from app.runtime import next_day_analysis_window
+from app.runtime import next_day_analysis_window, selected_date_analysis_window
 from app.collector.telegram import is_promotional_message
 from app.reports import ReportService
 from app.analysis_trace import export_analysis_trace
@@ -332,6 +332,16 @@ def test_next_day_analysis_window_uses_yesterday_to_now_in_cairo():
     assert start == datetime(2026, 7, 11, 21, tzinfo=timezone.utc)
     assert end == requested_at
     assert target_date == date(2026, 7, 14)
+
+
+def test_selected_date_analysis_window_uses_prior_day_through_selected_day_in_cairo():
+    from datetime import date
+
+    start, end, target_date = selected_date_analysis_window(date(2026, 7, 10))
+
+    assert start == datetime(2026, 7, 8, 21, tzinfo=timezone.utc)
+    assert end == datetime(2026, 7, 10, 21, tzinfo=timezone.utc)
+    assert target_date == date(2026, 7, 10)
 
 
 def test_promotional_messages_are_skipped_without_hiding_trade_posts():

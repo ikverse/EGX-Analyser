@@ -198,11 +198,20 @@ async def run_collection() -> dict:
 @router.post("/collection/analyze-selected")
 async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSession = Depends(get_session)) -> dict:
     from app.main import runtime
-    from app.runtime import next_day_analysis_window
-    window_start, window_end, target_date = next_day_analysis_window()
+    from app.runtime import next_day_analysis_window, selected_date_analysis_window
     cairo = ZoneInfo("Africa/Cairo")
+    if payload.analysis_mode == "specific_date":
+        if payload.target_date is None:
+            raise HTTPException(422, "Choose a target date for historical analysis.")
+        if payload.target_date > datetime.now(timezone.utc).astimezone(cairo).date():
+            raise HTTPException(422, "Historical analysis can only use today or an earlier Cairo date.")
+        window_start, window_end, target_date = selected_date_analysis_window(payload.target_date)
+        report_label = f"selected-date suggestions ({target_date.isoformat()})"
+    else:
+        window_start, window_end, target_date = next_day_analysis_window()
+        report_label = f"next-day suggestions ({target_date.isoformat()})"
     source_start_date = window_start.astimezone(cairo).date().isoformat()
-    source_end_date = window_end.astimezone(cairo).date().isoformat()
+    source_end_date = (target_date if payload.analysis_mode == "specific_date" else window_end.astimezone(cairo).date()).isoformat()
     analysis_period = f"Source messages: {source_start_date} through {source_end_date}; target date: {target_date.isoformat()}"
     content_types = set(payload.content_types)
     try:
@@ -258,11 +267,12 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
         report = await ReportService(session, get_settings()).generate_selected_chat_report(
             payload.channel_ids, window_start, window_end, 2,
             consolidated_source=consolidated_source, consolidated_raw_response=outcome.raw_response,
-            report_label=f"next-day suggestions ({target_date.isoformat()})",
+            report_label=report_label,
         )
         report.summary = {**report.summary, **{
             "analysis_result": True,
             "target_date": target_date.isoformat(),
+            "analysis_window_mode": payload.analysis_mode,
             "source_window_start": window_start.isoformat(),
             "source_window_end": window_end.isoformat(),
             "content_types": sorted(content_types),
@@ -273,6 +283,7 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
         channel_results = report.summary["channel_results"]
         return {"messages_collected": collection["messages_analyzed"], **collection,
                 "window_start": window_start, "window_end": window_end, "target_date": target_date.isoformat(),
+                "analysis_mode": payload.analysis_mode,
                 "content_types": sorted(content_types),
                 "report": {"id": report.id, "markdown_path": report.markdown_path, "html_path": report.html_path,
                            "pdf_path": report.pdf_path,

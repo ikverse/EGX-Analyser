@@ -5,7 +5,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { check } from "@tauri-apps/plugin-updater";
 
 import {
-  AiProvider, AnalysisContentType, AnalysisResultHistory, ApiClient, Channel, ClientInquiryResponse, ContentUpdateStatus,
+  AiProvider, AnalysisContentType, AnalysisMode, AnalysisResultHistory, ApiClient, Channel, ClientInquiryResponse, ContentUpdateStatus,
   DiagnosticEntry, SettingsInput, SettingsStatus, TelegramChat,
   StockSourceRow, StockSourceTableRow, StockSummaryRow,
 } from "./api";
@@ -273,6 +273,14 @@ function contentTypeLabel(contentTypes: AnalysisContentType[]): string {
   return contentTypes.map((item) => CONTENT_TYPE_LABEL[item]).join(", ");
 }
 
+function cairoDateInputValue(): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date());
+  const value = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${value("year")}-${value("month")}-${value("day")}`;
+}
+
 // ── Reports ───────────────────────────────────────────────────────────────────
 
 function Reports({ api, rows, setRows, notify, showError }: {
@@ -384,6 +392,9 @@ function Channels({ channels, api, refresh, notify, showError, showSuccess }: {
   const [loading, setLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [contentTypes, setContentTypes] = useState<AnalysisContentType[]>(["text", "images", "audio"]);
+  const [analysisMode, setAnalysisMode] = useState<AnalysisMode>("next_day");
+  const [targetDate, setTargetDate] = useState("");
+  const latestHistoricalDate = useMemo(cairoDateInputValue, []);
 
   const busy = loading || analyzing;
 
@@ -445,15 +456,16 @@ function Channels({ channels, api, refresh, notify, showError, showSuccess }: {
     const ids = selectedChannels.map((channel) => channel.id);
     if (!ids.length) return notify("warning", "Select at least one chat first.");
     if (!contentTypes.length) return notify("warning", "Choose at least one input type to analyze.");
+    if (analysisMode === "specific_date" && !targetDate) return notify("warning", "Choose the target date to analyze.");
     setAnalyzing(true);
-    void api.analyzeSelected(ids, contentTypes)
+    void api.analyzeSelected(ids, contentTypes, analysisMode, analysisMode === "specific_date" ? targetDate : undefined)
       .then((result) => {
         return refresh().then(() => {
           const noStockContext = result.not_stock_related.length
             ? ` No stock-related context: ${result.not_stock_related.join(", ")}.`
             : "";
           showSuccess(
-            `${result.messages_analyzed} of ${result.messages_in_window} messages were freshly analyzed from yesterday through now. ` +
+            `${result.messages_analyzed} of ${result.messages_in_window} messages were freshly analyzed ${result.analysis_mode === "specific_date" ? "for the selected historical window" : "from yesterday through now"}. ` +
             `Target suggestion date: ${result.target_date}. Inputs sent to the model: ${contentTypeLabel(result.content_types)}. ` +
             `The result is saved in Results.${noStockContext}`
           );
@@ -494,9 +506,21 @@ function Channels({ channels, api, refresh, notify, showError, showSuccess }: {
       <div className="channels-section">
         <h3 className="section-heading">Analyze selected chats ({selectedChannels.length})</h3>
         <div className="analysis-window-note">
-          <strong>Automatic next-day analysis</strong>
-          <p>Uses selected-chat messages, images, and available audio from yesterday at 00:00 Cairo time through the moment you press Analyze. The model keeps only suggestions intended for the next day based on dates and context inside the content.</p>
+          <strong>{analysisMode === "next_day" ? "Automatic next-day analysis" : "Historical target-date analysis"}</strong>
+          <p>{analysisMode === "next_day"
+            ? "Uses selected-chat messages, images, and available audio from yesterday at 00:00 Cairo time through the moment you press Analyze. The model keeps only suggestions intended for the next day based on dates and context inside the content."
+            : "Uses selected-chat content from the prior Cairo day at 00:00 through 23:59 on the selected date. The model keeps only suggestions explicitly intended for the selected date."}</p>
         </div>
+        <fieldset className="analysis-date-mode" disabled={busy}>
+          <legend>Recommendation target date</legend>
+          <label><input type="radio" name="analysis-mode" checked={analysisMode === "next_day"} onChange={() => setAnalysisMode("next_day")} /> Next day (default)</label>
+          <label><input type="radio" name="analysis-mode" checked={analysisMode === "specific_date"} onChange={() => setAnalysisMode("specific_date")} /> Choose a historical date</label>
+          {analysisMode === "specific_date" && (
+            <label className="analysis-date-picker">Target date
+              <input type="date" max={latestHistoricalDate} value={targetDate} onChange={(event) => setTargetDate(event.target.value)} required />
+            </label>
+          )}
+        </fieldset>
         <fieldset className="analysis-content-types" disabled={busy}>
           <legend>Send to the model</legend>
           {(Object.keys(CONTENT_TYPE_LABEL) as AnalysisContentType[]).map((contentType) => (
