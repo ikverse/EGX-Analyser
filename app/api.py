@@ -28,6 +28,35 @@ from openai import APIConnectionError, APIStatusError, AsyncOpenAI, Authenticati
 from zoneinfo import ZoneInfo
 
 router = APIRouter()
+
+_QWEN_VISION_PREFERENCE = (
+    "qwen3-vl-plus",
+    "qwen3-vl-235b-a22b-instruct",
+    "qwen3-vl-flash",
+)
+
+
+def _qwen_vision_models(catalog: list[object]) -> list[str]:
+    """Return every accessible Qwen text-and-image model in a stable quality order."""
+    available: dict[str, bool] = {}
+    for item in catalog:
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+            continue
+        model_id = item["id"].strip()
+        architecture = item.get("architecture") if isinstance(item.get("architecture"), dict) else {}
+        modalities = architecture.get("input_modalities") or item.get("input_modalities") or []
+        supports_images = isinstance(modalities, list) and "image" in modalities
+        known_vision_family = model_id.startswith(("qwen3-vl", "qwen-vl-", "qwen2.5-vl", "qvq"))
+        if supports_images or known_vision_family:
+            available[model_id] = True
+
+    def priority(model_id: str) -> tuple[int, str]:
+        for index, preferred in enumerate(_QWEN_VISION_PREFERENCE):
+            if model_id == preferred or model_id.startswith(f"{preferred}-"):
+                return index, model_id
+        return len(_QWEN_VISION_PREFERENCE), model_id
+
+    return sorted(available, key=priority)
 telegram_authenticator = TelegramAuthenticator()
 
 
@@ -117,14 +146,18 @@ async def available_models() -> list[str]:
             raise HTTPException(status if status < 500 else 502, f"{provider.title()} {message}. Try again shortly.") from error
         except httpx.HTTPError as error:
             raise HTTPException(503, f"Unable to connect to {provider.title()}. Check your internet connection and try again.") from error
+        if provider == "qwen":
+            return _qwen_vision_models(catalog)
         compatible = []
         for model in catalog:
+            if not isinstance(model, dict) or not isinstance(model.get("id"), str):
+                continue
             architecture = model.get("architecture") or {}
             modalities = architecture.get("input_modalities") or model.get("input_modalities") or []
             parameters = model.get("supported_parameters") or []
             if "image" in modalities and any(item in parameters for item in ("response_format", "structured_outputs")):
                 compatible.append(model["id"])
-        preferred = {"qwen": ["qwen3-vl-plus"], "openrouter": ["openrouter/free"]}.get(provider, [])
+        preferred = {"openrouter": ["openrouter/free"]}.get(provider, [])
         return preferred + sorted(set(model for model in compatible if model not in preferred))
     try:
         models = await AsyncOpenAI(api_key=settings.openai_api_key).models.list()
@@ -327,9 +360,7 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
                 "analysis_mode": payload.analysis_mode,
                 "content_types": sorted(content_types),
                 "report": {"id": report.id, "markdown_path": report.markdown_path, "html_path": report.html_path,
-                           "pdf_path": report.pdf_path,
-                           "original_ai_response_text_path": report.summary["original_ai_response_text_path"],
-                           "original_ai_response_pdf_path": report.summary["original_ai_response_pdf_path"]}, "channel_results": channel_results,
+                           "original_ai_response_text_path": report.summary["original_ai_response_text_path"]}, "channel_results": channel_results,
                 "stock_code_summary": report.summary["stock_code_summary"],
                 "stock_code_details": report.summary["stock_code_details"],
                 "stock_source_table": report.summary["stock_source_table"],
@@ -419,13 +450,13 @@ async def consensus(session: AsyncSession = Depends(get_session)) -> list[dict]:
 @router.post("/reports/daily")
 async def create_report(payload: DailyReportRequest = DailyReportRequest(), session: AsyncSession = Depends(get_session)) -> dict:
     report = await ReportService(session, get_settings()).generate_daily(payload.report_mode, payload.report_date); await session.commit()
-    return {"id": report.id, "markdown_path": report.markdown_path, "html_path": report.html_path, "pdf_path": report.pdf_path}
+    return {"id": report.id, "markdown_path": report.markdown_path, "html_path": report.html_path}
 
 
 @router.get("/reports")
 async def reports(session: AsyncSession = Depends(get_session)) -> list[dict]:
     return [{"id": item.id, "date": item.report_date, "summary": item.summary, "markdown_path": item.markdown_path,
-             "html_path": item.html_path, "pdf_path": item.pdf_path} for item in (await session.scalars(select(Report).order_by(Report.report_date.desc()))).all()]
+             "html_path": item.html_path} for item in (await session.scalars(select(Report).order_by(Report.report_date.desc()))).all()]
 
 
 @router.get("/analysis-results")
@@ -476,9 +507,7 @@ async def delete_analysis_result(report_id: int, session: AsyncSession = Depends
     for path in (
         report.markdown_path,
         report.html_path,
-        report.pdf_path,
         summary.get("original_ai_response_text_path"),
-        summary.get("original_ai_response_pdf_path"),
     ):
         _delete_managed_artifact(settings.storage_root, path)
     _delete_managed_artifact(settings.storage_root, summary.get("analysis_trace_directory"), directory=True)

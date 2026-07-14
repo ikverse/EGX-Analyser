@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.64
+- Lists every Qwen model exposed to the account that supports text-and-image analysis, with the most capable available Qwen vision model selected first.
+- Uses `qwen3-vl-plus` as the default model for new Qwen configurations.
+- Removed generated PDF reports and raw-response PDFs to reduce the time spent after analysis; HTML, Markdown, in-app tables, raw AI text, and local traces remain available.
+
 ## v0.1.63
 - Fixed desktop release version synchronization: the Tauri bundle, Node package, Rust package, Python package, and API now share one release version.
 - GitHub Actions now rejects tags that do not match every bundled version, preventing an installed build from repeatedly offering its own release as an update.

@@ -303,10 +303,9 @@ function Reports({ api, rows, setRows, notify, showError }: {
 
   type ReportRow = Record<string, unknown> & {
     id?: number; date?: string;
-    markdown_path?: string; html_path?: string; pdf_path?: string;
+    markdown_path?: string; html_path?: string;
     summary?: {
       original_ai_response_text_path?: string;
-      original_ai_response_pdf_path?: string;
       stock_source_table?: StockSourceTableRow[];
     };
   };
@@ -343,18 +342,6 @@ function Reports({ api, rows, setRows, notify, showError }: {
               <a href={`file:///${String(report.html_path).replace(/\\/g, "/")}`}
                 target="_blank" rel="noreferrer" className="report-link">
                 HTML report
-              </a>
-            )}
-            {report.pdf_path && (
-              <a href={`file:///${String(report.pdf_path).replace(/\\/g, "/")}`}
-                target="_blank" rel="noreferrer" className="report-link">
-                PDF report
-              </a>
-            )}
-            {report.summary?.original_ai_response_pdf_path && (
-              <a href={`file:///${String(report.summary.original_ai_response_pdf_path).replace(/\\/g, "/")}`}
-                target="_blank" rel="noreferrer" className="report-link muted">
-                AI response PDF
               </a>
             )}
             {report.summary?.original_ai_response_text_path && (
@@ -915,14 +902,12 @@ function LegacyClientInquiryResponses({ rows }: { rows: ClientInquiryResponse[] 
   );
 }
 
-function AnalysisResultTable({ summary, details, sourceRows = [], channelResults, reportHtmlPath, reportPdfPath, aiResponsePdfPath, aiResponseTextPath, tracePath }: {
+function AnalysisResultTable({ summary, details, sourceRows = [], channelResults, reportHtmlPath, aiResponseTextPath, tracePath }: {
   summary: StockSummaryRow[];
   details: StockSourceRow[];
   sourceRows: StockSourceTableRow[];
   channelResults: Array<{ channel: string; status: string; messages: number; recommendations: number; stock_codes: number }>;
   reportHtmlPath: string;
-  reportPdfPath: string;
-  aiResponsePdfPath: string;
   aiResponseTextPath: string;
   tracePath: string;
 }) {
@@ -961,8 +946,6 @@ function AnalysisResultTable({ summary, details, sourceRows = [], channelResults
       <div className="analysis-links-bar">
         <span className="analysis-links-label">Reports:</span>
         {fileLink(reportHtmlPath, "HTML report")}
-        {fileLink(reportPdfPath, "PDF report")}
-        {fileLink(aiResponsePdfPath, "Original AI response PDF", true)}
         {fileLink(aiResponseTextPath, "Original AI response text", true)}
         {fileLink(tracePath, "Analysis trace", true)}
       </div>

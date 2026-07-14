@@ -86,9 +86,7 @@ export type SelectedAnalysisResult = {
     id: number;
     markdown_path: string;
     html_path: string;
-    pdf_path: string;
     original_ai_response_text_path: string;
-    original_ai_response_pdf_path: string;
   };
   trace: {
     directory: string;

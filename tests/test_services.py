@@ -43,6 +43,23 @@ QWEN_CONSOLIDATED_OUTPUT = {
 }
 
 
+def test_qwen_vision_models_prioritize_and_return_all_accessible_models():
+    catalog = [
+        {"id": "qwen-plus", "architecture": {"input_modalities": ["text"]}},
+        {"id": "qwen3-vl-flash", "architecture": {"input_modalities": ["text", "image"]}},
+        {"id": "qwen-vl-max", "architecture": {"input_modalities": ["text", "image"]}},
+        {"id": "qwen3-vl-235b-a22b-instruct"},
+        {"id": "qwen3-vl-plus-2026-01-01"},
+    ]
+
+    assert api._qwen_vision_models(catalog) == [
+        "qwen3-vl-plus-2026-01-01",
+        "qwen3-vl-235b-a22b-instruct",
+        "qwen3-vl-flash",
+        "qwen-vl-max",
+    ]
+
+
 class FakeAnalyzer:
     async def analyze(self, text: str, image_paths: list[str], transcripts: list[str] | None = None) -> AnalysisResult:
         assert image_paths == ["chart.jpg"]
