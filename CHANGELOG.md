@@ -1,10 +1,10 @@
 # Changelog
 
-## v0.1.51
+## v0.1.52
 - Restored PyInstaller's supported _internal sidecar layout and package the complete sidecar directory.
 - Added a pre-package check for sidecar\_internal\python312.dll to stop broken installers from being produced.
 - Added the sidecar runtime directory to the child process DLL search path.
-- Aligned desktop and Python version metadata.
+- Aligned desktop and Python version metadata for a fresh release tag.
 ## v0.1.51
 - Restored PyInstaller's supported `_internal` sidecar layout and package the complete sidecar directory.
 - Added a pre-package check for `sidecar\\_internal\\python312.dll` to stop broken installers from being produced.
