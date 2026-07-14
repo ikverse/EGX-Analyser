@@ -541,7 +541,7 @@ async def test_selected_chat_report_prefers_explicit_batch_result_and_preserves_
     assert raw_response in Path(report.summary["original_ai_response_text_path"]).read_text(encoding="utf-8")
 
 
-async def test_consolidated_report_has_one_current_row_per_stock_source(session, tmp_path):
+async def test_consolidated_report_preserves_every_model_data_point(session, tmp_path):
     message = await MessageService(session).ingest(MessageCreate(
         channel_handle="signals", telegram_message_id=17, text="MFPC updates", published_at=datetime.now(timezone.utc)
     ))
@@ -550,6 +550,7 @@ async def test_consolidated_report_has_one_current_row_per_stock_source(session,
         "date": "2026-07-13", "source": "CFI", "buy_price": 38.0, "target_1": 39.2,
         "target_2": 40.5, "stop_loss": 36.0, "support": 37.0, "resistance": 39.2,
         "expected_return_pct": 3.1, "risk_pct": -1.9,
+        "recommendation_type": "sell", "notes_ar": "ملاحظة مصدرية مستقلة",
     })
     await session.flush()
     report = await ReportService(session, type("Settings", (), {"storage_root": tmp_path})()).generate_selected_chat_report(
@@ -557,11 +558,12 @@ async def test_consolidated_report_has_one_current_row_per_stock_source(session,
         1, consolidated_source=payload, consolidated_raw_response=json.dumps(payload),
     )
     rows = report.summary["stock_source_table"]
-    assert len(rows) == 1
-    assert rows[0]["source"] == "CFI"
-    assert rows[0]["source_entries"] == 2
-    assert rows[0]["buy_price"] == 38.0
-    assert rows[0]["source_dates"] == ["2026-07-12", "2026-07-13"]
+    assert len(rows) == 2
+    assert all(row["source"] == "CFI" for row in rows)
+    assert all(row["source_entries"] == 1 for row in rows)
+    assert [row["buy_price"] for row in rows] == [37.25, 38.0]
+    assert rows[1]["recommendation_type"] == "sell"
+    assert rows[1]["notes_ar"] == "ملاحظة مصدرية مستقلة"
 
 
 async def test_analysis_trace_saves_message_text_and_images(session, tmp_path):

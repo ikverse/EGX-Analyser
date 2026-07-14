@@ -41,6 +41,8 @@ export type StockSourceTableRow = {
   mention_count: number;
   status?: string;
   analysis_summary_ar?: string;
+  recommendation_type?: "buy" | "sell" | string;
+  notes_ar?: string;
   buy_price?: number | null;
   target_1?: number | null;
   target_2?: number | null;

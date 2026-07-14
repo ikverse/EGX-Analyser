@@ -678,7 +678,7 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted }
                     <td colSpan={6}>
                       <div className="analysis-section-list">
                         <button type="button" className="analysis-section-row" onClick={() => toggleSection("recommendations")} aria-expanded={recommendationsOpen}>
-                          <span><strong>Recommendations table</strong><small>Active EGX recommendations grouped by source</small></span>
+                          <span><strong>Recommendations table</strong><small>One model-returned row for each dated source recommendation</small></span>
                           <span>{item.stock_source_table.length} rows - {recommendationsOpen ? "Hide" : "View"}</span>
                         </button>
                         {recommendationsOpen && <div className="analysis-section-content">
@@ -794,13 +794,13 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
     <div className="consolidated-table-wrap">
       <div className="consolidated-table-title">
         <strong>EGX recommendations by source</strong>
-        <span>One current row per source. Values use the latest non-empty level found in the selected period.</span>
+        <span>Each row preserves one model-returned dated recommendation without combining source values.</span>
       </div>
       <div className="consolidated-table-scroll">
         <table className="consolidated-table">
           <thead><tr>
-            <th>Source</th><th>Dates</th><th>Timing</th><th>Entries</th><th>Entry</th><th>TP1</th><th>TP2</th>
-            <th>Stop</th><th>Support</th><th>Resistance</th><th>Return %</th><th>Risk %</th><th>Status</th><th>Arabic analysis</th>
+            <th>Source</th><th>Date</th><th>Timing</th><th>Type</th><th>Entry</th><th>TP1</th><th>TP2</th>
+            <th>Stop</th><th>Support</th><th>Resistance</th><th>Return %</th><th>Risk %</th><th>Status</th><th>Notes</th>
           </tr></thead>
           {[...grouped.entries()].map(([ticker, stockRows]) => {
             const first = stockRows[0];
@@ -814,11 +814,11 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
                   <span className="consolidated-mentions">{first.mention_count} total mentions</span>
                 </td></tr>
                 {stockRows.map((row) => (
-                  <tr key={`${row.ticker}-${row.source}`}>
+                  <tr key={`${row.ticker}-${row.source}-${row.latest_date ?? "unknown"}-${row.buy_price ?? "none"}`}>
                     <td className="source-cell">{row.source}</td>
                     <td>{row.source_dates.join(", ") || "—"}</td>
                     <td>{row.effective_date_bases?.length ? row.effective_date_bases.map((basis) => <span key={basis} className="recommendation-date-basis">{dateBasisLabel(basis)}</span>) : "—"}</td>
-                    <td className="numeric">{row.source_entries}</td>
+                    <td><span className={`status-pill ${row.recommendation_type === "sell" ? "neutral" : "active"}`}>{row.recommendation_type || "buy"}</span></td>
                     <td className="numeric">{num(row.buy_price)}</td>
                     <td className="numeric positive">{num(row.target_1)}</td>
                     <td className="numeric positive">{num(row.target_2)}</td>
@@ -828,7 +828,7 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
                     <td className="numeric positive">{num(row.expected_return_pct)}</td>
                     <td className="numeric negative">{num(row.risk_pct)}</td>
                     <td><span className={`status-pill ${row.status === "active" ? "active" : "neutral"}`}>{row.status || "—"}</span></td>
-                    <td className="analysis-summary">{row.analysis_summary_ar || "—"}</td>
+                    <td className="analysis-summary">{row.notes_ar || row.analysis_summary_ar || "—"}</td>
                   </tr>
                 ))}
               </tbody>

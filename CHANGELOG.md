@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.68
+- Added an explicit two-list model workflow: customer inquiry replies are returned only in the separate client-inquiries output, while cleaned recommendations are returned only in the main table.
+- Added BUY/SELL classification and per-source Arabic notes for dated narrative or chart recommendations without a standard table.
+- Preserved every model-returned recommendation data point as its own Results and report row; source values are no longer merged or replaced with later values.
+
 ## v0.1.67
 - Added Local Ollama as a second analysis-provider option alongside the existing cloud providers. It uses the same analysis prompt, JSON contract, and Results flow without requiring an API key.
 - Added local vision-model discovery for Ollama. `qwen3-vl:4b` is the default local model; the app only lists models already installed on the computer.

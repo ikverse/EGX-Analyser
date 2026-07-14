@@ -196,14 +196,14 @@ class ReportService:
         lines += [f"- {item['channel']}: {item['status']} | Messages {item['messages']} | Recommendations {item['recommendations']}" for item in channel_results]
         if consolidated_source is not None:
             lines += ["", "## Qwen consolidated analysis", f"- Analysis period: {consolidated_source.get('analysis_period') or report_mode}"]
-            lines += ["", "| Rank | Code | Company (EN) | Company (AR) | Source | Dates | Source entries | Entry | TP1 | TP2 | Stop | Support | Resistance | Return % | Risk % | Status |", "| ---: | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |"]
+            lines += ["", "| Rank | Code | Company (EN) | Company (AR) | Source | Date | Timing | Type | Entry | TP1 | TP2 | Stop | Support | Resistance | Return % | Risk % | Status | Notes |", "| ---: | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |"]
             for row in stock_source_table:
                 lines.append(
                     f"| {row['rank'] or '-'} | {row['ticker']} | {row['company']} | {row['company_ar'] or '-'} | "
-                    f"{row['source']} | {', '.join(row['source_dates']) or '-'} | {row['source_entries']} | "
+                    f"{row['source']} | {', '.join(row['source_dates']) or '-'} | {', '.join(row['effective_date_bases']) or '-'} | {row['recommendation_type'] or '-'} | "
                     f"{row['buy_price'] or '-'} | {row['target_1'] or '-'} | {row['target_2'] or '-'} | "
                     f"{row['stop_loss'] or '-'} | {row['support'] or '-'} | {row['resistance'] or '-'} | "
-                    f"{row['expected_return_pct'] or '-'} | {row['risk_pct'] or '-'} | {row['status'] or '-'} |"
+                    f"{row['expected_return_pct'] or '-'} | {row['risk_pct'] or '-'} | {row['status'] or '-'} | {row['notes_ar'] or row['analysis_summary_ar'] or '-'} |"
                 )
                 if row["analysis_summary_ar"]:
                     lines.append(f"- {row['ticker']} / {row['source']}: {row['analysis_summary_ar']}")
@@ -354,51 +354,40 @@ _SOURCE_VALUE_FIELDS = (
 
 
 def _consolidated_source_table(payload: dict) -> list[dict]:
-    """Create one current, readable row for each EGX code and source.
+    """Create one display row for every model-returned recommendation data point.
 
-    A source can publish several posts for a stock in the selected window. The row
-    keeps the newest non-empty value for each price field and retains all dates so
-    the report remains concise without discarding the audit history.
+    The model is responsible for interpreting and separating recommendations. Do
+    not merge price levels across posts or sources here: each returned data point
+    is independently auditable in the Results table.
     """
     rows: list[dict] = []
     for item in payload.get("top_consolidated_recommendations", []):
         if not isinstance(item, dict) or not item.get("stock_code"):
             continue
-        points_by_source: dict[str, list[dict]] = {}
         for point in item.get("data_points", []):
             if not isinstance(point, dict):
                 continue
             source = str(point.get("source") or "Unspecified")
-            points_by_source.setdefault(source, []).append(point)
-        for source, points in points_by_source.items():
-            ordered_points = sorted(points, key=lambda point: str(point.get("date") or ""))
-            values: dict[str, object | None] = {field: None for field in _SOURCE_VALUE_FIELDS}
-            for point in ordered_points:
-                for field in _SOURCE_VALUE_FIELDS:
-                    if point.get(field) not in (None, ""):
-                        values[field] = point[field]
-            dates = list(dict.fromkeys(
-                str(point["date"])[:10] for point in ordered_points if point.get("date")
-            ))
-            date_bases = list(dict.fromkeys(
-                str(point["effective_date_basis"]) for point in ordered_points if point.get("effective_date_basis")
-            ))
             rows.append({
                 "rank": item.get("rank"),
                 "ticker": str(item["stock_code"]).upper(),
                 "company": str(item.get("stock_name_en") or item["stock_code"]),
                 "company_ar": str(item.get("stock_name_ar") or ""),
                 "source": source,
-                "source_entries": len(ordered_points),
-                "source_dates": dates,
-                "latest_date": dates[-1] if dates else None,
-                "effective_date_bases": date_bases,
-                "mention_count": int(item.get("mention_count") or len(ordered_points)),
+                "source_entries": 1,
+                "source_dates": [str(point["date"])[:10]] if point.get("date") else [],
+                "latest_date": str(point["date"])[:10] if point.get("date") else None,
+                "effective_date_bases": [str(point["effective_date_basis"])] if point.get("effective_date_basis") else [],
+                "mention_count": int(item.get("mention_count") or 1),
                 "status": str(item.get("status") or ""),
                 "analysis_summary_ar": str(item.get("analysis_summary_ar") or ""),
-                **values,
+                "recommendation_type": str(point.get("recommendation_type") or "buy").lower(),
+                "notes_ar": str(point.get("notes_ar") or ""),
+                **{field: point.get(field) for field in _SOURCE_VALUE_FIELDS},
             })
-    return sorted(rows, key=lambda row: (int(row["rank"] or 999), row["ticker"], row["source"]))
+    return sorted(rows, key=lambda row: (
+        int(row["rank"] or 999), row["ticker"], row["source"], row["latest_date"] or "",
+    ))
 
 
 def _client_inquiry_rows(payload: dict) -> list[dict]:
@@ -629,10 +618,10 @@ def _build_html_report(
             sections.append(
                 '<table><thead><tr>'
                 '<th>Rank</th><th>Code</th><th>Company (EN)</th><th>Company (AR)</th>'
-                '<th>Source</th><th>Dates</th><th class="num">Entries</th><th>Status</th>'
+                '<th>Source</th><th>Date</th><th>Timing</th><th>Type</th><th>Status</th>'
                 '<th class="num">Entry</th><th class="num">TP1</th><th class="num">TP2</th>'
                 '<th class="num">Stop loss</th><th class="num">Support</th><th class="num">Resistance</th>'
-                '<th class="num">Return %</th><th class="num">Risk %</th>'
+                '<th class="num">Return %</th><th class="num">Risk %</th><th>Notes</th>'
                 '</tr></thead><tbody>'
             )
             for row in stock_source_table:
@@ -644,7 +633,8 @@ def _build_html_report(
                     f'<td class="ar">{e(row["company_ar"])}</td>'
                     f'<td>{e(row["source"])}</td>'
                     f'<td>{e(", ".join(row["source_dates"]) or "-")}</td>'
-                    f'<td class="num">{e(row["source_entries"])}</td>'
+                    f'<td>{e(", ".join(row["effective_date_bases"]) or "-")}</td>'
+                    f'<td>{e(row["recommendation_type"] or "-")}</td>'
                     f'<td>{badge(row["status"] or "HOLD")}</td>'
                     f'<td class="num">{e(row["buy_price"] or "-")}</td>'
                     f'<td class="num">{e(row["target_1"] or "-")}</td>'
@@ -654,6 +644,7 @@ def _build_html_report(
                     f'<td class="num">{e(row["resistance"] or "-")}</td>'
                     f'<td class="num">{e(row["expected_return_pct"] or "-")}</td>'
                     f'<td class="num">{e(row["risk_pct"] or "-")}</td>'
+                    f'<td class="ar">{e(row["notes_ar"] or row["analysis_summary_ar"] or "-")}</td>'
                     f'</tr>'
                 )
             sections.append('</tbody></table>')

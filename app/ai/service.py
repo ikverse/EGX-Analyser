@@ -30,7 +30,7 @@ class AnalysisOutcome:
 _OUTPUT_CONTRACT = """Return only one JSON object in this consolidated EGX report structure:
 - analysis_period: string describing the covered dates.
 - top_consolidated_recommendations: ranked array. Each item has stock_code, stock_name_en, stock_name_ar, mention_count, rank, status, analysis_summary_ar, and data_points.
-- data_points: array for each stock. Each item has date, effective_date_basis, source, buy_price, target_1, target_2, stop_loss, support, resistance, expected_return_pct, and risk_pct. effective_date_basis is one of explicit_date, t_plus_1, next_session, or tomorrow.
+- data_points: array for each stock. Each item has date, effective_date_basis, source, recommendation_type, buy_price, target_1, target_2, stop_loss, support, resistance, expected_return_pct, risk_pct, and notes_ar. recommendation_type is buy or sell. notes_ar is a concise Arabic note for narrative/chart recommendations that do not use a table; otherwise it is null. effective_date_basis is one of explicit_date, t_plus_1, next_session, or tomorrow.
 - achieved_targets: array with stock_code, stock_name_en, status_ar, date, and source.
 - client_inquiry_responses: array for stock-specific replies to customer/member questions. Each item has stock_code, stock_name_en, stock_name_ar, source, date, source_message_id, source_excerpt, question_summary_ar, reply_summary_ar, current_trend_ar, last_price, buy_price, target_1, target_2, stop_loss, support, resistance, advice_ar, and alternate_scenario_ar. Include source_message_id and source_excerpt when present in the source data.
 - text_based_categories: object with most_important_stocks, trading_stocks, and watchlist_stocks arrays. Each array item has stock_code, stock_name_en, and stock_name_ar.
@@ -241,7 +241,13 @@ class AIAnalysisService:
             "Selected Telegram chat data follows. Analyze the complete set as one consolidated EGX window.",
             f"Analysis period: {analysis_period}",
             f"Target effective trading date: {target_trading_date}.",
-            "Only include active, actionable EGX BUY recommendations intended for the target effective trading date. "
+            "FIRST perform an internal two-list classification. LIST 1 contains only stock-specific client/customer inquiry replies, "
+            "such as replies headed or contextualized as 'ردًا على استفسارات عملائنا', 'ردا على استفسارات عملائنا', 'رد على استفسار', "
+            "or 'استفسارات العملاء'. LIST 2 contains every other cleaned, valid EGX recommendation. Do not return either internal list; "
+            "use LIST 1 only for client_inquiry_responses and LIST 2 only for top_consolidated_recommendations. "
+            "Discard all irrelevant material before this classification: advertisements, links, disclaimers, greetings, news, memes, "
+            "general commentary, non-EGX material, and stock discussion without an explicit actionable recommendation and an effective date. "
+            "Only include active, actionable EGX BUY or SELL recommendations from LIST 2 intended for the target effective trading date. "
             "A candidate is valid only when the selected text, image, or audio contains a visible/explicit date that resolves "
             "to the target date, or explicitly says T+1, next session, or tomorrow relative to its Cairo message timestamp. "
             "A dated same-day buy signal without T+1/next-session/tomorrow wording is valid only for that same day and MUST be excluded. "
@@ -250,14 +256,16 @@ class AIAnalysisService:
             "Set data_points[].effective_date_basis to explicit_date when the effective date is written, or to t_plus_1, next_session, "
             "or tomorrow when that phrase determines the effective date. "
             "Exclude recommendations whose effective date is missing, ambiguous, already past, or different from the target date.",
-            "OUTPUT PRIORITY: First extract every valid dated recommendation table, chart, image, text, or audio signal that is "
+            "OUTPUT PRIORITY: First extract every valid dated recommendation table, chart, image, text, or audio signal from LIST 2 that is "
             "intended for the target effective date into top_consolidated_recommendations. For each source row, preserve entry, "
             "TP1, TP2, stop loss, support, and resistance whenever visible. If any qualifying dated source table exists, the main "
             "recommendations array must contain its stock rows; do this before creating client_inquiry_responses.",
-            "Extract only explicit recommendations with a stock code and actionable price/risk levels such as buy/entry zone, "
+            "Extract only explicit recommendations with a stock code and actionable price/risk levels such as buy/sell/entry zone, "
             "TP1, TP2, stop loss, support, or resistance. Images may use different source layouts: identify headings rather than "
             "assuming column positions. For example, Arabic headings may include منطقة الشراء, هدف أول, هدف ثاني, إيقاف الخسارة, "
             "الدعم, المقاومة, or إشارة تداول - شراء. Keep each source's values separate.",
+            "A dated chart/photo with narrative stock guidance but no table is still a data point: extract every visible level and put "
+            "a concise Arabic explanation of its guidance into data_points[].notes_ar. Keep each source's values separate. "
             "Strictly ignore advertisements, links, disclaimers, greetings, general market commentary, corporate/economic news, "
             "memes, and stock mentions without a dated actionable recommendation. Do not turn news into a trading signal.",
             "IMPORTANT — client/member inquiry replies are reference information, not main recommendations. Classify them from "
@@ -269,6 +277,7 @@ class AIAnalysisService:
             "stock-specific record in client_inquiry_responses. Preserve its source, date, entry, TP1, TP2, stop loss, levels, trend, advice, and "
             "alternative scenario when explicitly present. Include source_message_id equal to the supporting TELEGRAM_ID and an "
             "exact source_excerpt whenever available. Do not invent a buy recommendation from an inquiry reply.",
+            "Client/member inquiry replies belong to LIST 1 only; they are reference information, never main recommendations. "
             "Use each SOURCE exactly as written below in every data_points[].source value. "
             "Do not treat a source label as a stock recommendation by itself.",
         ]
