@@ -9,6 +9,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.service import AIAnalysisService
+from app.analysis_filter import has_past_recommendation_context
 from app.analysis_trace import create_selected_input_trace, save_consolidated_response
 from app.config import get_settings
 from app.config_store import update_config
@@ -331,11 +332,20 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
                 if media.transcript:
                     transcripts_by_message.setdefault(media.message_id, []).append(media.transcript)
         batch_messages = []
+        excluded_items: list[dict[str, str]] = []
         for message, channel in message_rows:
             selected_text = message.text if "text" in content_types else ""
             selected_images = images_by_message.get(message.id, [])
             selected_transcripts = transcripts_by_message.get(message.id, [])
             if not selected_text.strip() and not selected_images and not selected_transcripts:
+                continue
+            if selected_images and has_past_recommendation_context(message.text):
+                excluded_items.append({
+                    "source": channel.title or channel.handle,
+                    "published_at": message.published_at.astimezone(cairo).isoformat(),
+                    "telegram_message_id": str(message.telegram_message_id),
+                    "reason": "past_recommendation_context_in_message_caption",
+                })
                 continue
             batch_messages.append({
                 "source": channel.title or channel.handle,
@@ -347,7 +357,7 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
             })
         trace = create_selected_input_trace(
             get_settings().storage_root, batch_messages, window_start, window_end,
-            analysis_period, target_date.isoformat(), content_types,
+            analysis_period, target_date.isoformat(), content_types, excluded_items,
         )
         outcome = await AIAnalysisService(get_settings()).analyze_consolidated(
             batch_messages, analysis_period, target_date.isoformat(), Path(str(trace["directory"]))

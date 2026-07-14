@@ -4,6 +4,7 @@ import io
 import json
 import mimetypes
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 from pathlib import Path
 from time import perf_counter
 from typing import Any
@@ -30,7 +31,7 @@ class AnalysisOutcome:
 _OUTPUT_CONTRACT = """Return only one JSON object in this consolidated EGX report structure:
 - analysis_period: string describing the covered dates.
 - top_consolidated_recommendations: ranked array. Each item has stock_code, stock_name_en, stock_name_ar, mention_count, rank, status, analysis_summary_ar, and data_points.
-- data_points: array for each stock. Each item has date, effective_date_basis, source, recommendation_type, buy_price, target_1, target_2, stop_loss, support, resistance, expected_return_pct, risk_pct, and notes_ar. recommendation_type is buy or sell. notes_ar is a concise Arabic note for narrative/chart recommendations that do not use a table; otherwise it is null. effective_date_basis is one of explicit_date, t_plus_1, next_session, or tomorrow.
+- data_points: array for each stock. Each item has date, effective_date_basis, source, recommendation_type, buy_price, target_1, target_2, stop_loss, support, resistance, expected_return_pct, risk_pct, and notes_ar. recommendation_type is buy or sell. notes_ar is a concise Arabic note for narrative/chart recommendations that do not use a table; otherwise it is null. effective_date_basis is either explicit_date or t_plus_1.
 - achieved_targets: array with stock_code, stock_name_en, status_ar, date, and source.
 - client_inquiry_responses: array for stock-specific replies to customer/member questions. Each item has stock_code, stock_name_en, stock_name_ar, source, date, source_message_id, source_excerpt, question_summary_ar, reply_summary_ar, current_trend_ar, last_price, buy_price, target_1, target_2, stop_loss, support, resistance, advice_ar, and alternate_scenario_ar. Include source_message_id and source_excerpt when present in the source data.
 - text_based_categories: object with most_important_stocks, trading_stocks, and watchlist_stocks arrays. Each array item has stock_code, stock_name_en, and stock_name_ar.
@@ -258,6 +259,7 @@ class AIAnalysisService:
             }
             return AnalysisOutcome(result=_analysis_result_from_payload(empty), raw_response=json.dumps(empty))
 
+        previous_target_date = (date.fromisoformat(target_trading_date) - timedelta(days=1)).isoformat()
         parts = [
             "Selected Telegram chat data follows. Analyze the complete set as one consolidated EGX window.",
             f"Analysis period: {analysis_period}",
@@ -269,13 +271,13 @@ class AIAnalysisService:
             "Discard all irrelevant material before this classification: advertisements, links, disclaimers, greetings, news, memes, "
             "general commentary, non-EGX material, and stock discussion without an explicit actionable recommendation and an effective date. "
             "Only include active, actionable EGX BUY or SELL recommendations from LIST 2 intended for the target effective trading date. "
-            "A candidate is valid only when the selected text, image, or audio contains a visible/explicit date that resolves "
-            "to the target date, or explicitly says T+1, next session, or tomorrow relative to its Cairo message timestamp. "
-            "A dated same-day buy signal without T+1/next-session/tomorrow wording is valid only for that same day and MUST be excluded. "
+            "A candidate is valid only when its selected text, image, or audio has a visible/explicit effective date equal to the target date. "
+            f"The sole prior-date exception is a visible date of {previous_target_date} together with the literal token T+1. "
+            "For that exception, output data_points[].date as the target date and data_points[].effective_date_basis as t_plus_1. "
+            "Do not treat tomorrow, next session, Arabic equivalents, or any other wording as a prior-date exception. "
             "Undated stock tables, watchlists, charts, and price levels MUST be excluded; never infer their effective date from "
             "the Telegram posting time alone. data_points[].date must be the effective recommendation date, not the post date. "
-            "Set data_points[].effective_date_basis to explicit_date when the effective date is written, or to t_plus_1, next_session, "
-            "or tomorrow when that phrase determines the effective date. "
+            "Set data_points[].effective_date_basis to explicit_date when the target date is written, or to t_plus_1 only for the literal T+1 exception. "
             "Exclude recommendations whose effective date is missing, ambiguous, already past, or different from the target date.",
             "OUTPUT PRIORITY: First extract every valid dated recommendation table, chart, image, text, or audio signal from LIST 2 that is "
             "intended for the target effective date into top_consolidated_recommendations. For each source row, preserve entry, "
@@ -289,6 +291,8 @@ class AIAnalysisService:
             "a concise Arabic explanation of its guidance into data_points[].notes_ar. Keep each source's values separate. "
             "Strictly ignore advertisements, links, disclaimers, greetings, general market commentary, corporate/economic news, "
             "memes, and stock mentions without a dated actionable recommendation. Do not turn news into a trading signal.",
+            "Image-only messages are intentionally included for visual review. If an image itself identifies a recommendation as previous, "
+            "past, achieved, or no longer actionable, exclude it from both output arrays.",
             "IMPORTANT — client/member inquiry replies are reference information, not main recommendations. Classify them from "
             "their own text, image, or audio context, including phrases such as 'ردًا على استفسارات عملائنا', 'ردا على استفسارات عملائنا', "
             "'رد على استفسار', or 'استفسارات العملاء'. Never classify a normal table, chart, photo, or signal as an inquiry because "

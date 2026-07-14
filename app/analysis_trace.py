@@ -12,7 +12,8 @@ from app.models import Channel, Image, Message, Recommendation
 
 def create_selected_input_trace(storage_root: Path, messages: list[dict[str, Any]],
                                 start: datetime, end: datetime, analysis_period: str,
-                                target_date: str, content_types: set[str]) -> dict[str, object]:
+                                target_date: str, content_types: set[str],
+                                excluded_items: list[dict[str, str]] | None = None) -> dict[str, object]:
     """Persist the exact date/type-filtered source payload before an AI request.
 
     The trace intentionally uses the already assembled batch rather than querying
@@ -79,9 +80,11 @@ def create_selected_input_trace(storage_root: Path, messages: list[dict[str, Any
     text_path = directory / "model-input.txt"
     json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     text_path.write_text("\n".join(text_lines), encoding="utf-8")
+    excluded_path = directory / "excluded-items.json"
+    excluded_path.write_text(json.dumps(excluded_items or [], ensure_ascii=False, indent=2), encoding="utf-8")
     return {
         "directory": str(directory), "text_path": str(text_path), "json_path": str(json_path),
-        "images_path": str(image_directory), "consolidated_response_path": None,
+        "images_path": str(image_directory), "excluded_path": str(excluded_path), "consolidated_response_path": None,
         "message_count": len(serialized_messages), "image_count": copied_images,
     }
 

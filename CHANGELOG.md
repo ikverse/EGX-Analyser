@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.70
+- Expands selected-chat evidence windows to two days for next-day and historical analysis.
+- Excludes image posts whose captions mark them as past recommendations before model submission and records them in each trace.
+- Accepts only literal `T+1` as a prior-date recommendation exception and labels those data points accordingly.
+
 ## v0.1.69
 - Saves a dedicated local trace folder before every selected-chat model request, containing only the chosen date-window and media types.
 - Records the final provider prompt, selected source files, optimized image bytes actually sent to the model, and the returned JSON response in the same trace folder.
