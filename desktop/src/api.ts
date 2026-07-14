@@ -37,6 +37,7 @@ export type StockSourceTableRow = {
   source_entries: number;
   source_dates: string[];
   latest_date?: string | null;
+  effective_date_bases?: string[];
   mention_count: number;
   status?: string;
   analysis_summary_ar?: string;
@@ -62,6 +63,10 @@ export type ClientInquiryResponse = {
   reply_summary_ar?: string;
   current_trend_ar?: string;
   last_price?: number | null;
+  buy_price?: number | null;
+  target_1?: number | null;
+  target_2?: number | null;
+  stop_loss?: number | null;
   support?: number | null;
   resistance?: number | null;
   advice_ar?: string;

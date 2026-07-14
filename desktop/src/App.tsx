@@ -757,6 +757,16 @@ function num(v: unknown): string {
   return Number.isNaN(n) ? String(v) : String(n);
 }
 
+function dateBasisLabel(basis: string): string {
+  const labels: Record<string, string> = {
+    explicit_date: "Explicit date",
+    t_plus_1: "T+1",
+    next_session: "Next session",
+    tomorrow: "Tomorrow",
+  };
+  return labels[basis] ?? basis;
+}
+
 function SuccessModal({ message, onClose }: { message: string; onClose: () => void }) {
   return (
     <div className="error-modal-backdrop" role="dialog" aria-modal="true" aria-label="Analysis completed">
@@ -789,14 +799,14 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
       <div className="consolidated-table-scroll">
         <table className="consolidated-table">
           <thead><tr>
-            <th>Source</th><th>Dates</th><th>Entries</th><th>Entry</th><th>TP1</th><th>TP2</th>
+            <th>Source</th><th>Dates</th><th>Timing</th><th>Entries</th><th>Entry</th><th>TP1</th><th>TP2</th>
             <th>Stop</th><th>Support</th><th>Resistance</th><th>Return %</th><th>Risk %</th><th>Status</th><th>Arabic analysis</th>
           </tr></thead>
           {[...grouped.entries()].map(([ticker, stockRows]) => {
             const first = stockRows[0];
             return (
               <tbody key={ticker}>
-                <tr className="consolidated-stock-group"><td colSpan={13}>
+                <tr className="consolidated-stock-group"><td colSpan={14}>
                   <span className="consolidated-rank">#{first.rank ?? "—"}</span>
                   <strong>{first.ticker}</strong>
                   <span>{first.company}</span>
@@ -807,6 +817,7 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
                   <tr key={`${row.ticker}-${row.source}`}>
                     <td className="source-cell">{row.source}</td>
                     <td>{row.source_dates.join(", ") || "—"}</td>
+                    <td>{row.effective_date_bases?.length ? row.effective_date_bases.map((basis) => <span key={basis} className="recommendation-date-basis">{dateBasisLabel(basis)}</span>) : "—"}</td>
                     <td className="numeric">{row.source_entries}</td>
                     <td className="numeric">{num(row.buy_price)}</td>
                     <td className="numeric positive">{num(row.target_1)}</td>
@@ -860,7 +871,8 @@ function ClientInquiryResponses({ rows }: { rows: ClientInquiryResponse[] }) {
 
 function ClientInquiryCard({ row }: { row: ClientInquiryResponse }) {
   const levels = [
-    ["Last price", num(row.last_price)], ["Support", num(row.support)], ["Resistance", num(row.resistance)],
+    ["Entry", num(row.buy_price)], ["TP1", num(row.target_1)], ["TP2", num(row.target_2)],
+    ["Stop", num(row.stop_loss)], ["Last", num(row.last_price)], ["Support", num(row.support)], ["Resistance", num(row.resistance)],
   ].filter(([, value]) => value !== "-");
   return (
     <article className="client-inquiry-card" dir="rtl">
@@ -868,13 +880,13 @@ function ClientInquiryCard({ row }: { row: ClientInquiryResponse }) {
         <div><strong>{row.source}</strong><span>{row.date || "No stated date"}</span></div>
         {row.current_trend_ar && <span className="client-inquiry-trend">{row.current_trend_ar}</span>}
       </header>
-      {row.question_summary_ar && <section><h5>استفسار العميل</h5><p>{row.question_summary_ar}</p></section>}
-      {row.reply_summary_ar && <section><h5>الرد</h5><p>{row.reply_summary_ar}</p></section>}
+      {row.question_summary_ar && <p className="client-inquiry-copy">{row.question_summary_ar}</p>}
+      {row.reply_summary_ar && <p className="client-inquiry-copy">{row.reply_summary_ar}</p>}
       {levels.length > 0 && <dl className="client-inquiry-levels" dir="ltr">
         {levels.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
       </dl>}
-      {row.advice_ar && <section><h5>النصيحة</h5><p>{row.advice_ar}</p></section>}
-      {row.alternate_scenario_ar && <section><h5>السيناريو البديل</h5><p>{row.alternate_scenario_ar}</p></section>}
+      {row.advice_ar && <p className="client-inquiry-copy">{row.advice_ar}</p>}
+      {row.alternate_scenario_ar && <p className="client-inquiry-copy">{row.alternate_scenario_ar}</p>}
     </article>
   );
 }

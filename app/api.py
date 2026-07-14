@@ -8,7 +8,7 @@ from time import perf_counter
 import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.ai.service import AIAnalysisService, keep_message_local_client_inquiries
+from app.ai.service import AIAnalysisService
 from app.analysis_trace import export_analysis_trace
 from app.config import get_settings
 from app.config_store import update_config
@@ -310,17 +310,15 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
                 "image_paths": selected_images,
                 "transcripts": selected_transcripts,
             })
-        catalog = egx_catalog(session)
-        catalog_refresh = await catalog.ensure()
-        catalog_hints = await catalog.matching_hints(batch_messages)
         outcome = await AIAnalysisService(get_settings()).analyze_consolidated(
-            batch_messages, analysis_period, target_date.isoformat(), catalog_hints
+            batch_messages, analysis_period, target_date.isoformat()
         )
         model_completed = perf_counter()
         consolidated_source = json.loads(outcome.raw_response)
         if not isinstance(consolidated_source, dict):
             raise RuntimeError("The AI provider returned a non-object response for the consolidated analysis")
-        keep_message_local_client_inquiries(consolidated_source, batch_messages)
+        catalog = egx_catalog(session)
+        catalog_refresh = await catalog.ensure()
         await catalog.enrich_consolidated_output(consolidated_source)
         collection["messages_analyzed"] = len(batch_messages)
         trace = await export_analysis_trace(
@@ -351,7 +349,6 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
                 "total_analysis_ms": round((perf_counter() - analysis_started) * 1000),
                 "catalog_changes": catalog_refresh["changed"],
                 "catalog_refreshed": catalog_refresh["refreshed"],
-                "catalog_hints": len(catalog_hints),
                 **outcome.input_metrics,
             },
         )

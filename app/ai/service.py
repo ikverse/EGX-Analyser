@@ -3,7 +3,6 @@ import hashlib
 import io
 import json
 import mimetypes
-import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import perf_counter
@@ -31,49 +30,15 @@ class AnalysisOutcome:
 _OUTPUT_CONTRACT = """Return only one JSON object in this consolidated EGX report structure:
 - analysis_period: string describing the covered dates.
 - top_consolidated_recommendations: ranked array. Each item has stock_code, stock_name_en, stock_name_ar, mention_count, rank, status, analysis_summary_ar, and data_points.
-- data_points: array for each stock. Each item has date, source, buy_price, target_1, target_2, stop_loss, support, resistance, expected_return_pct, and risk_pct.
+- data_points: array for each stock. Each item has date, effective_date_basis, source, buy_price, target_1, target_2, stop_loss, support, resistance, expected_return_pct, and risk_pct. effective_date_basis is one of explicit_date, t_plus_1, next_session, or tomorrow.
 - achieved_targets: array with stock_code, stock_name_en, status_ar, date, and source.
-- client_inquiry_responses: array for stock-specific replies to customer/member questions. Each item has stock_code, stock_name_en, stock_name_ar, source, date, source_message_id, source_excerpt, question_summary_ar, reply_summary_ar, current_trend_ar, last_price, support, resistance, advice_ar, and alternate_scenario_ar. source_message_id must equal the TELEGRAM_ID of the supporting message and source_excerpt must be an exact quotation from that message.
+- client_inquiry_responses: array for stock-specific replies to customer/member questions. Each item has stock_code, stock_name_en, stock_name_ar, source, date, source_message_id, source_excerpt, question_summary_ar, reply_summary_ar, current_trend_ar, last_price, buy_price, target_1, target_2, stop_loss, support, resistance, advice_ar, and alternate_scenario_ar. Include source_message_id and source_excerpt when present in the source data.
 - text_based_categories: object with most_important_stocks, trading_stocks, and watchlist_stocks arrays. Each array item has stock_code, stock_name_en, and stock_name_ar.
 - daily_breakdown: object keyed by date; each item has total_mentions and top_stock_of_day.
 Use English EGX ticker codes in stock_code. Keep unavailable values as null. Do not invent price levels or targets."""
 
 _MAX_IMAGE_EDGE = 2_048
 _OPTIMIZE_IMAGE_OVER_BYTES = 1_500_000
-_CLIENT_INQUIRY_MARKERS = (
-    "ردا على استفسارات عملائنا",
-    "رد على استفسار",
-    "استفسارات العملاء",
-    "استفسارات عملائنا",
-)
-
-
-def is_client_inquiry_message(text: str) -> bool:
-    """Identify explicit customer-inquiry replies from the message itself only."""
-    normalized = unicodedata.normalize("NFKC", text or "").casefold()
-    normalized = normalized.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا")
-    normalized = normalized.replace("ى", "ي").replace("ة", "ه").replace("ً", "")
-    return any(marker in normalized for marker in _CLIENT_INQUIRY_MARKERS)
-
-
-def keep_message_local_client_inquiries(payload: dict[str, Any], messages: list[dict[str, Any]]) -> None:
-    """Remove inquiry records not supported by an explicitly marked source message."""
-    inquiry_message_ids = {
-        str(item.get("telegram_message_id") or "")
-        for item in messages
-        if is_client_inquiry_message(str(item.get("text") or ""))
-    }
-    values = payload.get("client_inquiry_responses")
-    if not isinstance(values, list):
-        payload["client_inquiry_responses"] = []
-        return
-    payload["client_inquiry_responses"] = [
-        item for item in values
-        if isinstance(item, dict)
-        and str(item.get("source_message_id") or item.get("telegram_message_id") or "") in inquiry_message_ids
-    ]
-
-
 def _content_reference(value: str, references: dict[str, str], label: str, telegram_id: str) -> tuple[str, bool]:
     """Reuse only byte-identical text/transcripts while retaining the message occurrence."""
     text = value.strip()
@@ -256,7 +221,7 @@ class AIAnalysisService:
         )
 
     async def analyze_consolidated(self, messages: list[dict[str, Any]], analysis_period: str,
-                                   target_trading_date: str, catalog_hints: list[str] | None = None) -> AnalysisOutcome:
+                                   target_trading_date: str) -> AnalysisOutcome:
         """Analyze one fresh, selected-chat window in a single model request."""
         if not messages:
             empty = {
@@ -281,33 +246,31 @@ class AIAnalysisService:
             "A dated same-day buy signal without T+1/next-session/tomorrow wording is valid only for that same day and MUST be excluded. "
             "Undated stock tables, watchlists, charts, and price levels MUST be excluded; never infer their effective date from "
             "the Telegram posting time alone. data_points[].date must be the effective recommendation date, not the post date. "
+            "Set data_points[].effective_date_basis to explicit_date when the effective date is written, or to t_plus_1, next_session, "
+            "or tomorrow when that phrase determines the effective date. "
             "Exclude recommendations whose effective date is missing, ambiguous, already past, or different from the target date.",
+            "OUTPUT PRIORITY: First extract every valid dated recommendation table, chart, image, text, or audio signal that is "
+            "intended for the target effective date into top_consolidated_recommendations. For each source row, preserve entry, "
+            "TP1, TP2, stop loss, support, and resistance whenever visible. If any qualifying dated source table exists, the main "
+            "recommendations array must contain its stock rows; do this before creating client_inquiry_responses.",
             "Extract only explicit recommendations with a stock code and actionable price/risk levels such as buy/entry zone, "
             "TP1, TP2, stop loss, support, or resistance. Images may use different source layouts: identify headings rather than "
             "assuming column positions. For example, Arabic headings may include منطقة الشراء, هدف أول, هدف ثاني, إيقاف الخسارة, "
             "الدعم, المقاومة, or إشارة تداول - شراء. Keep each source's values separate.",
             "Strictly ignore advertisements, links, disclaimers, greetings, general market commentary, corporate/economic news, "
             "memes, and stock mentions without a dated actionable recommendation. Do not turn news into a trading signal.",
-            "IMPORTANT — client/member inquiry replies are reference information, not main recommendations. If a message says "
-            "'ردًا على استفسارات عملائنا', 'ردا على استفسارات عملائنا', 'رد على استفسار', 'استفسارات العملاء', "
-            "Only classify a record as a client inquiry when its exact TELEGRAM_ID is marked "
-            "CLIENT_INQUIRY_REPLY below. Never classify a normal table, chart, photo, or signal as an inquiry because "
+            "IMPORTANT — client/member inquiry replies are reference information, not main recommendations. Classify them from "
+            "their own text, image, or audio context, including phrases such as 'ردًا على استفسارات عملائنا', 'ردا على استفسارات عملائنا', "
+            "'رد على استفسار', or 'استفسارات العملاء'. Never classify a normal table, chart, photo, or signal as an inquiry because "
             "the same source/channel posted an inquiry elsewhere. A valid dated buy table remains a main recommendation. "
             "A marked message that clearly answers a member/customer question about a particular stock must NEVER appear in "
             "top_consolidated_recommendations, achieved_targets, or text_based_categories. Instead place one clean, "
-            "stock-specific record in client_inquiry_responses. Preserve its source, date, levels, trend, advice, and "
-            "alternative scenario when explicitly present. Every inquiry record MUST include source_message_id equal to the "
-            "supporting TELEGRAM_ID and source_excerpt containing an exact quotation from that message. Omit an inquiry "
-            "record when you cannot provide both fields. Do not invent a buy recommendation from an inquiry reply.",
+            "stock-specific record in client_inquiry_responses. Preserve its source, date, entry, TP1, TP2, stop loss, levels, trend, advice, and "
+            "alternative scenario when explicitly present. Include source_message_id equal to the supporting TELEGRAM_ID and an "
+            "exact source_excerpt whenever available. Do not invent a buy recommendation from an inquiry reply.",
             "Use each SOURCE exactly as written below in every data_points[].source value. "
             "Do not treat a source label as a stock recommendation by itself.",
         ]
-        if catalog_hints:
-            parts.extend([
-                "Known EGX identities matched locally in the selected text/audio follow. Use these exact codes and names "
-                "when the matching company is mentioned; do not infer a match for any other company.",
-                *[f"- {hint}" for hint in catalog_hints],
-            ])
         image_paths: list[str] = []
         image_references: dict[str, int] = {}
         text_references: dict[str, str] = {}
@@ -327,13 +290,8 @@ class AIAnalysisService:
             text, reused_text = _content_reference(original_text, text_references, "TEXT_REF", telegram_id)
             metrics["reused_text_count"] += int(reused_text)
             transcripts = item.get("transcripts") if isinstance(item.get("transcripts"), list) else []
-            classification = (
-                "CLIENT_INQUIRY_REPLY"
-                if is_client_inquiry_message(original_text)
-                else "MAIN_RECOMMENDATION_CANDIDATE_OR_OTHER"
-            )
             parts.extend([
-                "", f"--- MESSAGE | SOURCE: {source} | DATE: {timestamp} | TELEGRAM_ID: {telegram_id} | CLASSIFICATION: {classification} ---",
+                "", f"--- MESSAGE | SOURCE: {source} | DATE: {timestamp} | TELEGRAM_ID: {telegram_id} ---",
                 text or "[No text]",
             ])
             if transcripts:

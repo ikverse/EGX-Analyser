@@ -205,23 +205,8 @@ class EGXStockCatalog:
             await self.session.flush()
         return changed
 
-    async def matching_hints(self, messages: Iterable[dict[str, Any]]) -> list[str]:
-        text = " ".join(
-            " ".join([str(item.get("text") or ""), *(str(value) for value in item.get("transcripts") or [])])
-            for item in messages
-        )
-        normalized_text = normalize_stock_name(text)
-        if not normalized_text:
-            return []
-        hints: list[str] = []
-        for stock in (await self.session.scalars(select(Stock).order_by(Stock.ticker))).all():
-            if any(len(alias) >= 4 and alias in normalized_text for alias in _stock_aliases(stock)):
-                names = " / ".join(part for part in (stock.name_en, stock.name_ar) if part)
-                hints.append(f"{stock.ticker}: {names}")
-        return hints
-
     async def enrich_consolidated_output(self, payload: dict[str, Any]) -> None:
-        """Canonicalize model names/codes and learn verified aliases for future analyses."""
+        """Fill only missing model identities from the local EGX mapping."""
         stocks = (await self.session.scalars(select(Stock))).all()
         by_ticker = {stock.ticker: stock for stock in stocks}
         by_alias = {alias: stock for stock in stocks for alias in _stock_aliases(stock)}
@@ -237,7 +222,6 @@ class EGXStockCatalog:
                     if isinstance(item, dict):
                         yield item
 
-        changed = False
         for item in items():
             ticker = _clean_ticker(item.get("stock_code"))
             name_en = str(item.get("stock_name_en") or "").strip()
@@ -245,27 +229,11 @@ class EGXStockCatalog:
             stock = by_ticker.get(ticker) if ticker else None
             if stock is None:
                 stock = _match_stock(name_ar, by_alias) or _match_stock(name_en, by_alias)
-            if stock is None and ticker:
-                stock = Stock(ticker=ticker, name_en=name_en or ticker, name_ar=name_ar or None, aliases=[])
-                self.session.add(stock)
-                by_ticker[ticker] = stock
-                changed = True
             if stock is None:
                 continue
-            item["stock_code"] = stock.ticker
-            item["stock_name_en"] = stock.name_en
-            if stock.name_ar:
+            if not ticker:
+                item["stock_code"] = stock.ticker
+            if not name_en and stock.name_en:
+                item["stock_name_en"] = stock.name_en
+            if not name_ar and stock.name_ar:
                 item["stock_name_ar"] = stock.name_ar
-            aliases = list(stock.aliases or [])
-            for alias in (name_en, name_ar):
-                if alias and alias not in aliases:
-                    aliases.append(alias)
-                    by_alias[normalize_stock_name(alias)] = stock
-                    changed = True
-            stock.aliases = aliases
-            if name_ar and not stock.name_ar:
-                stock.name_ar = name_ar
-                item["stock_name_ar"] = name_ar
-                changed = True
-        if changed:
-            await self.session.flush()

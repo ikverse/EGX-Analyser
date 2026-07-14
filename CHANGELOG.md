@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.66
+- Made the AI response the sole authority for separating active recommendations from client inquiry replies; the desktop app no longer reclassifies or discards either result type.
+- Kept the EGX catalog entirely out of the model request. It now runs only after the response and fills missing ticker or bilingual company-name fields without replacing model-supplied data.
+- Added model-reported recommendation timing badges for explicit dates, T+1, next-session, and tomorrow signals.
+- Added entry, TP1, TP2, and stop-loss levels to compact client inquiry cards.
+
 ## v0.1.65
 - Fixed client-inquiry classification so it is tied to the exact marked Telegram message instead of the whole source/channel.
 - Prevented normal dated recommendation tables, charts, photos, and signals from being moved into the client-inquiry output.

@@ -18,8 +18,6 @@ from app.ai.service import (
     _analysis_result_from_payload,
     _prepared_image_data_url,
     analysis_output_schema,
-    is_client_inquiry_message,
-    keep_message_local_client_inquiries,
 )
 from app.reports import _client_inquiry_rows, _consolidated_source_table
 from app.services import AnalyticsService, MessageService, SearchService
@@ -106,7 +104,7 @@ async def test_message_ingestion_is_idempotent(session):
     assert first.id == second.id
 
 
-async def test_egx_catalog_resolves_arabic_only_model_output_and_learns_aliases(session):
+async def test_egx_catalog_fills_only_missing_model_identity(session):
     catalog = EGXStockCatalog(session, "https://catalog.invalid/stocks")
     await catalog._upsert([{
         "ticker": "COMI", "name_en": "Commercial International Bank Egypt", "name_ar": "البنك التجاري الدولي",
@@ -122,13 +120,31 @@ async def test_egx_catalog_resolves_arabic_only_model_output_and_learns_aliases(
 
     await catalog.enrich_consolidated_output(payload)
     stock = payload["top_consolidated_recommendations"][0]
-    hints = await catalog.matching_hints([{"text": "تحليل البنك التجاري الدولي", "transcripts": []}])
-
     assert stock["stock_code"] == "COMI"
     assert stock["stock_name_en"] == "Commercial International Bank Egypt"
-    assert stock["stock_name_ar"] == "البنك التجاري الدولي"
-    assert hints == ["COMI: Commercial International Bank Egypt / البنك التجاري الدولي"]
+    assert stock["stock_name_ar"] == "التجاري الدولي"
     assert normalize_stock_name("إلـى البنك التجاري الدولي") == normalize_stock_name("الى البنك التجاري الدولي")
+
+
+async def test_egx_catalog_does_not_replace_model_identity(session):
+    catalog = EGXStockCatalog(session, "https://catalog.invalid/stocks")
+    await catalog._upsert([{
+        "ticker": "COMI", "name_en": "Commercial International Bank Egypt", "name_ar": "CIB Arabic",
+        "aliases": "CIB",
+    }])
+    payload = {
+        "top_consolidated_recommendations": [{
+            "stock_code": "COMI", "stock_name_en": "Model Name", "stock_name_ar": "Model Arabic", "data_points": [],
+        }],
+        "achieved_targets": [], "client_inquiry_responses": [], "text_based_categories": {},
+    }
+
+    await catalog.enrich_consolidated_output(payload)
+
+    stock = payload["top_consolidated_recommendations"][0]
+    assert stock["stock_code"] == "COMI"
+    assert stock["stock_name_en"] == "Model Name"
+    assert stock["stock_name_ar"] == "Model Arabic"
 
 
 async def test_egx_catalog_refresh_cache_waits_until_the_weekly_interval(session, tmp_path):
@@ -294,7 +310,8 @@ def test_client_inquiry_replies_are_kept_out_of_active_recommendations():
         "client_inquiry_responses": [{
             "stock_code": "ALUM", "stock_name_en": "Aluminium Arabia", "stock_name_ar": "الألومنيوم العربية",
             "source": "Ostoul Capital", "date": "2026-07-14", "question_summary_ar": "استفسار عن السهم",
-            "reply_summary_ar": "اتجاه عرضي بين الدعم والمقاومة", "support": 20.60, "resistance": 26.40,
+            "reply_summary_ar": "اتجاه عرضي بين الدعم والمقاومة", "buy_price": 22.9, "target_1": 23.6,
+            "target_2": 24.15, "stop_loss": 22.5, "support": 20.60, "resistance": 26.40,
         }],
     }
 
@@ -304,29 +321,11 @@ def test_client_inquiry_replies_are_kept_out_of_active_recommendations():
     assert [row["ticker"] for row in active_rows] == ["COMI"]
     assert [row["ticker"] for row in inquiry_rows] == ["ALUM"]
     assert inquiry_rows[0]["reply_summary_ar"] == "اتجاه عرضي بين الدعم والمقاومة"
-
-
-def test_client_inquiry_records_must_match_an_explicitly_marked_message():
-    payload = {
-        "client_inquiry_responses": [
-            {"stock_code": "ALUM", "source_message_id": "100"},
-            {"stock_code": "COMI", "source_message_id": "200"},
-        ],
-    }
-    messages = [
-        {"telegram_message_id": 100, "text": "ردًا على استفسارات عملائنا عن السهم"},
-        {"telegram_message_id": 200, "text": "إشارة تداول - شراء"},
-    ]
-
-    keep_message_local_client_inquiries(payload, messages)
-
-    assert is_client_inquiry_message(messages[0]["text"])
-    assert not is_client_inquiry_message(messages[1]["text"])
-    assert payload["client_inquiry_responses"] == [{"stock_code": "ALUM", "source_message_id": "100"}]
+    assert inquiry_rows[0]["target_1"] == 23.6
 
 
 
-def test_client_inquiry_rows_require_traceable_message_evidence_when_validating():
+def test_client_inquiry_rows_keep_model_returned_records_without_local_filtering():
     payload = {
         "client_inquiry_responses": [
             {
@@ -344,9 +343,9 @@ def test_client_inquiry_rows_require_traceable_message_evidence_when_validating(
         ],
     }
 
-    rows = _client_inquiry_rows(payload, {"101"})
+    rows = _client_inquiry_rows(payload)
 
-    assert [row["ticker"] for row in rows] == ["ALUM"]
+    assert [row["ticker"] for row in rows] == ["ALUM", "COMI", "TMGH"]
     assert rows[0]["source_message_id"] == "101"
     assert rows[0]["source_excerpt"] == "Reply to customer inquiries about ALUM."
 
