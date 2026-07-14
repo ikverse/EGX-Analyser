@@ -57,6 +57,27 @@ def _qwen_vision_models(catalog: list[object]) -> list[str]:
         return len(_QWEN_VISION_PREFERENCE), model_id
 
     return sorted(available, key=priority)
+
+
+def _ollama_api_url(settings) -> str:
+    return settings.ollama_base_url.rstrip("/").removesuffix("/v1")
+
+
+def _ollama_vision_models(catalog: list[object]) -> list[str]:
+    """Return installed Ollama models that can accept images."""
+    models: list[str] = []
+    for item in catalog:
+        if not isinstance(item, dict) or not isinstance(item.get("name"), str):
+            continue
+        name = item["name"].strip()
+        details = item.get("details") if isinstance(item.get("details"), dict) else {}
+        families = details.get("families") if isinstance(details.get("families"), list) else []
+        supports_images = any("vision" in str(family).lower() or "vl" in str(family).lower() for family in families)
+        known_vision_name = any(token in name.lower() for token in ("-vl", "llava", "minicpm-v", "gemma3", "moondream"))
+        if supports_images or known_vision_name:
+            models.append(name)
+    preferred = ["qwen3-vl:4b", "qwen3-vl:8b"]
+    return sorted(set(models), key=lambda model: (preferred.index(model) if model in preferred else len(preferred), model))
 telegram_authenticator = TelegramAuthenticator()
 
 
@@ -111,7 +132,8 @@ async def settings_status() -> dict[str, object]:
             "ai_provider": settings.ai_provider,
             "telegram_configured": bool(settings.telegram_api_id and settings.telegram_api_hash),
             "telegram_authorized": Path(session_path).exists(),
-            "openai_model": settings.openai_model, "telegram_session": settings.telegram_session,
+            "openai_model": settings.openai_model, "ollama_model": settings.ollama_model,
+            "ollama_base_url": settings.ollama_base_url, "telegram_session": settings.telegram_session,
             "analysis_instructions": settings.analysis_instructions}
 
 
@@ -119,6 +141,19 @@ async def settings_status() -> dict[str, object]:
 async def available_models() -> list[str]:
     settings = get_settings()
     provider = settings.ai_provider
+    if provider == "ollama":
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.get(f"{_ollama_api_url(settings)}/api/tags")
+                response.raise_for_status()
+            return _ollama_vision_models(response.json().get("models", []))
+        except httpx.HTTPStatusError as error:
+            raise HTTPException(502, f"Ollama could not list local models (status {error.response.status_code}).") from error
+        except httpx.HTTPError as error:
+            raise HTTPException(
+                503,
+                "Ollama is not reachable. Install and start Ollama, then confirm its local service is running.",
+            ) from error
     if not settings.ai_api_key:
         raise HTTPException(400, f"Save a {provider.title()} API key first")
     if provider != "openai":

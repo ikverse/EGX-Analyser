@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     huggingface_api_key: str | None = None
     qwen_api_key: str | None = None
     qwen_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    ollama_base_url: str = "http://127.0.0.1:11434"
+    ollama_model: str = "qwen3-vl:4b"
     egx_catalog_url: str = "https://demo.borsa.ashh.me/v1/stocks"
     egx_catalog_refresh_days: int = 7
     content_pack_manifest_url: str = "https://raw.githubusercontent.com/ikverse/EGX-Analyser/main/remote-content/content-pack.json"
@@ -35,12 +37,18 @@ class Settings(BaseSettings):
 
     @property
     def ai_api_key(self) -> str | None:
+        if self.ai_provider == "ollama":
+            return "ollama"
         return {
             "openai": self.openai_api_key,
             "openrouter": self.openrouter_api_key,
             "huggingface": self.huggingface_api_key,
             "qwen": self.qwen_api_key,
         }.get(self.ai_provider)
+
+    @property
+    def ai_model(self) -> str:
+        return self.ollama_model if self.ai_provider == "ollama" else self.openai_model
 
 
 @lru_cache

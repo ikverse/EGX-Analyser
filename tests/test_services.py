@@ -64,6 +64,16 @@ def test_qwen_vision_models_prioritize_and_return_all_accessible_models():
     ]
 
 
+def test_ollama_vision_models_exclude_text_only_models_and_prefer_qwen():
+    catalog = [
+        {"name": "qwen3:4b", "details": {"families": ["qwen3"]}},
+        {"name": "llava:7b", "details": {"families": ["llama", "clip"]}},
+        {"name": "qwen3-vl:8b", "details": {"families": ["qwen3vl", "vision"]}},
+        {"name": "qwen3-vl:4b", "details": {"families": ["qwen3vl", "vision"]}},
+    ]
+
+    assert api._ollama_vision_models(catalog) == ["qwen3-vl:4b", "qwen3-vl:8b", "llava:7b"]
+
 class FakeAnalyzer:
     async def analyze(self, text: str, image_paths: list[str], transcripts: list[str] | None = None) -> AnalysisResult:
         assert image_paths == ["chart.jpg"]

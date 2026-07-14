@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.67
+- Added Local Ollama as a second analysis-provider option alongside the existing cloud providers. It uses the same analysis prompt, JSON contract, and Results flow without requiring an API key.
+- Added local vision-model discovery for Ollama. `qwen3-vl:4b` is the default local model; the app only lists models already installed on the computer.
+- Added separately saved local Ollama model and service-URL settings, preserving the cloud provider configuration when switching providers.
+- Fixed the release version mismatch by synchronizing the FastAPI version with the desktop, Node, Rust, and Python package versions.
+
 ## v0.1.66
 - Made the AI response the sole authority for separating active recommendations from client inquiry replies; the desktop app no longer reclassifies or discards either result type.
 - Kept the EGX catalog entirely out of the model request. It now runs only after the response and fills missing ticker or bilingual company-name fields without replacing model-supplied data.

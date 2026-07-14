@@ -85,7 +85,9 @@ class SettingsUpdate(BaseModel):
     huggingface_api_key: str | None = None
     qwen_api_key: str | None = None
     qwen_base_url: str | None = Field(default=None, pattern="^https://.+")
-    ai_provider: str | None = Field(default=None, pattern="^(qwen|openrouter|huggingface|openai)$")
+    ollama_base_url: str | None = Field(default=None, pattern="^https?://.+")
+    ollama_model: str | None = Field(default=None, min_length=1, max_length=255)
+    ai_provider: str | None = Field(default=None, pattern="^(qwen|openrouter|huggingface|openai|ollama)$")
     openai_model: str | None = None
     analysis_instructions: str | None = Field(default=None, max_length=8000)
     telegram_api_id: int | None = None

@@ -211,6 +211,7 @@ class AIAnalysisService:
             "qwen": settings.qwen_base_url,
             "openrouter": "https://openrouter.ai/api/v1",
             "huggingface": "https://router.huggingface.co/v1",
+            "ollama": f"{settings.ollama_base_url.rstrip('/').removesuffix('/v1')}/v1",
         }.get(settings.ai_provider)
         self.client = AsyncOpenAI(api_key=settings.ai_api_key, base_url=base_url) if settings.ai_api_key else None
 
@@ -345,7 +346,7 @@ class AIAnalysisService:
                 content.append({"type": "image_url", "image_url": {"url": data_url}})
             response_format: dict[str, object] = {"type": "json_object"}
             response = await self.client.chat.completions.create(
-                model=self.settings.openai_model,
+                model=self.settings.ai_model,
                 messages=[{"role": "user", "content": content}],
                 response_format=response_format,
             )
@@ -358,7 +359,7 @@ class AIAnalysisService:
         for data_url, _, _, _ in prepared_images:
             content.append({"type": "input_image", "image_url": data_url, "detail": "high"})
         response = await self.client.responses.create(
-            model=self.settings.openai_model,
+            model=self.settings.ai_model,
             input=[{"role": "user", "content": content}],
             text={"format": {"type": "json_object"}},
         )

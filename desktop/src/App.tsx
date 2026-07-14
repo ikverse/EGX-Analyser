@@ -1167,7 +1167,7 @@ function ModelSelector({ api, configured, selected, onChange, showError }: {
 
   const load = useCallback(async (announce: boolean) => {
     if (!configured) {
-      if (announce) showError("Save an API key for the selected provider first.");
+      if (announce) showError("Save settings for the selected provider first.");
       return;
     }
     setLoading(true);
@@ -1227,6 +1227,8 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
   const [values, setValues] = useState<SettingsInput>({
     ai_provider: status?.ai_provider || "qwen",
     openai_model: status?.openai_model || "qwen3-vl-plus",
+    ollama_model: status?.ollama_model || "qwen3-vl:4b",
+    ollama_base_url: status?.ollama_base_url || "http://127.0.0.1:11434",
     analysis_instructions: status?.analysis_instructions || "",
   });
   const [editingProviderKey, setEditingProviderKey] = useState(false);
@@ -1252,13 +1254,18 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
 
   const provider = (values.ai_provider || status?.ai_provider || "qwen") as AiProvider;
 
-  const providerDetails: Record<AiProvider, { label: string; placeholder: string; key: keyof SettingsInput }> = {
+  const providerDetails: Record<AiProvider, { label: string; placeholder?: string; key?: keyof SettingsInput }> = {
     qwen: { label: "Qwen Cloud", placeholder: "sk-...", key: "qwen_api_key" },
     openrouter: { label: "OpenRouter", placeholder: "sk-or-...", key: "openrouter_api_key" },
     huggingface: { label: "Hugging Face", placeholder: "hf_...", key: "huggingface_api_key" },
     openai: { label: "OpenAI", placeholder: "sk-...", key: "openai_api_key" },
+    ollama: { label: "Ollama Local" },
   };
   const currentProvider = providerDetails[provider];
+  const localProvider = provider === "ollama";
+  const selectedModel = localProvider
+    ? values.ollama_model || status?.ollama_model || "qwen3-vl:4b"
+    : values.openai_model || "";
 
   useEffect(() => { void getVersion().then(setAppVersion).catch(() => setAppVersion("Unknown")); }, []);
   useEffect(() => { void api.contentUpdates().then(setContentStatus).catch(() => setContentStatus(null)); }, [api]);
@@ -1268,6 +1275,8 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
       ...cur,
       ai_provider: status.ai_provider,
       openai_model: status.openai_model,
+      ollama_model: status.ollama_model,
+      ollama_base_url: status.ollama_base_url,
       analysis_instructions: status.analysis_instructions,
     }));
   }, [status]);
@@ -1278,7 +1287,10 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
     void api.saveSettings(values)
       .then(onSaved)
       .then(() => {
-        setValues((cur) => ({ ai_provider: cur.ai_provider, openai_model: cur.openai_model, analysis_instructions: cur.analysis_instructions }));
+        setValues((cur) => ({
+          ai_provider: cur.ai_provider, openai_model: cur.openai_model, ollama_model: cur.ollama_model,
+          ollama_base_url: cur.ollama_base_url, analysis_instructions: cur.analysis_instructions,
+        }));
         setEditingProviderKey(false);
         setEditingTelegram(false);
         notify("success", "Settings saved securely on this computer.");
@@ -1289,12 +1301,15 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
 
   const chooseProvider = (next: AiProvider) => {
     const defaultModel = next === "qwen" ? "qwen3-vl-plus" : next === "openrouter" ? "openrouter/free" : "";
-    setValues((cur) => ({ ...cur, ai_provider: next, openai_model: defaultModel }));
+    setValues((cur) => next === "ollama"
+      ? { ...cur, ai_provider: next, ollama_model: cur.ollama_model || "qwen3-vl:4b" }
+      : { ...cur, ai_provider: next, openai_model: defaultModel });
     setEditingProviderKey(false);
   };
 
   const replaceKey = () => {
-    if (editingProviderKey) setValues((cur) => ({ ...cur, [currentProvider.key]: undefined }));
+    if (!currentProvider.key) return;
+    if (editingProviderKey) setValues((cur) => ({ ...cur, [currentProvider.key as keyof SettingsInput]: undefined }));
     setEditingProviderKey((cur) => !cur);
   };
 
@@ -1303,17 +1318,18 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
 
       <SettingsSection title="AI Provider" description={`${providerDetails[provider].label} · ${status?.ai_configured ? "configured" : "not configured"}`} open={openSection === "ai"} onToggle={() => toggleSection("ai")}>
         <form onSubmit={save}>
-          <p>Cloud provider keys are encrypted and stored only on this computer. No AI model is downloaded locally.</p>
+          <p>{localProvider ? "Ollama runs the selected model on this computer. Install the model manually, then load the installed vision models below." : "Cloud provider keys are encrypted and stored only on this computer."}</p>
           <label>
             AI provider
             <select value={provider} onChange={(e) => chooseProvider(e.target.value as AiProvider)}>
+              <option value="ollama">Ollama Local - use a downloaded model</option>
               <option value="qwen">Qwen Cloud — default for Arabic and charts</option>
               <option value="openrouter">OpenRouter — free models available</option>
               <option value="huggingface">Hugging Face Inference Providers</option>
               <option value="openai">OpenAI</option>
             </select>
           </label>
-          <div className="credential-header">
+          {!localProvider && <div className="credential-header">
             <div>
               <strong>{currentProvider.label}</strong>
               <span>{status?.ai_provider === provider && status.ai_configured ? "API key saved" : "API key not configured"}</span>
@@ -1321,13 +1337,21 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
             <button type="button" className="secondary" onClick={replaceKey}>
               {editingProviderKey ? "Cancel" : status?.ai_provider === provider && status.ai_configured ? "Replace API key" : "Add API key"}
             </button>
-          </div>
-          {editingProviderKey && (
+          </div>}
+          {editingProviderKey && !localProvider && (
             <label>
               {`New ${currentProvider.label} API key`}
               <input type="password" autoComplete="new-password" placeholder={currentProvider.placeholder}
-                value={(values[currentProvider.key] as string) || ""}
-                onChange={(e) => setValues((cur) => ({ ...cur, [currentProvider.key]: e.target.value }))} required />
+                value={(values[currentProvider.key!] as string) || ""}
+                onChange={(e) => setValues((cur) => ({ ...cur, [currentProvider.key!]: e.target.value }))} required />
+            </label>
+          )}
+          {localProvider && (
+            <label>
+              Ollama local service URL
+              <input type="url" value={values.ollama_base_url || "http://127.0.0.1:11434"}
+                onChange={(e) => setValues((cur) => ({ ...cur, ollama_base_url: e.target.value }))} required />
+              <span className="credential-note">Default: http://127.0.0.1:11434. Telegram data remains on this computer while using Ollama.</span>
             </label>
           )}
           {provider === "qwen" && (
@@ -1348,9 +1372,9 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
           )}
           <ModelSelector
             api={api}
-            configured={Boolean(status?.ai_provider === provider && status.ai_configured)}
-            selected={values.openai_model || ""}
-            onChange={(openai_model) => setValues((cur) => ({ ...cur, openai_model }))}
+            configured={Boolean(status?.ai_provider === provider && (localProvider || status.ai_configured))}
+            selected={selectedModel}
+            onChange={(model) => setValues((cur) => localProvider ? { ...cur, ollama_model: model } : { ...cur, openai_model: model })}
             showError={showError}
           />
           <label>
