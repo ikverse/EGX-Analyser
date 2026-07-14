@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.1.53
+- Removed the invalid sidecar flattening step so PyInstaller can load `python312.dll` from its required `_internal` directory.
+
 ## v0.1.52
 - Restored PyInstaller's supported _internal sidecar layout and package the complete sidecar directory.
 - Added a pre-package check for sidecar\_internal\python312.dll to stop broken installers from being produced.

@@ -49,18 +49,6 @@ try {
     & $python -m PyInstaller --noconfirm --clean egx-intelligence-api.spec
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller build failed. Check the output above." }
 
-    # Flatten _internal/ into parent dir so the PyInstaller bootloader finds
-    # python312.dll next to the exe (PyInstaller 6+ puts it in _internal by default).
-    $internalDir = Join-Path $root "dist\egx-intelligence-api\_internal"
-    if (Test-Path $internalDir) {
-        Get-ChildItem $internalDir | ForEach-Object {
-            $dest = Join-Path (Split-Path $internalDir) $_.Name
-            if (-not (Test-Path $dest)) { Move-Item $_.FullName $dest }
-        }
-        Remove-Item $internalDir -Recurse -Force
-        Write-Host "Flattened _internal/ into sidecar root" -ForegroundColor Green
-    }
-
     # Copy the entire onedir folder into Tauri's resources directory.
     $sidecarsDir = Join-Path $root "desktop\src-tauri\sidecar"
     if (Test-Path $sidecarsDir) { Remove-Item $sidecarsDir -Recurse -Force }
