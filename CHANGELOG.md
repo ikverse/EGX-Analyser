@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.73
+- Prevented marked client inquiry messages from leaking into the active recommendation table while preserving valid source rows.
+- Redesigned client inquiry cards and clarified their question, assessment, levels, and scenario details.
+- Streamlined Channels selection, corrected Results action-column alignment, and clarified supplementary extraction guidance in Settings.
+
 ## v0.1.72
 - Redesigned Channels into a session-focused workflow with chat filtering, bulk selection, and persisted analysis choices.
 - Keeps an active analysis visible while navigating between tabs and refreshes Results automatically when it completes.

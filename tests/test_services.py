@@ -31,7 +31,7 @@ from app.collector.telegram import is_promotional_message
 from app.reports import ReportService
 from app.analysis_trace import create_selected_input_trace, export_analysis_trace, save_consolidated_response
 from app.analysis_filter import has_past_recommendation_context
-from app.analysis_validation import validate_consolidated_output
+from app.analysis_validation import enforce_client_inquiry_separation, validate_consolidated_output
 from app.repositories import StockRepository
 from app.stock_catalog import EGXStockCatalog, normalize_stock_name
 
@@ -518,6 +518,27 @@ def test_consolidated_validation_warns_when_inquiries_are_returned_as_recommenda
 
     assert any("placed in recommendations" in warning for warning in warnings)
     assert any("absent from client inquiries" in warning for warning in warnings)
+
+
+def test_client_inquiry_data_points_are_removed_from_recommendations_locally():
+    messages = [
+        {"source": "Ostoul", "telegram_message_id": 7, "text": "\u0631\u062f\u064b\u0627 \u0639\u0644\u0649 \u0627\u0633\u062a\u0641\u0633\u0627\u0631\u0627\u062a \u0639\u0645\u0644\u0627\u0626\u0646\u0627"},
+        {"source": "CFI", "telegram_message_id": 8, "text": "Dated EGX buy recommendation"},
+    ]
+    payload = {"top_consolidated_recommendations": [{
+        "stock_code": "COMI", "mention_count": 2,
+        "data_points": [
+            {"source": "Ostoul", "source_message_id": "7"},
+            {"source": "CFI", "source_message_id": "8"},
+        ],
+    }]}
+
+    sanitized, warnings = enforce_client_inquiry_separation(payload, messages)
+
+    assert payload["top_consolidated_recommendations"][0]["mention_count"] == 2
+    assert sanitized["top_consolidated_recommendations"][0]["mention_count"] == 1
+    assert sanitized["top_consolidated_recommendations"][0]["data_points"] == [{"source": "CFI", "source_message_id": "8"}]
+    assert warnings == ["1 marked client inquiry recommendation data point(s) were automatically excluded."]
 
 
 def test_past_recommendation_caption_detection_handles_arabic_and_english_markers():

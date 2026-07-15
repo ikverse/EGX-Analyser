@@ -546,20 +546,18 @@ function Channels({ channels, api, refresh, notify, showError, analysisRun, anal
     onAnalyze(ids);
   };
 
-  const selectedRows = selectedChannels.map((channel) => ({
-    chat: channel.title || channel.handle,
-    handle: channel.handle,
-    selection: <button className="secondary" onClick={() => removeChat(channel.handle)} disabled={busy}>Remove</button>,
-  }));
-  const chatRows = visibleChats.map((chat) => ({
-    chat: `${chat.title}${chat.username ? ` (@${chat.username})` : ""}`,
-    type: chat.kind,
-    selection: (
-      <button className={selected.has(chatHandle(chat)) ? "secondary compact" : "compact"} disabled={busy} onClick={() => selected.has(chatHandle(chat)) ? removeChat(chatHandle(chat)) : addChat(chat)}>
-        {selected.has(chatHandle(chat)) ? "Selected" : "Select"}
-      </button>
-    ),
-  }));
+  const toggleChatSelection = (chat: TelegramChat) => {
+    if (busy) return;
+    const chatId = chatHandle(chat);
+    if (selected.has(chatId)) removeChat(chatId);
+    else addChat(chat);
+  };
+
+  const handleChatRowKeyDown = (event: React.KeyboardEvent<HTMLTableRowElement>, chat: TelegramChat) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    toggleChatSelection(chat);
+  };
 
   return (
     <>
@@ -583,7 +581,29 @@ function Channels({ channels, api, refresh, notify, showError, analysisRun, anal
             <button type="button" className="secondary compact" disabled={busy || !visibleChats.some((chat) => !selected.has(chatHandle(chat)))} onClick={selectVisibleChats}>Select visible</button>
             <button type="button" className="secondary compact" disabled={!selectedChannels.length || busy} onClick={() => updateSelectedHandles([])}>Clear selection</button>
           </div>
-          <Table rows={chatRows} />
+          <div className="table channel-chat-table">
+            <table>
+              <thead><tr><th>Chat</th><th>Type</th><th>Selection</th></tr></thead>
+              <tbody>{visibleChats.map((chat) => {
+                const isSelected = selected.has(chatHandle(chat));
+                return (
+                  <tr
+                    key={chat.id}
+                    className={isSelected ? "channel-chat-row is-selected" : "channel-chat-row"}
+                    role="button"
+                    tabIndex={busy ? -1 : 0}
+                    aria-pressed={isSelected}
+                    onClick={() => toggleChatSelection(chat)}
+                    onKeyDown={(event) => handleChatRowKeyDown(event, chat)}
+                  >
+                    <td><strong>{chat.title}</strong>{chat.username && <span className="channel-chat-username">@{chat.username}</span>}</td>
+                    <td>{chat.kind}</td>
+                    <td><span className={isSelected ? "channel-selection-state selected" : "channel-selection-state"}>{isSelected ? "Selected" : "Select"}</span></td>
+                  </tr>
+                );
+              })}</tbody>
+            </table>
+          </div>
         </>}
       </div>
 
@@ -622,7 +642,6 @@ function Channels({ channels, api, refresh, notify, showError, analysisRun, anal
           {analyzing ? "Analyzing selected chats…" : "Analyze selected chats"}
         </button>
         {analyzing && <p className="analysis-progress" role="status">{analysisProgress}</p>}
-        <Table rows={selectedRows} />
       </div>
     </>
   );
@@ -757,14 +776,16 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted }
                   <td>{item.messages_analyzed} messages</td>
                   <td>{stockCount} stocks / {item.stock_source_table.length} source rows</td>
                   <td className="analysis-history-actions">
-                    <button type="button" className="secondary compact" onClick={(event) => {
-                      event.stopPropagation();
-                      toggleAnalysis(item.id);
-                    }}>{analysisOpen ? "Hide" : "View"}</button>
-                    <button type="button" className="danger compact" onClick={(event) => {
-                      event.stopPropagation();
-                      setDeleteCandidate(item);
-                    }}>Delete</button>
+                    <div className="analysis-history-action-buttons">
+                      <button type="button" className="secondary compact" onClick={(event) => {
+                        event.stopPropagation();
+                        toggleAnalysis(item.id);
+                      }}>{analysisOpen ? "Hide" : "View"}</button>
+                      <button type="button" className="danger compact" onClick={(event) => {
+                        event.stopPropagation();
+                        setDeleteCandidate(item);
+                      }}>Delete</button>
+                    </div>
                   </td>
                 </tr>
                 {analysisOpen && (
@@ -968,23 +989,40 @@ function ClientInquiryResponses({ rows }: { rows: ClientInquiryResponse[] }) {
 }
 
 function ClientInquiryCard({ row }: { row: ClientInquiryResponse }) {
-  const levels = [
-    ["Entry", num(row.buy_price)], ["TP1", num(row.target_1)], ["TP2", num(row.target_2)],
-    ["Stop", num(row.stop_loss)], ["Last", num(row.last_price)], ["Support", num(row.support)], ["Resistance", num(row.resistance)],
-  ].filter(([, value]) => value !== "-");
+  const availableLevels = (levels: Array<[string, number | null | undefined]>) => levels
+    .filter(([, value]) => value !== undefined && value !== null)
+    .map(([label, value]) => [label, num(value)] as const);
+  const tradeLevels = availableLevels([
+    ["Entry", row.buy_price], ["TP1", row.target_1], ["TP2", row.target_2], ["Stop", row.stop_loss],
+  ]);
+  const marketLevels = availableLevels([
+    ["Last", row.last_price], ["Support", row.support], ["Resistance", row.resistance],
+  ]);
+  const assessment = row.reply_summary_ar || row.advice_ar;
   return (
     <article className="client-inquiry-card" dir="rtl">
       <header className="client-inquiry-card-header">
-        <div><strong>{row.source}</strong><span>{row.date || "No stated date"}</span></div>
+        <div className="client-inquiry-origin" dir="ltr">
+          <span className="client-inquiry-kind">Inquiry reply</span>
+          <strong>{row.source}</strong>
+          <span>{row.date || "No stated date"}</span>
+        </div>
         {row.current_trend_ar && <span className="client-inquiry-trend">{row.current_trend_ar}</span>}
       </header>
-      {row.question_summary_ar && <p className="client-inquiry-copy">{row.question_summary_ar}</p>}
-      {row.reply_summary_ar && <p className="client-inquiry-copy">{row.reply_summary_ar}</p>}
-      {levels.length > 0 && <dl className="client-inquiry-levels" dir="ltr">
-        {levels.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+      {(row.question_summary_ar || assessment) && <div className="client-inquiry-summary">
+        {row.question_summary_ar && <p><span>Customer question</span>{row.question_summary_ar}</p>}
+        {assessment && <p><span>Assessment</span>{assessment}</p>}
+      </div>}
+      {tradeLevels.length > 0 && <dl className="client-inquiry-levels" dir="ltr">
+        {tradeLevels.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
       </dl>}
-      {row.advice_ar && <p className="client-inquiry-copy">{row.advice_ar}</p>}
-      {row.alternate_scenario_ar && <p className="client-inquiry-copy">{row.alternate_scenario_ar}</p>}
+      {marketLevels.length > 0 && <dl className="client-inquiry-market-levels" dir="ltr">
+        {marketLevels.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+      </dl>}
+      {(row.advice_ar || row.alternate_scenario_ar) && <div className="client-inquiry-guidance">
+        {row.advice_ar && row.advice_ar !== assessment && <p><span>Advice</span>{row.advice_ar}</p>}
+        {row.alternate_scenario_ar && <p className="client-inquiry-scenario"><span>Scenario</span>{row.alternate_scenario_ar}</p>}
+      </div>}
     </article>
   );
 }
@@ -1480,15 +1518,15 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
             showError={showError}
           />
           <label>
-            Primary analysis prompt
+            Supplementary extraction guidance
             <textarea
               value={values.analysis_instructions || ""}
               onChange={(e) => setValues((cur) => ({ ...cur, analysis_instructions: e.target.value }))}
-              placeholder="For example: prioritize EGX table rows, show entry and targets exactly as posted, and flag conflicting channel details."
+              placeholder="For example: prioritize EGX table rows, preserve entries and targets exactly as posted, and flag conflicting channel details."
               rows={6}
             />
             <span className="credential-note">
-              Adds source-specific guidance. The required EGX output structure and list separation remain enforced.
+              Optional source-specific guidance sent with each analysis. Fixed EGX eligibility, inquiry separation, and JSON output rules remain enforced.
             </span>
           </label>
           <button disabled={saving}>{saving ? "Saving…" : "Save settings"}</button>

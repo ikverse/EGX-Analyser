@@ -1,8 +1,64 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
 from app.analysis_filter import is_client_inquiry_context
+
+
+def enforce_client_inquiry_separation(
+    payload: dict[str, Any], messages: list[dict[str, Any]],
+) -> tuple[dict[str, Any], list[str]]:
+    """Keep marked inquiry messages out of the active recommendation output.
+
+    The model remains responsible for building the inquiry cards. This local
+    safeguard only prevents a traceable client-inquiry message from leaking
+    into the recommendation table when the provider returns an invalid split.
+    """
+    inquiry_message_ids = {
+        str(item.get("telegram_message_id"))
+        for item in messages
+        if is_client_inquiry_context(
+            "\n".join([str(item.get("text") or ""), *[str(value) for value in item.get("transcripts") or []]])
+        )
+    }
+    if not inquiry_message_ids:
+        return payload, []
+
+    sanitized = deepcopy(payload)
+    recommendations = sanitized.get("top_consolidated_recommendations")
+    if not isinstance(recommendations, list):
+        return sanitized, []
+
+    retained_stocks: list[Any] = []
+    removed_points = 0
+    for stock in recommendations:
+        if not isinstance(stock, dict):
+            retained_stocks.append(stock)
+            continue
+        data_points = stock.get("data_points")
+        if not isinstance(data_points, list):
+            retained_stocks.append(stock)
+            continue
+        retained_points = [
+            point for point in data_points
+            if not isinstance(point, dict)
+            or str(point.get("source_message_id") or "").strip() not in inquiry_message_ids
+        ]
+        removed_points += len(data_points) - len(retained_points)
+        if not retained_points:
+            continue
+        if len(retained_points) != len(data_points):
+            stock["data_points"] = retained_points
+            stock["mention_count"] = len(retained_points)
+        retained_stocks.append(stock)
+
+    sanitized["top_consolidated_recommendations"] = retained_stocks
+    if not removed_points:
+        return sanitized, []
+    return sanitized, [
+        f"{removed_points} marked client inquiry recommendation data point(s) were automatically excluded."
+    ]
 
 
 def validate_consolidated_output(payload: dict[str, Any], messages: list[dict[str, Any]]) -> list[str]:

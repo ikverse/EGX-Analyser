@@ -12,7 +12,7 @@ from openai import AsyncOpenAI
 from app.config import Settings
 from app.content_updates import ContentUpdateService
 from app.schemas import AnalysisResult
-from app.analysis_validation import validate_consolidated_output
+from app.analysis_validation import enforce_client_inquiry_separation, validate_consolidated_output
 
 try:
     from PIL import Image as PillowImage
@@ -365,12 +365,21 @@ class AIAnalysisService:
                 image_paths.append(path)
         source_data = "\n".join(parts)
         initial = await self._analyze_prompt(source_data, image_paths, metrics, trace_directory, _CORE_ANALYSIS_PROTOCOL)
-        initial_payload = json.loads(initial.raw_response)
+        initial_payload, initial_separation_warnings = enforce_client_inquiry_separation(
+            json.loads(initial.raw_response), messages,
+        )
         warnings = validate_consolidated_output(initial_payload, messages)
         if not warnings:
-            return initial
+            return AnalysisOutcome(
+                result=_analysis_result_from_payload(initial_payload),
+                raw_response=json.dumps(initial_payload, ensure_ascii=False),
+                input_metrics=initial.input_metrics,
+                validation_warnings=initial_separation_warnings,
+            )
         if trace_directory is not None:
-            (trace_directory / "initial-consolidated-ai-response.json").write_text(initial.raw_response, encoding="utf-8")
+            (trace_directory / "initial-consolidated-ai-response.json").write_text(
+                json.dumps(initial_payload, ensure_ascii=False, indent=2), encoding="utf-8",
+            )
         correction = (
             "\n\nCORRECTION REQUIRED: Your previous JSON failed these audit checks: "
             + " | ".join(warnings)
@@ -381,12 +390,19 @@ class AIAnalysisService:
         corrected = await self._analyze_prompt(
             source_data + correction, image_paths, metrics, None, _CORE_ANALYSIS_PROTOCOL,
         )
-        corrected_payload = json.loads(corrected.raw_response)
+        corrected_payload, corrected_separation_warnings = enforce_client_inquiry_separation(
+            json.loads(corrected.raw_response), messages,
+        )
         remaining_warnings = validate_consolidated_output(corrected_payload, messages)
-        final_warnings = ["Initial model response required an automatic separation correction.", *remaining_warnings]
+        final_warnings = [
+            "Initial model response required an automatic separation correction.",
+            *initial_separation_warnings,
+            *corrected_separation_warnings,
+            *remaining_warnings,
+        ]
         return AnalysisOutcome(
-            result=corrected.result,
-            raw_response=corrected.raw_response,
+            result=_analysis_result_from_payload(corrected_payload),
+            raw_response=json.dumps(corrected_payload, ensure_ascii=False),
             input_metrics=corrected.input_metrics,
             validation_warnings=final_warnings,
             correction_attempted=True,
