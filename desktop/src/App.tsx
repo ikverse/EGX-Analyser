@@ -677,6 +677,10 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted }
                   <tr className="analysis-history-expanded">
                     <td colSpan={6}>
                       <div className="analysis-section-list">
+                        {!!item.model_validation_warnings.length && <div className="analysis-result-warning">
+                          <strong>Model output warning</strong>
+                          <span>{item.model_correction_attempted ? "An automatic correction was attempted. " : ""}{item.model_validation_warnings.join(" ")}</span>
+                        </div>}
                         <button type="button" className="analysis-section-row" onClick={() => toggleSection("recommendations")} aria-expanded={recommendationsOpen}>
                           <span><strong>Recommendations table</strong><small>One model-returned row for each dated source recommendation</small></span>
                           <span>{item.stock_source_table.length} rows - {recommendationsOpen ? "Hide" : "View"}</span>

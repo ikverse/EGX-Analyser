@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.service import AIAnalysisService
 from app.analysis_filter import has_past_recommendation_context
-from app.analysis_trace import create_selected_input_trace, save_consolidated_response
+from app.analysis_trace import create_selected_input_trace, save_consolidated_response, save_model_validation
 from app.config import get_settings
 from app.config_store import update_config
 from app.content_updates import ContentUpdateError, ContentUpdateService
@@ -301,7 +301,7 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
         window_start, window_end, target_date = next_day_analysis_window()
         report_label = f"next-day suggestions ({target_date.isoformat()})"
     source_start_date = window_start.astimezone(cairo).date().isoformat()
-    source_end_date = (target_date if payload.analysis_mode == "specific_date" else window_end.astimezone(cairo).date()).isoformat()
+    source_end_date = window_end.astimezone(cairo).date().isoformat()
     analysis_period = f"Source messages: {source_start_date} through {source_end_date}; target date: {target_date.isoformat()}"
     content_types = set(payload.content_types)
     analysis_started = perf_counter()
@@ -371,6 +371,7 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
         await catalog.enrich_consolidated_output(consolidated_source)
         collection["messages_analyzed"] = len(batch_messages)
         trace = save_consolidated_response(trace, outcome.raw_response)
+        trace = save_model_validation(trace, outcome.validation_warnings, outcome.correction_attempted)
         report = await ReportService(session, get_settings()).generate_selected_chat_report(
             payload.channel_ids, window_start, window_end, 2,
             consolidated_source=consolidated_source, consolidated_raw_response=outcome.raw_response,
@@ -386,6 +387,8 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
             "content_types": sorted(content_types),
             "messages_analyzed": len(batch_messages),
             "analysis_trace_directory": trace["directory"],
+            "model_validation_warnings": outcome.validation_warnings,
+            "model_correction_attempted": outcome.correction_attempted,
         }}
         await session.commit()
         logger().info(
@@ -410,6 +413,8 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
                 "stock_code_details": report.summary["stock_code_details"],
                 "stock_source_table": report.summary["stock_source_table"],
                 "client_inquiry_responses": report.summary["client_inquiry_responses"],
+                "model_validation_warnings": outcome.validation_warnings,
+                "model_correction_attempted": outcome.correction_attempted,
                 "trace": trace,
                 "not_stock_related": [item["channel"] for item in channel_results if item["status"] == "not_stock_related"]}
     except RuntimeError as error:
@@ -517,6 +522,8 @@ async def analysis_results(session: AsyncSession = Depends(get_session)) -> list
             "content_types": item.summary.get("content_types", ["text", "images", "audio"]),
             "stock_source_table": item.summary.get("stock_source_table", []),
             "client_inquiry_responses": item.summary.get("client_inquiry_responses", []),
+            "model_validation_warnings": item.summary.get("model_validation_warnings", []),
+            "model_correction_attempted": item.summary.get("model_correction_attempted", False),
         }
         for item in stored_reports
         if item.summary.get("analysis_result") or item.summary.get("analysis_mode") == "consolidated_batch"

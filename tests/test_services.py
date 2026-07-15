@@ -31,6 +31,7 @@ from app.collector.telegram import is_promotional_message
 from app.reports import ReportService
 from app.analysis_trace import create_selected_input_trace, export_analysis_trace, save_consolidated_response
 from app.analysis_filter import has_past_recommendation_context
+from app.analysis_validation import validate_consolidated_output
 from app.repositories import StockRepository
 from app.stock_catalog import EGXStockCatalog, normalize_stock_name
 
@@ -455,24 +456,68 @@ def test_content_pack_installs_prompt_and_aliases(tmp_path):
     assert manager.stock_aliases()["cib arabic"] == "CIB"
 
 
-def test_next_day_analysis_window_uses_two_days_before_the_request_to_now_in_cairo():
+def test_next_day_analysis_window_uses_one_day_before_the_request_to_now_in_cairo():
     from datetime import date
 
     requested_at = datetime(2026, 7, 13, 12, tzinfo=timezone.utc)
     start, end, target_date = next_day_analysis_window(requested_at)
-    assert start == datetime(2026, 7, 11, 12, tzinfo=timezone.utc)
+    assert start == datetime(2026, 7, 12, 12, tzinfo=timezone.utc)
     assert end == requested_at
     assert target_date == date(2026, 7, 14)
 
 
-def test_selected_date_analysis_window_uses_two_days_before_through_selected_day_in_cairo():
+def test_selected_date_analysis_window_uses_prior_day_through_analyze_time():
     from datetime import date
 
-    start, end, target_date = selected_date_analysis_window(date(2026, 7, 10))
+    requested_at = datetime(2026, 7, 15, 12, tzinfo=timezone.utc)
+    start, end, target_date = selected_date_analysis_window(date(2026, 7, 10), requested_at)
 
     assert start == datetime(2026, 7, 7, 21, tzinfo=timezone.utc)
-    assert end == datetime(2026, 7, 10, 21, tzinfo=timezone.utc)
-    assert target_date == date(2026, 7, 10)
+    assert end == requested_at
+    assert target_date == date(2026, 7, 9)
+
+
+def test_next_day_analysis_window_uses_thursday_through_now_for_a_sunday_target():
+    from datetime import date
+
+    requested_at = datetime(2026, 7, 17, 12, tzinfo=timezone.utc)
+    start, end, target_date = next_day_analysis_window(requested_at)
+
+    assert start == datetime(2026, 7, 15, 21, tzinfo=timezone.utc)
+    assert end == requested_at
+    assert target_date == date(2026, 7, 19)
+
+
+def test_next_day_analysis_window_keeps_thursday_coverage_on_saturday_for_sunday_target():
+    from datetime import date
+
+    requested_at = datetime(2026, 7, 18, 12, tzinfo=timezone.utc)
+    start, end, target_date = next_day_analysis_window(requested_at)
+
+    assert start == datetime(2026, 7, 15, 21, tzinfo=timezone.utc)
+    assert end == requested_at
+    assert target_date == date(2026, 7, 19)
+
+
+def test_selected_date_analysis_window_resolves_egypt_weekend_to_thursday():
+    from datetime import date
+
+    start, _, target_date = selected_date_analysis_window(date(2026, 7, 18), datetime(2026, 7, 20, tzinfo=timezone.utc))
+
+    assert start == datetime(2026, 7, 14, 21, tzinfo=timezone.utc)
+    assert target_date == date(2026, 7, 16)
+
+
+def test_consolidated_validation_warns_when_inquiries_are_returned_as_recommendations():
+    messages = [{"source": "Ostoul", "telegram_message_id": 7, "text": "ردًا على استفسارات عملائنا"}]
+    payload = {"top_consolidated_recommendations": [{"data_points": [{
+        "source": "Ostoul", "source_message_id": "7",
+    }]}], "client_inquiry_responses": []}
+
+    warnings = validate_consolidated_output(payload, messages)
+
+    assert any("placed in recommendations" in warning for warning in warnings)
+    assert any("absent from client inquiries" in warning for warning in warnings)
 
 
 def test_past_recommendation_caption_detection_handles_arabic_and_english_markers():

@@ -34,6 +34,7 @@ export type StockSourceTableRow = {
   company: string;
   company_ar?: string;
   source: string;
+  source_message_id?: string | null;
   source_entries: number;
   source_dates: string[];
   latest_date?: string | null;
@@ -107,6 +108,8 @@ export type SelectedAnalysisResult = {
   stock_code_details: StockSourceRow[];
   stock_source_table: StockSourceTableRow[];
   client_inquiry_responses: ClientInquiryResponse[];
+  model_validation_warnings: string[];
+  model_correction_attempted: boolean;
   not_stock_related: string[];
 };
 
@@ -118,6 +121,8 @@ export type AnalysisResultHistory = {
   content_types: AnalysisContentType[];
   stock_source_table: StockSourceTableRow[];
   client_inquiry_responses: ClientInquiryResponse[];
+  model_validation_warnings: string[];
+  model_correction_attempted: boolean;
 };
 
 export class ApiError extends Error {

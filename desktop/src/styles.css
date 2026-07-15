@@ -377,6 +377,8 @@ tr:hover td { background: #131f33; }
 .toast.error   { background: #45191d; color: #fecaca; border: 1px solid #f87171; }
 .toast.warning { background: #4a3511; color: #fde68a; border: 1px solid #fbbf24; }
 
+.analysis-result-warning { display: grid; gap: .3rem; margin: .5rem 0; padding: .8rem 1rem; border: 1px solid #d89b37; border-radius: .65rem; background: #3c2b11; color: #fde68a; }
+
 /* ── Update banner ── */
 .update-banner {
   display: flex;

@@ -374,6 +374,7 @@ def _consolidated_source_table(payload: dict) -> list[dict]:
                 "company": str(item.get("stock_name_en") or item["stock_code"]),
                 "company_ar": str(item.get("stock_name_ar") or ""),
                 "source": source,
+                "source_message_id": str(point.get("source_message_id") or "") or None,
                 "source_entries": 1,
                 "source_dates": [str(point["date"])[:10]] if point.get("date") else [],
                 "latest_date": str(point["date"])[:10] if point.get("date") else None,

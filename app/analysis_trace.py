@@ -97,6 +97,17 @@ def save_consolidated_response(trace: dict[str, object], response: str) -> dict[
     return {**trace, "consolidated_response_path": str(response_path)}
 
 
+def save_model_validation(trace: dict[str, object], warnings: list[str], correction_attempted: bool) -> dict[str, object]:
+    """Persist non-blocking model-output audit details next to the raw response."""
+    directory = Path(str(trace["directory"]))
+    validation_path = directory / "model-output-validation.json"
+    validation_path.write_text(json.dumps({
+        "warnings": warnings,
+        "correction_attempted": correction_attempted,
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {**trace, "validation_path": str(validation_path)}
+
+
 async def export_analysis_trace(session: AsyncSession, storage_root: Path, channel_ids: list[int],
                                 start: datetime, end: datetime, consolidated_response: str | None = None) -> dict[str, object]:
     """Save the exact text and images considered in one selected-chat analysis run."""

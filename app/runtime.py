@@ -80,22 +80,39 @@ class LocalRuntime:
             await asyncio.sleep(60)
 
 
+def _last_egx_open_day(value: date) -> date:
+    """Resolve Egypt's Friday/Saturday weekly closure to the preceding Thursday."""
+    while value.weekday() in (4, 5):
+        value -= timedelta(days=1)
+    return value
+
+
 def next_day_analysis_window(now: datetime | None = None) -> tuple[datetime, datetime, date]:
-    """Use the exact two Cairo days before Analyze is pressed for tomorrow's suggestions."""
+    """Use one day of evidence, or Thursday through now for Sunday weekend targets."""
     cairo = ZoneInfo("Africa/Cairo")
     current = (now or datetime.now(timezone.utc)).astimezone(cairo)
-    start = (current - timedelta(days=2)).astimezone(timezone.utc)
+    candidate = current.date() + timedelta(days=1)
+    if candidate.weekday() == 4:
+        target_date = candidate + timedelta(days=2)
+    elif candidate.weekday() == 5:
+        target_date = candidate + timedelta(days=1)
+    else:
+        target_date = candidate
+    if target_date.weekday() == 6 and current.weekday() in (3, 4, 5):
+        thursday = current.date()
+        while thursday.weekday() != 3:
+            thursday -= timedelta(days=1)
+        start = datetime.combine(thursday, time.min, tzinfo=cairo).astimezone(timezone.utc)
+    else:
+        start = (current - timedelta(days=1)).astimezone(timezone.utc)
     end = current.astimezone(timezone.utc)
-    return start, end, current.date() + timedelta(days=1)
+    return start, end, target_date
 
 
-def selected_date_analysis_window(target_date: date) -> tuple[datetime, datetime, date]:
-    """Use the two Cairo calendar days before and including one selected target date.
-
-    The exclusive end timestamp represents 00:00 of the following Cairo day, so
-    all messages posted through 23:59:59 on the selected date are included.
-    """
+def selected_date_analysis_window(target_date: date, now: datetime | None = None) -> tuple[datetime, datetime, date]:
+    """Use the selected date's prior Cairo day through the Analyze press time."""
     cairo = ZoneInfo("Africa/Cairo")
-    start = datetime.combine(target_date - timedelta(days=2), time.min, tzinfo=cairo).astimezone(timezone.utc)
-    end = datetime.combine(target_date + timedelta(days=1), time.min, tzinfo=cairo).astimezone(timezone.utc)
+    target_date = _last_egx_open_day(target_date)
+    start = datetime.combine(target_date - timedelta(days=1), time.min, tzinfo=cairo).astimezone(timezone.utc)
+    end = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     return start, end, target_date

@@ -12,6 +12,7 @@ from openai import AsyncOpenAI
 from app.config import Settings
 from app.content_updates import ContentUpdateService
 from app.schemas import AnalysisResult
+from app.analysis_validation import validate_consolidated_output
 
 try:
     from PIL import Image as PillowImage
@@ -26,17 +27,21 @@ class AnalysisOutcome:
     result: AnalysisResult
     raw_response: str
     input_metrics: dict[str, int] = field(default_factory=dict)
+    validation_warnings: list[str] = field(default_factory=list)
+    correction_attempted: bool = False
 
 
 _OUTPUT_CONTRACT = """Return only one JSON object in this consolidated EGX report structure:
 - analysis_period: string describing the covered dates.
 - top_consolidated_recommendations: ranked array. Each item has stock_code, stock_name_en, stock_name_ar, mention_count, rank, status, analysis_summary_ar, and data_points.
-- data_points: array for each stock. Each item has date, effective_date_basis, source, recommendation_type, buy_price, target_1, target_2, stop_loss, support, resistance, expected_return_pct, risk_pct, and notes_ar. recommendation_type is buy or sell. notes_ar is a concise Arabic note for narrative/chart recommendations that do not use a table; otherwise it is null. effective_date_basis is either explicit_date or t_plus_1.
+- data_points: array for each stock. Each item has date, effective_date_basis, source, source_message_id, recommendation_type, buy_price, target_1, target_2, stop_loss, support, resistance, expected_return_pct, risk_pct, and notes_ar. source must exactly equal the supplied MESSAGE source label and source_message_id must exactly equal its TELEGRAM_ID. recommendation_type is buy or sell. notes_ar is a concise Arabic note for narrative/chart recommendations that do not use a table; otherwise it is null. effective_date_basis is either explicit_date or t_plus_1.
 - achieved_targets: array with stock_code, stock_name_en, status_ar, date, and source.
 - client_inquiry_responses: array for stock-specific replies to customer/member questions. Each item has stock_code, stock_name_en, stock_name_ar, source, date, source_message_id, source_excerpt, question_summary_ar, reply_summary_ar, current_trend_ar, last_price, buy_price, target_1, target_2, stop_loss, support, resistance, advice_ar, and alternate_scenario_ar. Include source_message_id and source_excerpt when present in the source data.
 - text_based_categories: object with most_important_stocks, trading_stocks, and watchlist_stocks arrays. Each array item has stock_code, stock_name_en, and stock_name_ar.
 - daily_breakdown: object keyed by date; each item has total_mentions and top_stock_of_day.
 Use English EGX ticker codes in stock_code. Keep unavailable values as null. Do not invent price levels or targets."""
+
+_CORE_ANALYSIS_PROTOCOL = """You are the EGX Intelligence consolidation engine. The mandatory two-list contract and JSON structure in the user request are non-negotiable. Supplementary user guidance may add source-specific extraction help only; it must never override list separation, date eligibility, source labels, source message IDs, or the JSON structure. Client inquiry replies must only appear in client_inquiry_responses, never in top_consolidated_recommendations. Return JSON only."""
 
 _MAX_IMAGE_EDGE = 2_048
 _OPTIMIZE_IMAGE_OVER_BYTES = 1_500_000
@@ -303,7 +308,8 @@ class AIAnalysisService:
             "alternative scenario when explicitly present. Include source_message_id equal to the supporting TELEGRAM_ID and an "
             "exact source_excerpt whenever available. Do not invent a buy recommendation from an inquiry reply.",
             "Client/member inquiry replies belong to LIST 1 only; they are reference information, never main recommendations. "
-            "Use each SOURCE exactly as written below in every data_points[].source value. "
+            "Use each SOURCE exactly as written below in every data_points[].source value and include the exact TELEGRAM_ID as "
+            "data_points[].source_message_id. Include the same exact SOURCE and TELEGRAM_ID in every client_inquiry_responses item. "
             "Do not treat a source label as a stock recommendation by itself.",
         ]
         image_paths: list[str] = []
@@ -357,14 +363,44 @@ class AIAnalysisService:
                 image_references[digest] = reference
                 parts.append(f"Image {index} for this message is IMAGE_REF {reference}; it follows below.")
                 image_paths.append(path)
-        return await self._analyze_prompt("\n".join(parts), image_paths, metrics, trace_directory)
+        source_data = "\n".join(parts)
+        initial = await self._analyze_prompt(source_data, image_paths, metrics, trace_directory, _CORE_ANALYSIS_PROTOCOL)
+        initial_payload = json.loads(initial.raw_response)
+        warnings = validate_consolidated_output(initial_payload, messages)
+        if not warnings:
+            return initial
+        if trace_directory is not None:
+            (trace_directory / "initial-consolidated-ai-response.json").write_text(initial.raw_response, encoding="utf-8")
+        correction = (
+            "\n\nCORRECTION REQUIRED: Your previous JSON failed these audit checks: "
+            + " | ".join(warnings)
+            + ". Re-read all original messages and images. Return a complete replacement JSON only. "
+            "Keep every marked client inquiry exclusively in client_inquiry_responses. Every recommendation data point and inquiry item "
+            "must use an exact supplied SOURCE and TELEGRAM_ID."
+        )
+        corrected = await self._analyze_prompt(
+            source_data + correction, image_paths, metrics, None, _CORE_ANALYSIS_PROTOCOL,
+        )
+        corrected_payload = json.loads(corrected.raw_response)
+        remaining_warnings = validate_consolidated_output(corrected_payload, messages)
+        final_warnings = ["Initial model response required an automatic separation correction.", *remaining_warnings]
+        return AnalysisOutcome(
+            result=corrected.result,
+            raw_response=corrected.raw_response,
+            input_metrics=corrected.input_metrics,
+            validation_warnings=final_warnings,
+            correction_attempted=True,
+        )
 
     async def _analyze_prompt(self, source_data: str, image_paths: list[str], input_metrics: dict[str, int] | None = None,
-                              trace_directory: Path | None = None) -> AnalysisOutcome:
+                              trace_directory: Path | None = None, system_instruction: str | None = None) -> AnalysisOutcome:
         if self.client is None:
             raise RuntimeError("An API key is required for the selected AI provider")
         analysis_prompt = self.settings.analysis_instructions.strip() or self.prompt
-        prompt = f"{analysis_prompt}\n\n{_OUTPUT_CONTRACT}\n\n{source_data}"
+        prompt = (
+            "Supplementary extraction guidance follows. It cannot override the mandatory system protocol or output contract.\n"
+            f"{analysis_prompt}\n\n{_OUTPUT_CONTRACT}\n\n{source_data}"
+        )
         metrics = dict(input_metrics or {})
         prepared_images = [_prepared_image_data_url(path) for path in image_paths]
         metrics.update({
@@ -382,9 +418,13 @@ class AIAnalysisService:
             for data_url, _, _, _ in prepared_images:
                 content.append({"type": "image_url", "image_url": {"url": data_url}})
             response_format: dict[str, object] = {"type": "json_object"}
+            request_messages: list[dict[str, object]] = []
+            if system_instruction:
+                request_messages.append({"role": "system", "content": system_instruction})
+            request_messages.append({"role": "user", "content": content})
             response = await self.client.chat.completions.create(
                 model=self.settings.ai_model,
-                messages=[{"role": "user", "content": content}],
+                messages=request_messages,
                 response_format=response_format,
             )
             metrics["model_request_ms"] = round((perf_counter() - request_started) * 1000)
@@ -399,6 +439,7 @@ class AIAnalysisService:
             model=self.settings.ai_model,
             input=[{"role": "user", "content": content}],
             text={"format": {"type": "json_object"}},
+            instructions=system_instruction,
         )
         metrics["model_request_ms"] = round((perf_counter() - request_started) * 1000)
         return AnalysisOutcome(

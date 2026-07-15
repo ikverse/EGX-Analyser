@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.71
+- Corrected Arabic detection for past recommendation captions and customer-inquiry replies.
+- Enforced source-message traceability for both recommendation and inquiry model output, with one automatic correction retry when the model mixes the two lists.
+- Shows non-blocking model-output audit warnings in Results while retaining every returned analysis response.
+- Uses the last 24 hours for normal next-day analysis and includes Thursday through the Analyze moment when preparing recommendations for Sunday.
+
 ## v0.1.70
 - Expands selected-chat evidence windows to two days for next-day and historical analysis.
 - Excludes image posts whose captions mark them as past recommendations before model submission and records them in each trace.
