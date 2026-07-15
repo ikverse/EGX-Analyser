@@ -563,6 +563,20 @@ tr:hover td { background: #131f33; }
 .analysis-expanded-meta span { background: #101d30; border: 1px solid #263d59; border-radius: 6px; color: #94a3b8; font-size: .76rem; padding: .3rem .5rem; }
 .analysis-expanded-meta strong { color: #dbeafe; display: inline; margin: 0; }
 .analysis-section-list { border: 1px solid #26364d; border-radius: 10px; margin-top: 1rem; overflow: hidden; }
+.analysis-performance { background: #101d30; border-bottom: 1px solid #26364d; display: grid; gap: .4rem; padding: .75rem 1rem; }
+.analysis-performance > div:first-child { align-items: center; display: flex; gap: .65rem; justify-content: space-between; }
+.analysis-performance strong { color: #bbf7d0; }
+.analysis-performance > div:first-child > span, .analysis-performance p { color: #94a3b8; font-size: .76rem; margin: 0; }
+.analysis-performance-stages { display: flex; flex-wrap: wrap; gap: .35rem; }
+.analysis-performance-stages span { align-items: center; background: #0b1525; border: 1px solid #2a405c; border-radius: 999px; color: #94a3b8; display: inline-flex; font-size: .7rem; gap: .35rem; padding: .22rem .45rem; }
+.analysis-performance-stages strong { color: #dbeafe; font-variant-numeric: tabular-nums; }
+.model-retry-audit { border-bottom: 1px solid #26364d; display: grid; gap: .2rem; padding: .7rem 1rem; }
+.model-retry-audit strong { font-size: .82rem; }
+.model-retry-audit span { color: #cbd5e1; font-size: .75rem; }
+.model-retry-audit.passed { background: #123124; }
+.model-retry-audit.passed strong { color: #bbf7d0; }
+.model-retry-audit.warning { background: #3c2b11; }
+.model-retry-audit.warning strong { color: #fde68a; }
 .analysis-section-row { align-items: center; background: #101b2c; border: 0; border-bottom: 1px solid #26364d; border-radius: 0; color: #dbeafe; display: flex; justify-content: space-between; min-height: 4.5rem; padding: .85rem 1rem; text-align: left; width: 100%; }
 .analysis-section-row:hover { background: #172c42; transform: none; }
 .analysis-section-row[aria-expanded="true"] { background: #152b42; }

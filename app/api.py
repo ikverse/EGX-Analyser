@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.service import AIAnalysisService
 from app.analysis_filter import has_past_recommendation_context
-from app.analysis_trace import create_selected_input_trace, save_consolidated_response, save_model_validation
+from app.analysis_trace import create_selected_input_trace, save_analysis_performance, save_consolidated_response, save_model_validation
 from app.config import get_settings
 from app.config_store import update_config
 from app.content_updates import ContentUpdateError, ContentUpdateService
@@ -278,9 +278,11 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
     analysis_period = f"Source messages: {source_start_date} through {source_end_date}; target date: {target_date.isoformat()}"
     content_types = set(payload.content_types)
     analysis_started = perf_counter()
+    timings_ms: dict[str, int] = {}
     try:
         collection = await runtime.collect_once(payload.channel_ids, since=window_start, analyze_messages=False)
-        collection_ms = round((perf_counter() - analysis_started) * 1000)
+        timings_ms["telegram_collection_ms"] = round((perf_counter() - analysis_started) * 1000)
+        database_load_started = perf_counter()
         message_rows = (await session.execute(
             select(Message, Channel)
             .join(Channel, Message.channel_id == Channel.id)
@@ -304,6 +306,8 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
             for media in media_rows:
                 if media.transcript:
                     transcripts_by_message.setdefault(media.message_id, []).append(media.transcript)
+        timings_ms["database_loading_ms"] = round((perf_counter() - database_load_started) * 1000)
+        input_filter_started = perf_counter()
         batch_messages = []
         excluded_items: list[dict[str, str]] = []
         for message, channel in message_rows:
@@ -328,29 +332,40 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
                 "image_paths": selected_images,
                 "transcripts": selected_transcripts,
             })
+        timings_ms["input_filtering_ms"] = round((perf_counter() - input_filter_started) * 1000)
+        trace_write_started = perf_counter()
         trace = create_selected_input_trace(
             get_settings().storage_root, batch_messages, window_start, window_end,
             analysis_period, target_date.isoformat(), content_types, excluded_items,
         )
+        timings_ms["selected_input_trace_ms"] = round((perf_counter() - trace_write_started) * 1000)
+        model_pipeline_started = perf_counter()
         outcome = await AIAnalysisService(get_settings()).analyze_consolidated(
             batch_messages, analysis_period, target_date.isoformat(), Path(str(trace["directory"]))
         )
-        model_completed = perf_counter()
+        timings_ms["model_pipeline_ms"] = round((perf_counter() - model_pipeline_started) * 1000)
+        timings_ms.update({key: int(value) for key, value in outcome.input_metrics.items()})
         consolidated_source = json.loads(outcome.raw_response)
         if not isinstance(consolidated_source, dict):
             raise RuntimeError("The AI provider returned a non-object response for the consolidated analysis")
+        catalog_started = perf_counter()
         catalog = egx_catalog(session)
         catalog_refresh = await catalog.ensure()
         await catalog.enrich_consolidated_output(consolidated_source)
+        timings_ms["catalog_enrichment_ms"] = round((perf_counter() - catalog_started) * 1000)
         collection["messages_analyzed"] = len(batch_messages)
         trace = save_consolidated_response(trace, outcome.raw_response)
-        trace = save_model_validation(trace, outcome.validation_warnings, outcome.correction_attempted)
+        trace = save_model_validation(
+            trace, outcome.validation_warnings, outcome.correction_attempted, outcome.retry_audit,
+        )
+        report_generation_started = perf_counter()
         report = await ReportService(session, get_settings()).generate_selected_chat_report(
             payload.channel_ids, window_start, window_end, 2,
             consolidated_source=consolidated_source, consolidated_raw_response=outcome.raw_response,
             report_label=report_label,
         )
-        report_generation_ms = round((perf_counter() - model_completed) * 1000)
+        timings_ms["report_generation_ms"] = round((perf_counter() - report_generation_started) * 1000)
+        timings_ms["total_before_commit_ms"] = round((perf_counter() - analysis_started) * 1000)
         report.summary = {**report.summary, **{
             "analysis_result": True,
             "target_date": target_date.isoformat(),
@@ -362,14 +377,18 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
             "analysis_trace_directory": trace["directory"],
             "model_validation_warnings": outcome.validation_warnings,
             "model_correction_attempted": outcome.correction_attempted,
+            "model_retry_audit": outcome.retry_audit,
+            "performance": timings_ms,
         }}
+        commit_started = perf_counter()
         await session.commit()
+        timings_ms["database_commit_ms"] = round((perf_counter() - commit_started) * 1000)
+        timings_ms["total_analysis_ms"] = round((perf_counter() - analysis_started) * 1000)
+        trace = save_analysis_performance(trace, timings_ms)
         logger().info(
             "analysis_performance",
             extra={
-                "collection_ms": collection_ms,
-                "report_generation_ms": report_generation_ms,
-                "total_analysis_ms": round((perf_counter() - analysis_started) * 1000),
+                **timings_ms,
                 "catalog_changes": catalog_refresh["changed"],
                 "catalog_refreshed": catalog_refresh["refreshed"],
                 **outcome.input_metrics,
@@ -388,7 +407,9 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
                 "client_inquiry_responses": report.summary["client_inquiry_responses"],
                 "model_validation_warnings": outcome.validation_warnings,
                 "model_correction_attempted": outcome.correction_attempted,
+                "model_retry_audit": outcome.retry_audit,
                 "trace": trace,
+                "performance": timings_ms,
                 "not_stock_related": [item["channel"] for item in channel_results if item["status"] == "not_stock_related"]}
     except RuntimeError as error:
         if "already running" in str(error).lower():
@@ -497,6 +518,8 @@ async def analysis_results(session: AsyncSession = Depends(get_session)) -> list
             "client_inquiry_responses": item.summary.get("client_inquiry_responses", []),
             "model_validation_warnings": item.summary.get("model_validation_warnings", []),
             "model_correction_attempted": item.summary.get("model_correction_attempted", False),
+            "model_retry_audit": item.summary.get("model_retry_audit", {}),
+            "performance": item.summary.get("performance", {}),
         }
         for item in stored_reports
         if item.summary.get("analysis_result") or item.summary.get("analysis_mode") == "consolidated_batch"

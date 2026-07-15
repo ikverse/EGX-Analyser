@@ -97,7 +97,8 @@ def save_consolidated_response(trace: dict[str, object], response: str) -> dict[
     return {**trace, "consolidated_response_path": str(response_path)}
 
 
-def save_model_validation(trace: dict[str, object], warnings: list[str], correction_attempted: bool) -> dict[str, object]:
+def save_model_validation(trace: dict[str, object], warnings: list[str], correction_attempted: bool,
+                          retry_audit: dict[str, object] | None = None) -> dict[str, object]:
     """Persist non-blocking model-output audit details next to the raw response."""
     directory = Path(str(trace["directory"]))
     validation_path = directory / "model-output-validation.json"
@@ -105,7 +106,23 @@ def save_model_validation(trace: dict[str, object], warnings: list[str], correct
         "warnings": warnings,
         "correction_attempted": correction_attempted,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
-    return {**trace, "validation_path": str(validation_path)}
+    retry_audit_path = directory / "model-retry-audit.json"
+    retry_audit_path.write_text(json.dumps(retry_audit or {
+        "attempted": correction_attempted,
+        "status": "unknown",
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {**trace, "validation_path": str(validation_path), "retry_audit_path": str(retry_audit_path)}
+
+
+def save_analysis_performance(trace: dict[str, object], timings_ms: dict[str, int]) -> dict[str, object]:
+    """Persist one readable timing breakdown alongside the exact model input."""
+    directory = Path(str(trace["directory"]))
+    performance_path = directory / "performance.json"
+    performance_path.write_text(json.dumps({
+        "unit": "milliseconds",
+        "timings": timings_ms,
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {**trace, "performance_path": str(performance_path), "performance": timings_ms}
 
 
 async def export_analysis_trace(session: AsyncSession, storage_root: Path, channel_ids: list[int],

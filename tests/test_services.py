@@ -29,7 +29,7 @@ from app.telegram_auth import TelegramAuthenticator
 from app.runtime import next_day_analysis_window, selected_date_analysis_window
 from app.collector.telegram import is_promotional_message
 from app.reports import ReportService
-from app.analysis_trace import create_selected_input_trace, export_analysis_trace, save_consolidated_response
+from app.analysis_trace import create_selected_input_trace, export_analysis_trace, save_analysis_performance, save_consolidated_response, save_model_validation
 from app.analysis_filter import has_past_recommendation_context
 from app.analysis_validation import enforce_client_inquiry_separation, validate_consolidated_output
 from app.repositories import StockRepository
@@ -241,6 +241,30 @@ async def test_delete_analysis_result_removes_managed_files(session, tmp_path, m
     assert not raw_file.exists()
     assert not trace_directory.exists()
     assert await session.get(Report, report.id) is None
+
+
+def test_analysis_performance_is_saved_in_trace(tmp_path):
+    trace_directory = tmp_path / "trace"
+    trace_directory.mkdir()
+
+    result = save_analysis_performance({"directory": str(trace_directory)}, {"model_request_ms": 1200})
+
+    assert Path(str(result["performance_path"])).exists()
+    assert json.loads(Path(str(result["performance_path"])).read_text(encoding="utf-8")) == {
+        "unit": "milliseconds", "timings": {"model_request_ms": 1200},
+    }
+
+
+def test_model_retry_audit_is_saved_in_trace(tmp_path):
+    trace_directory = tmp_path / "trace"
+    trace_directory.mkdir()
+
+    result = save_model_validation(
+        {"directory": str(trace_directory)}, [], True,
+        {"attempted": True, "status": "passed", "final_validation_warnings": []},
+    )
+
+    assert json.loads(Path(str(result["retry_audit_path"])).read_text(encoding="utf-8"))["status"] == "passed"
 
 
 async def test_channel_creation_normalizes_and_reuses_telegram_chat(session):

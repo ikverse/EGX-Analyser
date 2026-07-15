@@ -29,6 +29,7 @@ class AnalysisOutcome:
     input_metrics: dict[str, int] = field(default_factory=dict)
     validation_warnings: list[str] = field(default_factory=list)
     correction_attempted: bool = False
+    retry_audit: dict[str, Any] = field(default_factory=dict)
 
 
 _OUTPUT_CONTRACT = """Return only one JSON object in this consolidated EGX report structure:
@@ -264,6 +265,7 @@ class AIAnalysisService:
             }
             return AnalysisOutcome(result=_analysis_result_from_payload(empty), raw_response=json.dumps(empty))
 
+        prompt_assembly_started = perf_counter()
         previous_target_date = (date.fromisoformat(target_trading_date) - timedelta(days=1)).isoformat()
         parts = [
             "Selected Telegram chat data follows. Analyze the complete set as one consolidated EGX window.",
@@ -365,18 +367,32 @@ class AIAnalysisService:
                 image_paths.append(path)
         source_data = "\n".join(parts)
         initial = await self._analyze_prompt(source_data, image_paths, metrics, trace_directory, _CORE_ANALYSIS_PROTOCOL)
+        initial_metrics = dict(initial.input_metrics)
         initial_payload, initial_separation_warnings = enforce_client_inquiry_separation(
             json.loads(initial.raw_response), messages,
         )
         warnings = validate_consolidated_output(initial_payload, messages)
         if not warnings:
+            initial_metrics["prompt_assembly_ms"] = round((perf_counter() - prompt_assembly_started) * 1000)
+            initial_metrics["model_request_count"] = 1
+            initial_metrics["model_requests_total_ms"] = initial_metrics.get("model_request_ms", 0)
             return AnalysisOutcome(
                 result=_analysis_result_from_payload(initial_payload),
                 raw_response=json.dumps(initial_payload, ensure_ascii=False),
-                input_metrics=initial.input_metrics,
+                input_metrics=initial_metrics,
                 validation_warnings=initial_separation_warnings,
+                retry_audit={
+                    "attempted": False,
+                    "status": "not_required",
+                    "trigger_warnings": [],
+                    "local_separation_warnings": initial_separation_warnings,
+                    "final_validation_warnings": [],
+                },
             )
         if trace_directory is not None:
+            (trace_directory / "initial-provider-response.json").write_text(
+                initial.raw_response, encoding="utf-8",
+            )
             (trace_directory / "initial-consolidated-ai-response.json").write_text(
                 json.dumps(initial_payload, ensure_ascii=False, indent=2), encoding="utf-8",
             )
@@ -387,6 +403,8 @@ class AIAnalysisService:
             "Keep every marked client inquiry exclusively in client_inquiry_responses. Every recommendation data point and inquiry item "
             "must use an exact supplied SOURCE and TELEGRAM_ID."
         )
+        if trace_directory is not None:
+            (trace_directory / "retry-instruction.txt").write_text(correction, encoding="utf-8")
         corrected = await self._analyze_prompt(
             source_data + correction, image_paths, metrics, None, _CORE_ANALYSIS_PROTOCOL,
         )
@@ -400,12 +418,31 @@ class AIAnalysisService:
             *corrected_separation_warnings,
             *remaining_warnings,
         ]
+        corrected_metrics = dict(corrected.input_metrics)
+        corrected_metrics["prompt_assembly_ms"] = round((perf_counter() - prompt_assembly_started) * 1000)
+        corrected_metrics["model_request_count"] = 2
+        corrected_metrics["initial_model_request_ms"] = initial_metrics.get("model_request_ms", 0)
+        corrected_metrics["correction_model_request_ms"] = corrected_metrics.get("model_request_ms", 0)
+        corrected_metrics["model_requests_total_ms"] = (
+            corrected_metrics["initial_model_request_ms"] + corrected_metrics["correction_model_request_ms"]
+        )
         return AnalysisOutcome(
             result=_analysis_result_from_payload(corrected_payload),
             raw_response=json.dumps(corrected_payload, ensure_ascii=False),
-            input_metrics=corrected.input_metrics,
+            input_metrics=corrected_metrics,
             validation_warnings=final_warnings,
             correction_attempted=True,
+            retry_audit={
+                "attempted": True,
+                "status": "passed" if not remaining_warnings else "warnings_remaining",
+                "trigger_warnings": warnings,
+                "local_separation_warnings": [*initial_separation_warnings, *corrected_separation_warnings],
+                "final_validation_warnings": remaining_warnings,
+                "initial_response_path": "initial-provider-response.json",
+                "initial_normalized_response_path": "initial-consolidated-ai-response.json",
+                "retry_instruction_path": "retry-instruction.txt",
+                "final_response_path": "consolidated-ai-response.json",
+            },
         )
 
     async def _analyze_prompt(self, source_data: str, image_paths: list[str], input_metrics: dict[str, int] | None = None,
@@ -418,6 +455,7 @@ class AIAnalysisService:
             f"{analysis_prompt}\n\n{_OUTPUT_CONTRACT}\n\n{source_data}"
         )
         metrics = dict(input_metrics or {})
+        image_preparation_started = perf_counter()
         prepared_images = [_prepared_image_data_url(path) for path in image_paths]
         metrics.update({
             "unique_image_count": len(prepared_images),
@@ -425,9 +463,12 @@ class AIAnalysisService:
             "sent_image_bytes": sum(item[2] for item in prepared_images),
             "optimized_image_count": sum(int(item[3]) for item in prepared_images),
             "prompt_characters": len(prompt),
+            "image_preparation_ms": round((perf_counter() - image_preparation_started) * 1000),
         })
         if trace_directory is not None:
+            trace_write_started = perf_counter()
             _write_provider_request_trace(trace_directory, prompt, prepared_images)
+            metrics["provider_trace_write_ms"] = round((perf_counter() - trace_write_started) * 1000)
         request_started = perf_counter()
         if self.settings.ai_provider != "openai":
             content: list[dict[str, object]] = [{"type": "text", "text": prompt}]

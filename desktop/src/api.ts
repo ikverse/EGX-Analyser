@@ -78,6 +78,8 @@ export type ClientInquiryResponse = {
 
 export type AnalysisContentType = "text" | "images" | "audio";
 export type AnalysisMode = "next_day" | "specific_date";
+export type AnalysisPerformance = Record<string, number>;
+export type ModelRetryAudit = { attempted?: boolean; status?: string; trigger_warnings?: string[]; final_validation_warnings?: string[] };
 
 export type SelectedAnalysisResult = {
   messages_collected: number;
@@ -110,6 +112,8 @@ export type SelectedAnalysisResult = {
   client_inquiry_responses: ClientInquiryResponse[];
   model_validation_warnings: string[];
   model_correction_attempted: boolean;
+  model_retry_audit: ModelRetryAudit;
+  performance: AnalysisPerformance;
   not_stock_related: string[];
 };
 
@@ -123,6 +127,8 @@ export type AnalysisResultHistory = {
   client_inquiry_responses: ClientInquiryResponse[];
   model_validation_warnings: string[];
   model_correction_attempted: boolean;
+  model_retry_audit: ModelRetryAudit;
+  performance: AnalysisPerformance;
 };
 
 export class ApiError extends Error {

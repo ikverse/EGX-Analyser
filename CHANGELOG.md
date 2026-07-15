@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.77
+- Added per-run analysis timing across collection, media preparation, AI requests, catalog enrichment, report creation, and persistence.
+- Added retry audit files and Results status that confirm whether an automatic correction retry passed validation or still has warnings.
+
 ## v0.1.76
 - Redesigned client-inquiry cards into a smaller, Arabic-first right-to-left layout with compact price-level blocks.
 

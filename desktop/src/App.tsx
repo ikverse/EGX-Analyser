@@ -5,7 +5,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { check } from "@tauri-apps/plugin-updater";
 
 import {
-  AiProvider, AnalysisContentType, AnalysisMode, AnalysisResultHistory, ApiClient, Channel, ClientInquiryResponse, EgxCatalogStatus,
+  AiProvider, AnalysisContentType, AnalysisMode, AnalysisPerformance, AnalysisResultHistory, ApiClient, Channel, ClientInquiryResponse, EgxCatalogStatus, ModelRetryAudit,
   DiagnosticEntry, SettingsInput, SettingsStatus, TelegramChat,
   StockSourceRow, StockSourceTableRow, StockSummaryRow,
 } from "./api";
@@ -721,6 +721,46 @@ function matchesStockQuery(row: StockSourceTableRow, query: string): boolean {
   return candidates.some((candidate) => candidate.includes(normalizedQuery) || editDistance(candidate, normalizedQuery) <= allowedDistance);
 }
 
+function formatDuration(milliseconds: number | undefined): string {
+  if (!milliseconds || milliseconds < 1_000) return `${milliseconds ?? 0} ms`;
+  const seconds = milliseconds / 1_000;
+  return seconds >= 60 ? `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s` : `${seconds.toFixed(seconds >= 10 ? 0 : 1)}s`;
+}
+
+function AnalysisPerformancePanel({ performance }: { performance: AnalysisPerformance }) {
+  if (!Object.keys(performance).length) return null;
+  const modelDuration = performance.model_requests_total_ms ?? performance.model_request_ms ?? performance.model_pipeline_ms;
+  const totalDuration = performance.total_analysis_ms ?? performance.total_before_commit_ms;
+  const calls = performance.model_request_count ?? 1;
+  const stages = [
+    ["Telegram collection", performance.telegram_collection_ms],
+    ["Model preparation", performance.image_preparation_ms],
+    ["AI provider", modelDuration],
+    ["Catalog", performance.catalog_enrichment_ms],
+    ["Save results", performance.report_generation_ms],
+  ].filter(([, duration]) => typeof duration === "number") as Array<[string, number]>;
+  const slowest = stages.reduce<[string, number] | null>((current, stage) => !current || stage[1] > current[1] ? stage : current, null);
+  return <section className="analysis-performance" aria-label="Analysis timing">
+    <div><strong>Analysis timing</strong><span>Total: {formatDuration(totalDuration)}</span></div>
+    <p>{calls > 1 ? `${calls} AI requests were made, including an automatic validation retry. ` : "One AI request was made. "}
+      {slowest ? `Longest stage: ${slowest[0]} (${formatDuration(slowest[1])}).` : ""}</p>
+    <div className="analysis-performance-stages">
+      {stages.map(([label, duration]) => <span key={label}>{label}<strong>{formatDuration(duration)}</strong></span>)}
+    </div>
+  </section>;
+}
+
+function ModelRetryAuditPanel({ audit }: { audit: ModelRetryAudit }) {
+  if (!audit.attempted) return null;
+  const passed = audit.status === "passed";
+  const triggers = audit.trigger_warnings?.length ?? 0;
+  const remaining = audit.final_validation_warnings?.length ?? 0;
+  return <div className={`model-retry-audit ${passed ? "passed" : "warning"}`}>
+    <strong>{passed ? "Automatic retry passed validation" : "Automatic retry completed with warnings"}</strong>
+    <span>Triggered by {triggers} validation issue{triggers === 1 ? "" : "s"}; {remaining ? `${remaining} remain.` : "none remain."}</span>
+  </div>;
+}
+
 function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted }: {
   items: AnalysisResultHistory[]; api: ApiClient; notify: Notify; showError: ShowError; onDeleted: (id: number) => void;
 }) {
@@ -836,6 +876,8 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted }
                         </div>
                       </div>
                       <div className="analysis-section-list">
+                        <AnalysisPerformancePanel performance={item.performance} />
+                        <ModelRetryAuditPanel audit={item.model_retry_audit} />
                         {!!item.model_validation_warnings.length && <div className="analysis-result-warning">
                           <strong>Model output warning</strong>
                           <span>{item.model_correction_attempted ? "An automatic correction was attempted. " : ""}{item.model_validation_warnings.join(" ")}</span>
