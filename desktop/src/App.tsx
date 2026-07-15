@@ -11,6 +11,7 @@ import {
 } from "./api";
 
 type Page = "Channels" | "Results" | "Settings";
+type ThemeMode = "light" | "dark";
 type Toast = { kind: "success" | "warning"; text: string } | null;
 type AnalysisRunState = { running: boolean; progress: string };
 type ChannelAnalysisConfig = {
@@ -103,6 +104,7 @@ function ErrorModal({ message, onClose }: { message: string; onClose: () => void
 // ── App ───────────────────────────────────────────────────────────────────────
 
 export default function App() {
+  const [themeMode, setThemeMode] = useState<ThemeMode>(loadThemeMode);
   const [connected, setConnected] = useState(false);
   const [page, setPage] = useState<Page>("Channels");
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -119,6 +121,11 @@ export default function App() {
   const [downloadingUpdate, setDownloadingUpdate] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
   const api = useMemo(() => new ApiClient(), []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = themeMode;
+    localStorage.setItem("egx.theme", themeMode);
+  }, [themeMode]);
 
   const notify = (kind: "success" | "warning", text: string) => setToast({ kind, text });
 
@@ -342,6 +349,8 @@ export default function App() {
               showError={showError}
               checkingUpdate={checkingUpdate}
               onCheckForUpdates={() => void checkForUpdates(true)}
+              themeMode={themeMode}
+              onThemeModeChange={setThemeMode}
             />
           )}
         </section>
@@ -749,6 +758,10 @@ function matchesStockQuery(row: StockSourceTableRow, query: string): boolean {
     .filter(Boolean);
   const allowedDistance = normalizedQuery.length >= 6 ? 2 : 1;
   return candidates.some((candidate) => candidate.includes(normalizedQuery) || editDistance(candidate, normalizedQuery) <= allowedDistance);
+}
+
+function loadThemeMode(): ThemeMode {
+  return localStorage.getItem("egx.theme") === "light" ? "light" : "dark";
 }
 
 function formatDuration(milliseconds: number | undefined): string {
@@ -1500,10 +1513,11 @@ function SettingsSection({ title, description, open, onToggle, children }: {
   );
 }
 
-function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showError, checkingUpdate, onCheckForUpdates }: {
+function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showError, checkingUpdate, onCheckForUpdates, themeMode, onThemeModeChange }: {
   api: ApiClient; status: SettingsStatus | null; onSaved: () => Promise<boolean>;
   onRunTelegramCheck: () => Promise<boolean>;
   notify: Notify; showError: ShowError; checkingUpdate: boolean; onCheckForUpdates: () => void;
+  themeMode: ThemeMode; onThemeModeChange: (theme: ThemeMode) => void;
 }) {
   const [values, setValues] = useState<SettingsInput>({
     ai_provider: status?.ai_provider || "qwen",
@@ -1789,6 +1803,21 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
           }}>
             {refreshingCatalog ? "Refreshing catalog…" : "Refresh EGX catalog now"}
           </button>
+        </div>
+      </SettingsSection>
+
+      <SettingsSection title="Appearance" description={`${themeMode === "light" ? "Light" : "Dark"} violet palette`} open={openSection === "appearance"} onToggle={() => toggleSection("appearance")}>
+        <div className="settings-subsection appearance-settings">
+          <strong>Application theme</strong>
+          <p>Choose the lavender and violet theme that is most comfortable for your workspace. Your choice is saved on this computer.</p>
+          <div className="theme-picker" role="radiogroup" aria-label="Application theme">
+            <button type="button" className={`theme-option theme-option-light ${themeMode === "light" ? "is-selected" : ""}`} role="radio" aria-checked={themeMode === "light"} onClick={() => onThemeModeChange("light")}>
+              <span className="theme-swatch" /><span><strong>Light</strong><small>Bright lavender workspace</small></span>
+            </button>
+            <button type="button" className={`theme-option theme-option-dark ${themeMode === "dark" ? "is-selected" : ""}`} role="radio" aria-checked={themeMode === "dark"} onClick={() => onThemeModeChange("dark")}>
+              <span className="theme-swatch" /><span><strong>Dark</strong><small>Deep-indigo workspace</small></span>
+            </button>
+          </div>
         </div>
       </SettingsSection>
 

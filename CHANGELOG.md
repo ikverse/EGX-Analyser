@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.80
+- Rebuilt the application visual system around a lavender, violet, indigo, and blush palette.
+- Added centralized Light and Dark design tokens for reusable colors, surfaces, typography, borders, shadows, and component states.
+- Added a persistent Settings appearance switcher and updated navigation, forms, tables, dialogs, results, and cards to adapt to both themes.
+
 ## v0.1.79
 - Added a source-image button to each recommendation row when its saved Telegram image can be matched by channel and source message ID.
 - Added an in-app image viewer with multi-image navigation and direct file access.
