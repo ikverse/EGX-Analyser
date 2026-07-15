@@ -1012,16 +1012,16 @@ function ClientInquiryResponses({ rows }: { rows: ClientInquiryResponse[] }) {
     groups.set(row.ticker, group);
   });
   return (
-    <section className="client-inquiries" aria-label="Client inquiry replies">
+    <section className="client-inquiries" aria-label="ردود استفسارات العملاء" dir="rtl">
       <div className="client-inquiries-heading">
-        <strong>Client inquiry replies</strong>
-        <span>Reference only - excluded from active recommendations</span>
+        <strong>ردود استفسارات العملاء</strong>
+        <span>للمرجع فقط — لا تدخل ضمن التوصيات</span>
       </div>
       {[...groups.entries()].map(([ticker, replies]) => {
         const first = replies[0];
         return (
           <section className="client-inquiry-group" key={ticker}>
-            <h4><span>{ticker}</span> {first.company}{first.company_ar ? ` / ${first.company_ar}` : ""}</h4>
+            <h4><span dir="ltr">{ticker}</span> {first.company_ar || first.company}{first.company_ar ? ` / ${first.company}` : ""}</h4>
             <div className="client-inquiry-cards">
               {replies.map((row, index) => <ClientInquiryCard key={`${row.source}-${row.date ?? ""}-${row.source_message_id ?? index}`} row={row} />)}
             </div>
@@ -1037,35 +1037,35 @@ function ClientInquiryCard({ row }: { row: ClientInquiryResponse }) {
     .filter(([, value]) => value !== undefined && value !== null)
     .map(([label, value]) => [label, num(value)] as const);
   const tradeLevels = availableLevels([
-    ["Entry", row.buy_price], ["TP1", row.target_1], ["TP2", row.target_2], ["Stop", row.stop_loss],
+    ["سعر الدخول", row.buy_price], ["الهدف الأول", row.target_1], ["الهدف الثاني", row.target_2], ["وقف الخسارة", row.stop_loss],
   ]);
   const marketLevels = availableLevels([
-    ["Last", row.last_price], ["Support", row.support], ["Resistance", row.resistance],
+    ["آخر سعر", row.last_price], ["الدعم", row.support], ["المقاومة", row.resistance],
   ]);
   const assessment = row.reply_summary_ar || row.advice_ar;
   return (
     <article className="client-inquiry-card" dir="rtl">
       <header className="client-inquiry-card-header">
-        <div className="client-inquiry-origin" dir="ltr">
-          <span className="client-inquiry-kind">Inquiry reply</span>
+        <div className="client-inquiry-origin">
+          <span className="client-inquiry-kind">رد على استفسار</span>
           <strong>{row.source}</strong>
-          <span>{row.date || "No stated date"}</span>
+          <span dir="ltr">{row.date || "بدون تاريخ"}</span>
         </div>
         {row.current_trend_ar && <span className="client-inquiry-trend">{row.current_trend_ar}</span>}
       </header>
       {(row.question_summary_ar || assessment) && <div className="client-inquiry-summary">
-        {row.question_summary_ar && <p><span>Customer question</span>{row.question_summary_ar}</p>}
-        {assessment && <p><span>Assessment</span>{assessment}</p>}
+        {row.question_summary_ar && <p><span>استفسار العميل</span>{row.question_summary_ar}</p>}
+        {assessment && <p><span>الرد والتحليل</span>{assessment}</p>}
       </div>}
-      {tradeLevels.length > 0 && <dl className="client-inquiry-levels" dir="ltr">
-        {tradeLevels.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+      {tradeLevels.length > 0 && <dl className="client-inquiry-levels">
+        {tradeLevels.map(([label, value]) => <div key={label}><dt>{label}</dt><dd dir="ltr">{value}</dd></div>)}
       </dl>}
-      {marketLevels.length > 0 && <dl className="client-inquiry-market-levels" dir="ltr">
-        {marketLevels.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+      {marketLevels.length > 0 && <dl className="client-inquiry-market-levels">
+        {marketLevels.map(([label, value]) => <div key={label}><dt>{label}</dt><dd dir="ltr">{value}</dd></div>)}
       </dl>}
       {(row.advice_ar || row.alternate_scenario_ar) && <div className="client-inquiry-guidance">
-        {row.advice_ar && row.advice_ar !== assessment && <p><span>Advice</span>{row.advice_ar}</p>}
-        {row.alternate_scenario_ar && <p className="client-inquiry-scenario"><span>Scenario</span>{row.alternate_scenario_ar}</p>}
+        {row.advice_ar && row.advice_ar !== assessment && <p><span>النصيحة</span>{row.advice_ar}</p>}
+        {row.alternate_scenario_ar && <p className="client-inquiry-scenario"><span>السيناريو البديل</span>{row.alternate_scenario_ar}</p>}
       </div>}
     </article>
   );

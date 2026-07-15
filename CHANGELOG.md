@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.1.76
+- Redesigned client-inquiry cards into a smaller, Arabic-first right-to-left layout with compact price-level blocks.
+
 ## v0.1.75
 - Lists every model reported by the selected AI provider instead of filtering by modality or provider-specific capabilities.
 - Fixed Channels selection highlighting by normalizing Telegram handles and made rapid or bulk selections update consistently.
