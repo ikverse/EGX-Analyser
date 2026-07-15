@@ -5,20 +5,40 @@ import { getVersion } from "@tauri-apps/api/app";
 import { check } from "@tauri-apps/plugin-updater";
 
 import {
-  AiProvider, AnalysisContentType, AnalysisMode, AnalysisResultHistory, ApiClient, Channel, ClientInquiryResponse, ContentUpdateStatus, EgxCatalogStatus,
+  AiProvider, AnalysisContentType, AnalysisMode, AnalysisResultHistory, ApiClient, Channel, ClientInquiryResponse, EgxCatalogStatus,
   DiagnosticEntry, SettingsInput, SettingsStatus, TelegramChat,
   StockSourceRow, StockSourceTableRow, StockSummaryRow,
 } from "./api";
 
-type Page = "Channels" | "Results" | "Reports" | "Settings";
+type Page = "Channels" | "Results" | "Settings";
 type Toast = { kind: "success" | "warning"; text: string } | null;
+type AnalysisRunState = { running: boolean; progress: string };
+type ChannelAnalysisConfig = {
+  selectedHandles: string[];
+  contentTypes: AnalysisContentType[];
+  mode: AnalysisMode;
+  targetDate: string;
+};
 type UpdateCandidate = {
   version: string;
   body?: string | null;
   downloadAndInstall: (onEvent: (event: { event: string; data: { contentLength?: number; chunkLength?: number } }) => void) => Promise<void>;
 };
 
-const pages: Page[] = ["Channels", "Results", "Reports", "Settings"];
+const pages: Page[] = ["Channels", "Results", "Settings"];
+
+function loadChannelAnalysisConfig(): ChannelAnalysisConfig {
+  try {
+    return {
+      selectedHandles: JSON.parse(sessionStorage.getItem("egx.selectedTelegramChats") || "[]") as string[],
+      contentTypes: JSON.parse(sessionStorage.getItem("egx.analysisContentTypes") || '["text","images","audio"]') as AnalysisContentType[],
+      mode: (sessionStorage.getItem("egx.analysisMode") as AnalysisMode | null) || "next_day",
+      targetDate: sessionStorage.getItem("egx.analysisTargetDate") || "",
+    };
+  } catch {
+    return { selectedHandles: [], contentTypes: ["text", "images", "audio"], mode: "next_day", targetDate: "" };
+  }
+}
 
 // ── Error Modal ───────────────────────────────────────────────────────────────
 
@@ -52,8 +72,9 @@ export default function App() {
   const [connected, setConnected] = useState(false);
   const [page, setPage] = useState<Page>("Channels");
   const [channels, setChannels] = useState<Channel[]>([]);
-  const [rows, setRows] = useState<Array<Record<string, unknown>>>([]);
   const [analysisResults, setAnalysisResults] = useState<AnalysisResultHistory[]>([]);
+  const [analysisRun, setAnalysisRun] = useState<AnalysisRunState>({ running: false, progress: "" });
+  const [analysisConfig, setAnalysisConfig] = useState<ChannelAnalysisConfig>(loadChannelAnalysisConfig);
   const [settings, setSettings] = useState<SettingsStatus | null>(null);
   const [engineStarting, setEngineStarting] = useState(true);
   const [toast, setToast] = useState<Toast>(null);
@@ -73,6 +94,17 @@ export default function App() {
     setToast({ kind: "warning", text: short });
   }, []);
   const showSuccess = useCallback((message: string) => setSuccessModal(message), []);
+
+  const updateAnalysisConfig = useCallback((updater: (current: ChannelAnalysisConfig) => ChannelAnalysisConfig) => {
+    setAnalysisConfig((current) => {
+      const next = updater(current);
+      sessionStorage.setItem("egx.selectedTelegramChats", JSON.stringify(next.selectedHandles));
+      sessionStorage.setItem("egx.analysisContentTypes", JSON.stringify(next.contentTypes));
+      sessionStorage.setItem("egx.analysisMode", next.mode);
+      sessionStorage.setItem("egx.analysisTargetDate", next.targetDate);
+      return next;
+    });
+  }, []);
 
   const refresh = async (showFailure = true): Promise<boolean> => {
     try {
@@ -108,6 +140,39 @@ export default function App() {
       setCheckingUpdate(false);
     }
   };
+
+  const runAnalysis = useCallback((channelIds: number[]) => {
+    if (analysisRun.running) return;
+    setAnalysisRun({ running: true, progress: "Collecting selected chat data..." });
+    const progressTimers = [
+      window.setTimeout(() => setAnalysisRun({ running: true, progress: "Preparing selected text, images, and audio..." }), 1_500),
+      window.setTimeout(() => setAnalysisRun({ running: true, progress: "Analyzing selected content with the AI model..." }), 5_000),
+      window.setTimeout(() => setAnalysisRun({ running: true, progress: "Saving the analysis result..." }), 20_000),
+    ];
+    void api.analyzeSelected(
+      channelIds,
+      analysisConfig.contentTypes,
+      analysisConfig.mode,
+      analysisConfig.mode === "specific_date" ? analysisConfig.targetDate : undefined,
+    )
+      .then(async (result) => {
+        await refresh(false);
+        setAnalysisResults(await api.analysisResults());
+        const noStockContext = result.not_stock_related.length
+          ? ` No stock-related context: ${result.not_stock_related.join(", ")}.`
+          : "";
+        showSuccess(
+          `${result.messages_analyzed} of ${result.messages_in_window} messages were analyzed. ` +
+          `Target suggestion date: ${result.target_date}. Inputs sent: ${contentTypeLabel(result.content_types)}. ` +
+          `The result is now available in Results.${noStockContext}`,
+        );
+      })
+      .catch((reason) => showError(fullError(reason)))
+      .finally(() => {
+        progressTimers.forEach((timer) => window.clearTimeout(timer));
+        setAnalysisRun({ running: false, progress: "" });
+      });
+  }, [analysisConfig, analysisRun.running, api, refresh, showError, showSuccess]);
 
   const installUpdate = async () => {
     if (!availableUpdate) return;
@@ -163,10 +228,6 @@ export default function App() {
     if (connected && page === "Results") {
       void api.analysisResults().then(setAnalysisResults).catch((reason) => showError(fullError(reason)));
     }
-    if (connected && page === "Reports") {
-      setRows([]);
-      void api.reports().then(setRows);
-    }
   }, [api, connected, page, showError]);
 
   if (!connected) {
@@ -200,6 +261,7 @@ export default function App() {
               </span>
             </div>
             <div className="header-actions">
+              {analysisRun.running && <span className="analysis-running-chip"><span /> Analysis running</span>}
               <button className="secondary" onClick={() => void refresh()}>Refresh</button>
             </div>
           </header>
@@ -214,7 +276,19 @@ export default function App() {
             />
           )}
 
-          {page === "Channels" && <Channels channels={channels} api={api} refresh={refresh} notify={notify} showError={showError} showSuccess={showSuccess} />}
+          {page === "Channels" && (
+            <Channels
+              channels={channels}
+              api={api}
+              refresh={refresh}
+              notify={notify}
+              showError={showError}
+              analysisRun={analysisRun}
+              analysisConfig={analysisConfig}
+              updateAnalysisConfig={updateAnalysisConfig}
+              onAnalyze={runAnalysis}
+            />
+          )}
           {page === "Results" && (
             <Results
               api={api}
@@ -224,7 +298,6 @@ export default function App() {
               onAnalysisDeleted={(id) => setAnalysisResults((current) => current.filter((item) => item.id !== id))}
             />
           )}
-          {page === "Reports" && <Reports api={api} rows={rows} setRows={setRows} notify={notify} showError={showError} />}
           {page === "Settings" && (
             <CloudSettings
               api={api}
@@ -362,35 +435,35 @@ function Reports({ api, rows, setRows, notify, showError }: {
 
 // ── Channels ──────────────────────────────────────────────────────────────────
 
-function Channels({ channels, api, refresh, notify, showError, showSuccess }: {
+function Channels({ channels, api, refresh, notify, showError, analysisRun, analysisConfig, updateAnalysisConfig, onAnalyze }: {
   channels: Channel[]; api: ApiClient;
-  refresh: () => Promise<boolean>; notify: Notify; showError: ShowError; showSuccess: ShowSuccess;
+  refresh: () => Promise<boolean>; notify: Notify; showError: ShowError;
+  analysisRun: AnalysisRunState; analysisConfig: ChannelAnalysisConfig;
+  updateAnalysisConfig: (updater: (current: ChannelAnalysisConfig) => ChannelAnalysisConfig) => void;
+  onAnalyze: (channelIds: number[]) => void;
 }) {
   const [handle, setHandle] = useState("");
+  const [chatQuery, setChatQuery] = useState("");
   const [chats, setChats] = useState<TelegramChat[]>(() => {
-    localStorage.removeItem("egx.telegramChats");
     try { return JSON.parse(sessionStorage.getItem("egx.telegramChats") || "[]") as TelegramChat[]; }
     catch { return []; }
   });
-  const [selectedHandles, setSelectedHandles] = useState<string[]>(() => {
-    try { return JSON.parse(sessionStorage.getItem("egx.selectedTelegramChats") || "[]") as string[]; }
-    catch { return []; }
-  });
   const [loading, setLoading] = useState(false);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [analysisProgress, setAnalysisProgress] = useState("");
-  const [contentTypes, setContentTypes] = useState<AnalysisContentType[]>(["text", "images", "audio"]);
-  const [analysisMode, setAnalysisMode] = useState<AnalysisMode>("next_day");
-  const [targetDate, setTargetDate] = useState("");
   const latestHistoricalDate = useMemo(cairoDateInputValue, []);
-
-  const busy = loading || analyzing;
+  const { selectedHandles, contentTypes, mode: analysisMode, targetDate } = analysisConfig;
+  const busy = loading || analysisRun.running;
+  const analyzing = analysisRun.running;
+  const analysisProgress = analysisRun.progress;
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
     setLoading(true);
     void api.addChannel(handle)
-      .then(() => { setHandle(""); return refresh(); })
+      .then((channel) => {
+        updateSelectedHandles([...new Set([...selectedHandles, channel.handle])]);
+        setHandle("");
+        return refresh();
+      })
       .then(() => notify("success", "Channel added for analysis."))
       .catch((reason) => showError(fullError(reason)))
       .finally(() => setLoading(false));
@@ -410,8 +483,7 @@ function Channels({ channels, api, refresh, notify, showError, showSuccess }: {
   };
 
   const updateSelectedHandles = (handles: string[]) => {
-    setSelectedHandles(handles);
-    sessionStorage.setItem("egx.selectedTelegramChats", JSON.stringify(handles));
+    updateAnalysisConfig((current) => ({ ...current, selectedHandles: handles }));
   };
 
   const addChat = (chat: TelegramChat) => {
@@ -431,13 +503,39 @@ function Channels({ channels, api, refresh, notify, showError, showSuccess }: {
     notify("success", "Chat removed from this session.");
   };
 
+  const selectVisibleChats = () => {
+    const toSelect = visibleChats.filter((chat) => !selected.has(chatHandle(chat)));
+    if (!toSelect.length) return;
+    setLoading(true);
+    void Promise.all(toSelect.map((chat) => api.selectTelegramChat(chat)))
+      .then((selectedChannels) => {
+        updateSelectedHandles([...new Set([...selectedHandles, ...selectedChannels.map((channel) => channel.handle)])]);
+        return refresh();
+      })
+      .then(() => notify("success", `${toSelect.length} visible chats selected for this session.`))
+      .catch((reason) => showError(fullError(reason)))
+      .finally(() => setLoading(false));
+  };
+
   const selected = new Set(selectedHandles);
   const selectedChannels = channels.filter((channel) => selected.has(channel.handle));
 
+  const chatHandle = (chat: TelegramChat) => {
+    if (chat.username) return chat.username;
+    const raw = chat.id.replace(/^-/, "");
+    return raw.startsWith("100") ? raw.slice(3) : raw;
+  };
+  const visibleChats = chats
+    .filter((chat) => `${chat.title} ${chat.username} ${chat.kind}`.toLocaleLowerCase().includes(chatQuery.trim().toLocaleLowerCase()))
+    .sort((left, right) => Number(selected.has(chatHandle(right))) - Number(selected.has(chatHandle(left))) || left.title.localeCompare(right.title));
+
   const toggleContentType = (contentType: AnalysisContentType) => {
-    setContentTypes((current) => current.includes(contentType)
-      ? current.filter((item) => item !== contentType)
-      : [...current, contentType]);
+    updateAnalysisConfig((current) => ({
+      ...current,
+      contentTypes: current.contentTypes.includes(contentType)
+        ? current.contentTypes.filter((item) => item !== contentType)
+        : [...current.contentTypes, contentType],
+    }));
   };
 
   const analyze = () => {
@@ -445,64 +543,52 @@ function Channels({ channels, api, refresh, notify, showError, showSuccess }: {
     if (!ids.length) return notify("warning", "Select at least one chat first.");
     if (!contentTypes.length) return notify("warning", "Choose at least one input type to analyze.");
     if (analysisMode === "specific_date" && !targetDate) return notify("warning", "Choose the target date to analyze.");
-    setAnalyzing(true);
-    setAnalysisProgress("Collecting selected chat data…");
-    const progressTimers = [
-      window.setTimeout(() => setAnalysisProgress("Preparing selected text, images, and audio…"), 1_500),
-      window.setTimeout(() => setAnalysisProgress("Analyzing selected content with the AI model…"), 5_000),
-      window.setTimeout(() => setAnalysisProgress("Creating your saved results and report…"), 20_000),
-    ];
-    void api.analyzeSelected(ids, contentTypes, analysisMode, analysisMode === "specific_date" ? targetDate : undefined)
-      .then((result) => {
-        return refresh().then(() => {
-          const noStockContext = result.not_stock_related.length
-            ? ` No stock-related context: ${result.not_stock_related.join(", ")}.`
-            : "";
-          showSuccess(
-            `${result.messages_analyzed} of ${result.messages_in_window} messages were freshly analyzed ${result.analysis_mode === "specific_date" ? "for the selected historical window" : "from yesterday through now"}. ` +
-            `Target suggestion date: ${result.target_date}. Inputs sent to the model: ${contentTypeLabel(result.content_types)}. ` +
-            `The result is saved in Results.${noStockContext}`
-          );
-        });
-      })
-      .catch((reason) => showError(fullError(reason)))
-      .finally(() => {
-        progressTimers.forEach((timer) => window.clearTimeout(timer));
-        setAnalysisProgress("");
-        setAnalyzing(false);
-      });
+    onAnalyze(ids);
   };
 
   const selectedRows = selectedChannels.map((channel) => ({
-    ...channel,
+    chat: channel.title || channel.handle,
+    handle: channel.handle,
     selection: <button className="secondary" onClick={() => removeChat(channel.handle)} disabled={busy}>Remove</button>,
   }));
-  const chatRows = chats.map((chat) => ({
+  const chatRows = visibleChats.map((chat) => ({
     chat: `${chat.title}${chat.username ? ` (@${chat.username})` : ""}`,
     type: chat.kind,
     selection: (
-      <button disabled={busy} onClick={() => selected.has(chat.id) ? removeChat(chat.id) : addChat(chat)}>
-        {selected.has(chat.id) ? "Remove" : "Select"}
+      <button className={selected.has(chatHandle(chat)) ? "secondary compact" : "compact"} disabled={busy} onClick={() => selected.has(chatHandle(chat)) ? removeChat(chatHandle(chat)) : addChat(chat)}>
+        {selected.has(chatHandle(chat)) ? "Selected" : "Select"}
       </button>
     ),
   }));
 
   return (
     <>
-      <div className="channels-section">
-        <h3 className="section-heading">Add channel</h3>
-        <form className="inline" onSubmit={submit}>
-          <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="Telegram username, without @" required />
-          <button disabled={busy}>Add channel</button>
-        </form>
-        <button className="secondary" onClick={loadChats} disabled={busy}>
+      <div className="channels-section channel-picker-section">
+        <h3 className="section-heading">1. Choose chats for this session</h3>
+        <p className="section-description">Load your Telegram chats, then select only the sources you want to analyze.</p>
+        <details className="manual-channel-add">
+          <summary>Add a chat manually</summary>
+          <form className="inline" onSubmit={submit}>
+            <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="Telegram username, without @" required />
+            <button disabled={busy}>Add channel</button>
+          </form>
+        </details>
+        <button className="secondary load-chats-button" onClick={loadChats} disabled={busy}>
           {loading ? "Loading chats…" : "Load my Telegram chats"}
         </button>
-        {chats.length > 0 && <Table rows={chatRows} />}
+        {chats.length > 0 && <>
+          <div className="channel-list-toolbar">
+            <input value={chatQuery} onChange={(event) => setChatQuery(event.target.value)} placeholder="Filter chats by name, username, or type" />
+            <span>{selectedChannels.length} selected</span>
+            <button type="button" className="secondary compact" disabled={busy || !visibleChats.some((chat) => !selected.has(chatHandle(chat)))} onClick={selectVisibleChats}>Select visible</button>
+            <button type="button" className="secondary compact" disabled={!selectedChannels.length || busy} onClick={() => updateSelectedHandles([])}>Clear selection</button>
+          </div>
+          <Table rows={chatRows} />
+        </>}
       </div>
 
-      <div className="channels-section">
-        <h3 className="section-heading">Analyze selected chats ({selectedChannels.length})</h3>
+      <div className="channels-section analysis-setup-section">
+        <h3 className="section-heading">2. Configure and analyze ({selectedChannels.length} selected)</h3>
         <div className="analysis-window-note">
           <strong>{analysisMode === "next_day" ? "Automatic next-day analysis" : "Historical target-date analysis"}</strong>
           <p>{analysisMode === "next_day"
@@ -511,11 +597,11 @@ function Channels({ channels, api, refresh, notify, showError, showSuccess }: {
         </div>
         <fieldset className="analysis-date-mode" disabled={busy}>
           <legend>Recommendation target date</legend>
-          <label><input type="radio" name="analysis-mode" checked={analysisMode === "next_day"} onChange={() => setAnalysisMode("next_day")} /> Next day (default)</label>
-          <label><input type="radio" name="analysis-mode" checked={analysisMode === "specific_date"} onChange={() => setAnalysisMode("specific_date")} /> Choose a historical date</label>
+          <label><input type="radio" name="analysis-mode" checked={analysisMode === "next_day"} onChange={() => updateAnalysisConfig((current) => ({ ...current, mode: "next_day" }))} /> Next day (default)</label>
+          <label><input type="radio" name="analysis-mode" checked={analysisMode === "specific_date"} onChange={() => updateAnalysisConfig((current) => ({ ...current, mode: "specific_date" }))} /> Choose a historical date</label>
           {analysisMode === "specific_date" && (
             <label className="analysis-date-picker">Target date
-              <input type="date" max={latestHistoricalDate} value={targetDate} onChange={(event) => setTargetDate(event.target.value)} required />
+              <input type="date" max={latestHistoricalDate} value={targetDate} onChange={(event) => updateAnalysisConfig((current) => ({ ...current, targetDate: event.target.value }))} required />
             </label>
           )}
         </fieldset>
@@ -645,8 +731,16 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted }
     <div className="analysis-history-wrap">
       <p className="analysis-history-help">Open an analysis run, then choose its recommendations table or client inquiry replies.</p>
       <table className="analysis-history-table">
+        <colgroup>
+          <col className="analysis-history-output-col" />
+          <col className="analysis-history-date-col" />
+          <col className="analysis-history-inputs-col" />
+          <col className="analysis-history-scope-col" />
+          <col className="analysis-history-records-col" />
+          <col className="analysis-history-actions-col" />
+        </colgroup>
         <thead>
-          <tr><th>Generated output</th><th>Target date</th><th>Inputs sent</th><th>Scope</th><th>Records</th><th /></tr>
+          <tr><th>Generated output</th><th>Target date</th><th>Inputs sent</th><th>Scope</th><th>Records</th><th className="analysis-history-actions-heading">Actions</th></tr>
         </thead>
         <tbody>
           {items.map((item) => {
@@ -1247,8 +1341,6 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
   const [checkingTelegram, setCheckingTelegram] = useState(false);
   const [diagnostics, setDiagnostics] = useState<DiagnosticEntry[]>([]);
   const [loadingDiagnostics, setLoadingDiagnostics] = useState(false);
-  const [contentStatus, setContentStatus] = useState<ContentUpdateStatus | null>(null);
-  const [checkingContent, setCheckingContent] = useState(false);
   const [catalogStatus, setCatalogStatus] = useState<EgxCatalogStatus | null>(null);
   const [refreshingCatalog, setRefreshingCatalog] = useState(false);
   const [appVersion, setAppVersion] = useState("");
@@ -1272,7 +1364,6 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
     : values.openai_model || "";
 
   useEffect(() => { void getVersion().then(setAppVersion).catch(() => setAppVersion("Unknown")); }, []);
-  useEffect(() => { void api.contentUpdates().then(setContentStatus).catch(() => setContentStatus(null)); }, [api]);
   useEffect(() => { void api.egxCatalog().then(setCatalogStatus).catch(() => setCatalogStatus(null)); }, [api]);
   useEffect(() => {
     if (status) setValues((cur) => ({
@@ -1320,7 +1411,14 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
   return (
     <div className="settings">
 
-      <SettingsSection title="AI Provider" description={`${providerDetails[provider].label} · ${status?.ai_configured ? "configured" : "not configured"}`} open={openSection === "ai"} onToggle={() => toggleSection("ai")}>
+      <div className="settings-overview" aria-label="Current configuration">
+        <span><strong>AI</strong> {providerDetails[provider].label} · {selectedModel || "No model selected"}</span>
+        <span><strong>Telegram</strong> {status?.telegram_authorized ? "Connected" : "Not connected"}</span>
+        <span><strong>Catalog</strong> {catalogStatus ? `${catalogStatus.stock_count} stocks` : "Loading"}</span>
+        <span><strong>App</strong> v{appVersion || "..."}</span>
+      </div>
+
+      <SettingsSection title="AI Analysis" description={`${providerDetails[provider].label} · ${status?.ai_configured ? "configured" : "not configured"}`} open={openSection === "ai"} onToggle={() => toggleSection("ai")}>
         <form onSubmit={save}>
           <p>{localProvider ? "Ollama runs the selected model on this computer. Install the model manually, then load the installed vision models below." : "Cloud provider keys are encrypted and stored only on this computer."}</p>
           <label>
@@ -1390,7 +1488,7 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
               rows={6}
             />
             <span className="credential-note">
-              When filled, this replaces the built-in analysis prompt. Leave empty to use the built-in prompt.
+              Adds source-specific guidance. The required EGX output structure and list separation remain enforced.
             </span>
           </label>
           <button disabled={saving}>{saving ? "Saving…" : "Save settings"}</button>
@@ -1473,8 +1571,8 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
 
         {status?.telegram_authorized && (
           <div className="settings-subsection">
-            <strong>Manual Telegram check</strong>
-            <p>Fetches the latest messages from active saved channels. Use Analyze selected chats in Channels for the next-day recommendation report.</p>
+            <strong>Fetch active channels now</strong>
+            <p>Fetches recent messages only. It does not run AI analysis; use Channels when you are ready to analyze selected chats.</p>
             <button type="button" disabled={checkingTelegram} onClick={() => {
               setCheckingTelegram(true);
               void api.runCollection()
@@ -1511,7 +1609,7 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
         </div>
       </SettingsSection>
 
-      <SettingsSection title="Updates" description={`App v${appVersion || "…"} · ${contentStatus?.version ? `Content pack ${contentStatus.version}` : "Built-in content"}`} open={openSection === "updates"} onToggle={() => toggleSection("updates")}>
+      <SettingsSection title="Application" description={`Version ${appVersion || "Loading"}`} open={openSection === "updates"} onToggle={() => toggleSection("updates")}>
         <div className="settings-subsection">
           <strong>Application updates</strong>
           <p>Checks for a signed EGX Analyzer update and keeps your local data unchanged.</p>
@@ -1519,28 +1617,9 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
             {checkingUpdate ? "Checking…" : "Check for updates"}
           </button>
         </div>
-        <div className="settings-subsection">
-          <strong>Analysis content updates</strong>
-          <p>Signed prompt and stock-alias updates install without rebuilding the application.</p>
-          <p className="credential-note">{contentStatus?.version ? `Installed: ${contentStatus.version}` : "Using built-in analysis content."}</p>
-          <button type="button" disabled={checkingContent || contentStatus?.enabled === false}
-            onClick={() => {
-              setCheckingContent(true);
-              void api.checkContentUpdates()
-                .then((result) => {
-                  notify("success", result.updated ? `Content pack ${result.version} installed.` : `Content pack ${result.version} is already installed.`);
-                  return api.contentUpdates();
-                })
-                .then(setContentStatus)
-                .catch((reason) => showError(`Could not update analysis content: ${fullError(reason)}`))
-                .finally(() => setCheckingContent(false));
-            }}>
-            {checkingContent ? "Checking content…" : "Check analysis content"}
-          </button>
-        </div>
       </SettingsSection>
 
-      <SettingsSection title="Diagnostics" description="Local request logs and error traces" open={openSection === "diagnostics"} onToggle={() => toggleSection("diagnostics")}>
+      <SettingsSection title="Support and diagnostics" description="Local request logs and error traces" open={openSection === "diagnostics"} onToggle={() => toggleSection("diagnostics")}>
         <p>Stores local request results and error traces. API keys, codes, and passwords are never logged.</p>
         <button type="button" className="secondary" disabled={loadingDiagnostics}
           onClick={() => {

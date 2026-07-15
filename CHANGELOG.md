@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.72
+- Redesigned Channels into a session-focused workflow with chat filtering, bulk selection, and persisted analysis choices.
+- Keeps an active analysis visible while navigating between tabs and refreshes Results automatically when it completes.
+- Simplified Settings with a configuration overview, full-app updates only, and clearer Telegram and support actions.
+- Removed the Reports navigation page and aligned Results action columns.
+
 ## v0.1.71
 - Corrected Arabic detection for past recommendation captions and customer-inquiry replies.
 - Enforced source-message traceability for both recommendation and inquiry model output, with one automatic correction retry when the model mixes the two lists.
