@@ -9,7 +9,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.service import AIAnalysisService
-from app.analysis_filter import has_past_recommendation_context
+from app.analysis_filter import is_non_actionable_stock_update
 from app.analysis_trace import create_selected_input_trace, save_analysis_performance, save_consolidated_response, save_model_validation
 from app.config import get_settings
 from app.config_store import update_config
@@ -316,12 +316,13 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
             selected_transcripts = transcripts_by_message.get(message.id, [])
             if not selected_text.strip() and not selected_images and not selected_transcripts:
                 continue
-            if selected_images and has_past_recommendation_context(message.text):
+            source_context = "\n".join([message.text or "", *selected_transcripts])
+            if is_non_actionable_stock_update(source_context):
                 excluded_items.append({
                     "source": channel.title or channel.handle,
                     "published_at": message.published_at.astimezone(cairo).isoformat(),
                     "telegram_message_id": str(message.telegram_message_id),
-                    "reason": "past_recommendation_context_in_message_caption",
+                    "reason": "target_hit_or_previous_recommendation_update",
                 })
                 continue
             batch_messages.append({
@@ -339,6 +340,30 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
             analysis_period, target_date.isoformat(), content_types, excluded_items,
         )
         timings_ms["selected_input_trace_ms"] = round((perf_counter() - trace_write_started) * 1000)
+        if not batch_messages:
+            start_label = window_start.astimezone(cairo).strftime("%Y-%m-%d %H:%M Cairo")
+            end_label = window_end.astimezone(cairo).strftime("%Y-%m-%d %H:%M Cairo")
+            logger().warning(
+                "analysis_no_selected_input",
+                target_date=target_date.isoformat(),
+                window_start=window_start.isoformat(),
+                window_end=window_end.isoformat(),
+                selected_channel_ids=payload.channel_ids,
+                content_types=sorted(content_types),
+                collected_in_window=collection["messages_in_window"],
+                stored_messages_in_window=len(message_rows),
+                excluded_messages=len(excluded_items),
+                trace_directory=trace["directory"],
+            )
+            raise HTTPException(
+                422,
+                "No selected content was found in the chosen chats between "
+                f"{start_label} and {end_label}. Telegram collection found "
+                f"{collection['messages_in_window']} new message(s), "
+                f"{len(message_rows)} stored message(s) matched the time window, and "
+                f"{len(excluded_items)} message(s) were excluded. "
+                "No empty result was created. Reload the selected chats or choose chats that posted within this window.",
+            )
         model_pipeline_started = perf_counter()
         outcome = await AIAnalysisService(get_settings()).analyze_consolidated(
             batch_messages, analysis_period, target_date.isoformat(), Path(str(trace["directory"]))

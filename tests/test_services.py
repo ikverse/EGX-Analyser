@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import base64
 import asyncio
 import io
@@ -30,10 +30,11 @@ from app.runtime import next_day_analysis_window, selected_date_analysis_window
 from app.collector.telegram import is_promotional_message
 from app.reports import ReportService
 from app.analysis_trace import create_selected_input_trace, export_analysis_trace, save_analysis_performance, save_consolidated_response, save_model_validation
-from app.analysis_filter import has_past_recommendation_context
+from app.analysis_filter import has_past_recommendation_context, is_non_actionable_stock_update
 from app.analysis_validation import enforce_client_inquiry_separation, validate_consolidated_output
 from app.repositories import StockRepository
 from app.stock_catalog import EGXStockCatalog, normalize_stock_name
+from zoneinfo import ZoneInfo
 
 
 QWEN_CONSOLIDATED_OUTPUT = {
@@ -481,19 +482,45 @@ def test_content_pack_installs_prompt_and_aliases(tmp_path):
     assert manager.stock_aliases()["cib arabic"] == "CIB"
 
 
-def test_next_day_analysis_window_uses_one_day_before_the_request_to_now_in_cairo():
-    from datetime import date
+def test_next_day_analysis_window_uses_current_session_before_egx_opens():
+    cairo = ZoneInfo("Africa/Cairo")
+    requested_at = datetime(2026, 7, 16, 0, 30, tzinfo=cairo).astimezone(timezone.utc)
 
-    requested_at = datetime(2026, 7, 13, 12, tzinfo=timezone.utc)
     start, end, target_date = next_day_analysis_window(requested_at)
-    assert start == datetime(2026, 7, 12, 12, tzinfo=timezone.utc)
+
+    assert target_date == date(2026, 7, 16)
+    assert start == requested_at - timedelta(days=1)
     assert end == requested_at
-    assert target_date == date(2026, 7, 14)
+
+
+def test_next_day_analysis_window_uses_current_session_immediately_before_egx_opens():
+    cairo = ZoneInfo("Africa/Cairo")
+    requested_at = datetime(2026, 7, 16, 9, 59, tzinfo=cairo).astimezone(timezone.utc)
+
+    _, _, target_date = next_day_analysis_window(requested_at)
+
+    assert target_date == date(2026, 7, 16)
+
+
+def test_next_day_analysis_window_uses_current_session_during_egx_hours():
+    cairo = ZoneInfo("Africa/Cairo")
+    requested_at = datetime(2026, 7, 16, 10, 0, tzinfo=cairo).astimezone(timezone.utc)
+
+    _, _, target_date = next_day_analysis_window(requested_at)
+
+    assert target_date == date(2026, 7, 16)
+
+
+def test_next_day_analysis_window_uses_current_session_at_egx_close():
+    cairo = ZoneInfo("Africa/Cairo")
+    requested_at = datetime(2026, 7, 16, 14, 30, tzinfo=cairo).astimezone(timezone.utc)
+
+    _, _, target_date = next_day_analysis_window(requested_at)
+
+    assert target_date == date(2026, 7, 16)
 
 
 def test_selected_date_analysis_window_uses_prior_day_through_analyze_time():
-    from datetime import date
-
     requested_at = datetime(2026, 7, 15, 12, tzinfo=timezone.utc)
     start, end, target_date = selected_date_analysis_window(date(2026, 7, 10), requested_at)
 
@@ -502,10 +529,9 @@ def test_selected_date_analysis_window_uses_prior_day_through_analyze_time():
     assert target_date == date(2026, 7, 9)
 
 
-def test_next_day_analysis_window_uses_thursday_through_now_for_a_sunday_target():
-    from datetime import date
-
-    requested_at = datetime(2026, 7, 17, 12, tzinfo=timezone.utc)
+def test_next_day_analysis_window_uses_sunday_after_thursday_market_close():
+    cairo = ZoneInfo("Africa/Cairo")
+    requested_at = datetime(2026, 7, 16, 14, 31, tzinfo=cairo).astimezone(timezone.utc)
     start, end, target_date = next_day_analysis_window(requested_at)
 
     assert start == datetime(2026, 7, 15, 21, tzinfo=timezone.utc)
@@ -513,9 +539,43 @@ def test_next_day_analysis_window_uses_thursday_through_now_for_a_sunday_target(
     assert target_date == date(2026, 7, 19)
 
 
-def test_next_day_analysis_window_keeps_thursday_coverage_on_saturday_for_sunday_target():
-    from datetime import date
+def test_next_day_analysis_window_uses_sunday_on_friday_and_saturday():
+    cairo = ZoneInfo("Africa/Cairo")
+    friday = datetime(2026, 7, 17, 12, tzinfo=cairo).astimezone(timezone.utc)
+    saturday = datetime(2026, 7, 18, 12, tzinfo=cairo).astimezone(timezone.utc)
 
+    friday_start, friday_end, friday_target = next_day_analysis_window(friday)
+    saturday_start, saturday_end, saturday_target = next_day_analysis_window(saturday)
+
+    assert friday_start == datetime(2026, 7, 15, 21, tzinfo=timezone.utc)
+    assert friday_end == friday
+    assert friday_target == date(2026, 7, 19)
+    assert saturday_start == datetime(2026, 7, 15, 21, tzinfo=timezone.utc)
+    assert saturday_end == saturday
+    assert saturday_target == date(2026, 7, 19)
+
+
+def test_next_day_analysis_window_uses_next_egx_day_after_regular_close():
+    cairo = ZoneInfo("Africa/Cairo")
+    requested_at = datetime(2026, 7, 13, 14, 31, tzinfo=cairo).astimezone(timezone.utc)
+
+    _, _, target_date = next_day_analysis_window(requested_at)
+
+    assert target_date == date(2026, 7, 14)
+
+
+def test_next_day_analysis_window_handles_cairo_midnight_boundary():
+    cairo = ZoneInfo("Africa/Cairo")
+    requested_at = datetime(2026, 7, 12, 0, 0, tzinfo=cairo).astimezone(timezone.utc)
+
+    start, end, target_date = next_day_analysis_window(requested_at)
+
+    assert target_date == date(2026, 7, 12)
+    assert start == datetime(2026, 7, 10, 21, tzinfo=timezone.utc)
+    assert end == requested_at
+
+
+def test_next_day_analysis_window_keeps_thursday_coverage_on_saturday_for_sunday_target():
     requested_at = datetime(2026, 7, 18, 12, tzinfo=timezone.utc)
     start, end, target_date = next_day_analysis_window(requested_at)
 
@@ -525,8 +585,6 @@ def test_next_day_analysis_window_keeps_thursday_coverage_on_saturday_for_sunday
 
 
 def test_selected_date_analysis_window_resolves_egypt_weekend_to_thursday():
-    from datetime import date
-
     start, _, target_date = selected_date_analysis_window(date(2026, 7, 18), datetime(2026, 7, 20, tzinfo=timezone.utc))
 
     assert start == datetime(2026, 7, 14, 21, tzinfo=timezone.utc)
@@ -570,6 +628,14 @@ def test_past_recommendation_caption_detection_handles_arabic_and_english_marker
     assert has_past_recommendation_context("\u0631\u062f\u064b\u0627 \u0639\u0644\u0649 \u0627\u0644\u062a\u0648\u0635\u064a\u0629 \u0627\u0644\u0633\u0627\u0628\u0642\u0629")
     assert has_past_recommendation_context("Previous recommendation: CIB target achieved")
     assert not has_past_recommendation_context("\u062a\u0648\u0635\u064a\u0629 \u0634\u0631\u0627\u0621 \u062c\u062f\u064a\u062f\u0629 \u0644\u062c\u0644\u0633\u0629 \u0627\u0644\u063a\u062f")
+
+
+def test_target_hit_or_previous_update_is_excluded_before_model_analysis():
+    assert is_non_actionable_stock_update("وصل إلى المستهدف الأول")
+    assert is_non_actionable_stock_update("تم تحقيق المستهدف الرئيسي")
+    assert is_non_actionable_stock_update("Target reached for CIB")
+    assert is_non_actionable_stock_update("Previous recommendation: CIB")
+    assert not is_non_actionable_stock_update("إشارة تداول شراء لجلسة الغد")
 
 
 def test_promotional_messages_are_skipped_without_hiding_trade_posts():

@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.78
+- Selects the applicable EGX trading session in Africa/Cairo time: the current session before or during market hours, otherwise the next Sunday-through-Thursday session.
+- Prevents empty analysis runs from creating saved Results entries and records detailed local diagnostics for empty input windows.
+- Removes target-hit and previous-recommendation updates from the model input, including text, captions, and selected audio transcripts.
+
 ## v0.1.77
 - Added per-run analysis timing across collection, media preparation, AI requests, catalog enrichment, report creation, and persistence.
 - Added retry audit files and Results status that confirm whether an automatic correction retry passed validation or still has warnings.

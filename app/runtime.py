@@ -87,17 +87,30 @@ def _last_egx_open_day(value: date) -> date:
     return value
 
 
+def _next_egx_open_day(value: date) -> date:
+    """Return the next Sunday-through-Thursday EGX trading day after ``value``."""
+    value += timedelta(days=1)
+    while value.weekday() in (4, 5):
+        value += timedelta(days=1)
+    return value
+
+
+def _egx_target_session(current: datetime) -> date:
+    """Resolve the applicable EGX session for a Cairo-local analysis time."""
+    if current.weekday() in (4, 5):
+        return current.date() + timedelta(days=(6 - current.weekday()) % 7)
+
+    market_close = time(14, 30)
+    if current.timetz().replace(tzinfo=None) <= market_close:
+        return current.date()
+    return _next_egx_open_day(current.date())
+
+
 def next_day_analysis_window(now: datetime | None = None) -> tuple[datetime, datetime, date]:
-    """Use one day of evidence, or Thursday through now for Sunday weekend targets."""
+    """Use the current or next applicable EGX session and its source window."""
     cairo = ZoneInfo("Africa/Cairo")
     current = (now or datetime.now(timezone.utc)).astimezone(cairo)
-    candidate = current.date() + timedelta(days=1)
-    if candidate.weekday() == 4:
-        target_date = candidate + timedelta(days=2)
-    elif candidate.weekday() == 5:
-        target_date = candidate + timedelta(days=1)
-    else:
-        target_date = candidate
+    target_date = _egx_target_session(current)
     if target_date.weekday() == 6 and current.weekday() in (3, 4, 5):
         thursday = current.date()
         while thursday.weekday() != 3:

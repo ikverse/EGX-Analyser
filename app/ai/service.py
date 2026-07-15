@@ -299,7 +299,8 @@ class AIAnalysisService:
             "Strictly ignore advertisements, links, disclaimers, greetings, general market commentary, corporate/economic news, "
             "memes, and stock mentions without a dated actionable recommendation. Do not turn news into a trading signal.",
             "Image-only messages are intentionally included for visual review. If an image itself identifies a recommendation as previous, "
-            "past, achieved, or no longer actionable, exclude it from both output arrays.",
+            "past, achieved, target-hit, or no longer actionable, exclude it completely: do not include it in "
+            "top_consolidated_recommendations, achieved_targets, client_inquiry_responses, or text_based_categories.",
             "IMPORTANT — client/member inquiry replies are reference information, not main recommendations. Classify them from "
             "their own text, image, or audio context, including phrases such as 'ردًا على استفسارات عملائنا', 'ردا على استفسارات عملائنا', "
             "'رد على استفسار', or 'استفسارات العملاء'. Never classify a normal table, chart, photo, or signal as an inquiry because "
