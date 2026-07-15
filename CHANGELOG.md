@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.81
+- Replaced the desktop application icon with the EGX Analyzer violet market-and-pyramid mark and added the same icon beside the app name on startup and in navigation.
+- Enabled Tauri asset-protocol access for saved Telegram source images so source-image previews can load inside the app.
+
 ## v0.1.80
 - Rebuilt the application visual system around a lavender, violet, indigo, and blush palette.
 - Added centralized Light and Dark design tokens for reusable colors, surfaces, typography, borders, shadows, and component states.

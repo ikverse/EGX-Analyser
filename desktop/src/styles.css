@@ -934,6 +934,10 @@ input:focus, select:focus, textarea:focus { border-color: var(--focus); box-shad
 .shell { background: transparent; }
 aside { background: linear-gradient(180deg, var(--sidebar), color-mix(in srgb, var(--sidebar) 86%, var(--palette-ink))); border-right-color: color-mix(in srgb, var(--accent) 26%, transparent); box-shadow: 10px 0 30px rgba(15, 5, 40, .08); }
 aside h1 { color: var(--palette-blush); font-size: 1.2rem; letter-spacing: -.025em; }
+.brand-title { display: inline-flex; align-items: center; gap: .65rem; }
+.brand-title img { width: 2rem; height: 2rem; flex: 0 0 auto; border-radius: .6rem; box-shadow: 0 6px 18px color-mix(in srgb, var(--palette-ink) 45%, transparent); }
+.login .brand-title { justify-content: center; }
+.login .brand-title img { width: 2.65rem; height: 2.65rem; border-radius: .8rem; }
 aside button { color: color-mix(in srgb, var(--palette-blush) 68%, white); border-left: 3px solid transparent; }
 aside button .icon { color: var(--palette-lavender); }
 aside button:hover:not(.active) { background: var(--sidebar-hover); color: #fff; }

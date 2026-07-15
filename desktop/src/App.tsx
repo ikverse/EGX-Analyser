@@ -274,7 +274,7 @@ export default function App() {
   if (!connected) {
     return (
       <main className="login">
-        <h1>EGX Analyzer</h1>
+        <h1 className="brand-title"><img src="/branding/egx-analyzer-icon.png" alt="" />EGX Analyzer</h1>
         <p>{engineStarting ? "Starting your local intelligence workspace…" : "Restarting the local intelligence workspace…"}</p>
         <span>Waiting for the local engine to become ready.</span>
       </main>
@@ -285,7 +285,7 @@ export default function App() {
     <>
       <main className="shell">
         <aside>
-          <h1>EGX Analyzer</h1>
+          <h1 className="brand-title"><img src="/branding/egx-analyzer-icon.png" alt="" />EGX Analyzer</h1>
           {pages.map((item) => (
             <button className={page === item ? "active" : ""} onClick={() => setPage(item)} key={item}>
               <Icon name={PAGE_ICONS[item]} /><span>{item}</span>
