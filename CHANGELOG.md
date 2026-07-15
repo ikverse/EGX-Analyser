@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.74
+- Refined the Results tab with a saved-run overview, clear result totals, stronger empty-state guidance, and expanded-run metadata.
+- Improved visual hierarchy for nested recommendation and client-inquiry sections without changing analysis data or actions.
+
 ## v0.1.73
 - Prevented marked client inquiry messages from leaking into the active recommendation table while preserving valid source rows.
 - Redesigned client inquiry cards and clarified their question, assessment, levels, and scenario details.

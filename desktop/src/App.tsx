@@ -712,7 +712,10 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted }
   const [stockQuery, setStockQuery] = useState("");
   const [deleteCandidate, setDeleteCandidate] = useState<AnalysisResultHistory | null>(null);
   const [deleting, setDeleting] = useState(false);
-  if (!items.length) return <p className="empty">No saved analysis results yet. Run Analyze selected chats to create one.</p>;
+  if (!items.length) return <div className="results-empty-state">
+    <strong>No saved analysis results</strong>
+    <span>Run an analysis from Channels. Each completed run will appear here with its recommendations and client inquiry replies.</span>
+  </div>;
 
   const confirmDelete = () => {
     if (!deleteCandidate) return;
@@ -746,9 +749,23 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted }
     if (section === "recommendations") setStockQuery("");
   };
 
+  const totalRecommendationRows = items.reduce((total, item) => total + item.stock_source_table.length, 0);
+  const totalInquiryReplies = items.reduce((total, item) => total + item.client_inquiry_responses.length, 0);
+
   return (
     <div className="analysis-history-wrap">
-      <p className="analysis-history-help">Open an analysis run, then choose its recommendations table or client inquiry replies.</p>
+      <section className="results-overview" aria-label="Saved results overview">
+        <div>
+          <span className="results-eyebrow">Saved analysis</span>
+          <h2>Results history</h2>
+          <p>Open a run to review source-by-source recommendations or separate client inquiry replies.</p>
+        </div>
+        <div className="results-overview-stats">
+          <span><strong>{items.length}</strong> runs</span>
+          <span><strong>{totalRecommendationRows}</strong> recommendation rows</span>
+          <span><strong>{totalInquiryReplies}</strong> inquiry replies</span>
+        </div>
+      </section>
       <table className="analysis-history-table">
         <colgroup>
           <col className="analysis-history-output-col" />
@@ -791,6 +808,16 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted }
                 {analysisOpen && (
                   <tr className="analysis-history-expanded">
                     <td colSpan={6}>
+                      <div className="analysis-expanded-header">
+                        <div>
+                          <span className="results-eyebrow">Analysis run</span>
+                          <strong>{formatGeneratedAt(item.generated_at)}</strong>
+                        </div>
+                        <div className="analysis-expanded-meta">
+                          <span>Target: <strong>{item.target_date || "—"}</strong></span>
+                          <span>Inputs: <strong>{contentTypeLabel(item.content_types)}</strong></span>
+                        </div>
+                      </div>
                       <div className="analysis-section-list">
                         {!!item.model_validation_warnings.length && <div className="analysis-result-warning">
                           <strong>Model output warning</strong>
