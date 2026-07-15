@@ -17,7 +17,7 @@ from app.content_updates import ContentUpdateError, ContentUpdateService
 from app.database import get_session
 from app.diagnostics import diagnostics_path, logger, recent_entries
 from app.models import Channel, Image, Media, Message, Recommendation, Report, Stock
-from app.reports import ReportService
+from app.reports import ReportService, _attach_source_images
 from app.stock_catalog import EGXStockCatalog
 from app.schemas import (ChannelCreate, ChannelUpdate, CollectionRequest, DailyReportRequest, MessageCreate, SearchRequest, SettingsUpdate, TelegramChatSelect,
                          TelegramCodeRequest, TelegramCodeVerification)
@@ -532,6 +532,26 @@ async def reports(session: AsyncSession = Depends(get_session)) -> list[dict]:
 async def analysis_results(session: AsyncSession = Depends(get_session)) -> list[dict]:
     """Return saved batch-analysis outputs for the expandable Results history."""
     stored_reports = (await session.scalars(select(Report).order_by(Report.report_date.desc()))).all()
+    result_reports = [
+        item for item in stored_reports
+        if item.summary.get("analysis_result") or item.summary.get("analysis_mode") == "consolidated_batch"
+    ]
+    source_message_ids = {
+        int(str(row.get("source_message_id")))
+        for item in result_reports
+        for row in item.summary.get("stock_source_table", [])
+        if isinstance(row, dict) and str(row.get("source_message_id") or "").isdigit()
+    }
+    image_rows: list[tuple[Image, Message, Channel]] = []
+    if source_message_ids:
+        image_rows = (await session.execute(
+            select(Image, Message, Channel)
+            .join(Message, Image.message_id == Message.id)
+            .join(Channel, Message.channel_id == Channel.id)
+            .where(Message.telegram_message_id.in_(source_message_ids))
+        )).all()
+    compact_image_rows = [(image, message) for image, message, _ in image_rows]
+    channels_by_message_id = {message.id: channel for _, message, channel in image_rows}
     return [
         {
             "id": item.id,
@@ -539,16 +559,27 @@ async def analysis_results(session: AsyncSession = Depends(get_session)) -> list
             "target_date": item.summary.get("target_date"),
             "messages_analyzed": item.summary.get("messages_analyzed", 0),
             "content_types": item.summary.get("content_types", ["text", "images", "audio"]),
-            "stock_source_table": item.summary.get("stock_source_table", []),
+            "stock_source_table": _analysis_table_with_source_images(
+                item.summary.get("stock_source_table", []), compact_image_rows, channels_by_message_id,
+            ),
             "client_inquiry_responses": item.summary.get("client_inquiry_responses", []),
             "model_validation_warnings": item.summary.get("model_validation_warnings", []),
             "model_correction_attempted": item.summary.get("model_correction_attempted", False),
             "model_retry_audit": item.summary.get("model_retry_audit", {}),
             "performance": item.summary.get("performance", {}),
         }
-        for item in stored_reports
-        if item.summary.get("analysis_result") or item.summary.get("analysis_mode") == "consolidated_batch"
+        for item in result_reports
     ]
+
+
+def _analysis_table_with_source_images(
+    rows: object,
+    image_rows: list[tuple[Image, Message]],
+    channels_by_message_id: dict[int, Channel],
+) -> list[dict]:
+    table = [dict(row) for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+    _attach_source_images(table, image_rows, channels_by_message_id)
+    return table
 
 
 def _delete_managed_artifact(storage_root: Path, value: object, directory: bool = False) -> None:

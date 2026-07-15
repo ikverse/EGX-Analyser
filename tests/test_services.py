@@ -21,7 +21,7 @@ from app.ai.service import (
     _write_provider_request_trace,
     analysis_output_schema,
 )
-from app.reports import _client_inquiry_rows, _consolidated_source_table
+from app.reports import _attach_source_images, _client_inquiry_rows, _consolidated_source_table
 from app.services import AnalyticsService, MessageService, SearchService
 from app.config_store import load_secrets_into_environment, update_config
 from app.content_updates import ContentUpdateService, generate_seed, public_key_from_seed, sign_bytes, verify_bytes
@@ -79,6 +79,19 @@ def test_ollama_models_return_every_installed_model():
     ]
 
     assert api._ollama_vision_models(catalog) == ["llava:7b", "qwen3-vl:4b", "qwen3-vl:8b", "qwen3:4b"]
+
+
+def test_source_images_are_attached_by_channel_and_telegram_message_id(tmp_path):
+    source_image = tmp_path / "COMI.png"
+    source_image.write_bytes(b"image")
+    channel = SimpleNamespace(handle="ostoulcapital", title="Ostoul Capital")
+    message = SimpleNamespace(id=8, telegram_message_id=1946)
+    image = SimpleNamespace(path=str(source_image))
+    rows = [{"source": "Ostoul Capital", "source_message_id": "1946"}]
+
+    _attach_source_images(rows, [(image, message)], {8: channel})
+
+    assert rows[0]["source_image_paths"] == [str(source_image)]
 
 class FakeAnalyzer:
     async def analyze(self, text: str, image_paths: list[str], transcripts: list[str] | None = None) -> AnalysisResult:

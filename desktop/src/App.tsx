@@ -1,6 +1,6 @@
 import { FormEvent, Fragment, isValidElement, useCallback, useEffect, useMemo, useState } from "react";
 import type React from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { check } from "@tauri-apps/plugin-updater";
 
@@ -26,6 +26,36 @@ type UpdateCandidate = {
 };
 
 const pages: Page[] = ["Channels", "Results", "Settings"];
+type IconName = "channels" | "results" | "settings" | "refresh" | "copy" | "check" | "plus" | "download" | "users" | "clear" | "play" | "eye" | "trash" | "image";
+
+const PAGE_ICONS: Record<Page, IconName> = {
+  Channels: "channels",
+  Results: "results",
+  Settings: "settings",
+};
+
+function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
+  const common = { fill: "none", stroke: "currentColor", strokeWidth: 1.9, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+  const paths = (() => {
+    switch (name) {
+      case "channels": return <><path {...common} d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle {...common} cx="9" cy="7" r="4" /><path {...common} d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></>;
+      case "results": return <><path {...common} d="M4 19V5M4 19h16" /><path {...common} d="m7 15 4-4 3 2 5-6" /><path {...common} d="M16 7h3v3" /></>;
+      case "settings": return <><circle {...common} cx="12" cy="12" r="3" /><path {...common} d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.1 2.1-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V20.3h-3v-.1A1.7 1.7 0 0 0 10.7 18.64a1.7 1.7 0 0 0-1.88.34l-.06.06-2.1-2.1.06-.06A1.7 1.7 0 0 0 7.06 15a1.7 1.7 0 0 0-1.56-1.03h-.1v-3h.1A1.7 1.7 0 0 0 7.06 9.94a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.1-2.1.06.06a1.7 1.7 0 0 0 1.88.34 1.7 1.7 0 0 0 1.03-1.56v-.1h3v.1a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.1 2.1-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.56 1.03h.1v3H21a1.7 1.7 0 0 0-1.6 1.03Z" /></>;
+      case "refresh": return <><path {...common} d="M20 11a8.2 8.2 0 0 0-15.5-2L3 11" /><path {...common} d="M3 5v6h6" /><path {...common} d="M4 13a8.2 8.2 0 0 0 15.5 2L21 13" /><path {...common} d="M21 19v-6h-6" /></>;
+      case "copy": return <><rect {...common} x="9" y="9" width="11" height="11" rx="2" /><path {...common} d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3" /></>;
+      case "check": return <path {...common} d="m5 12 4 4L19 6" />;
+      case "plus": return <><path {...common} d="M12 5v14M5 12h14" /></>;
+      case "download": return <><path {...common} d="M12 3v12" /><path {...common} d="m7 10 5 5 5-5" /><path {...common} d="M5 21h14" /></>;
+      case "users": return <><path {...common} d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle {...common} cx="9" cy="7" r="4" /></>;
+      case "clear": return <><path {...common} d="M6 6l12 12M18 6 6 18" /></>;
+      case "play": return <path {...common} d="m8 5 11 7-11 7V5Z" />;
+      case "eye": return <><path {...common} d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" /><circle {...common} cx="12" cy="12" r="2.5" /></>;
+      case "trash": return <><path {...common} d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V4h6v3" /></>;
+      case "image": return <><rect {...common} x="3" y="4" width="18" height="16" rx="2" /><circle {...common} cx="8.5" cy="9" r="1.5" /><path {...common} d="m21 15-5-5L5 20" /></>;
+    }
+  })();
+  return <svg className="icon" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">{paths}</svg>;
+}
 
 function normalizeChannelHandle(value: string): string {
   return value.trim().replace(/^@/, "").toLocaleLowerCase();
@@ -61,9 +91,9 @@ function ErrorModal({ message, onClose }: { message: string; onClose: () => void
         <pre className="error-modal-body">{message}</pre>
         <div className="error-modal-actions">
           <button type="button" className="secondary" onClick={copy}>
-            {copied ? "Copied" : "Copy Message"}
+            <Icon name={copied ? "check" : "copy"} /> {copied ? "Copied" : "Copy Message"}
           </button>
-          <button type="button" onClick={onClose}>OK</button>
+          <button type="button" onClick={onClose}><Icon name="check" /> OK</button>
         </div>
       </div>
     </div>
@@ -251,7 +281,7 @@ export default function App() {
           <h1>EGX Analyzer</h1>
           {pages.map((item) => (
             <button className={page === item ? "active" : ""} onClick={() => setPage(item)} key={item}>
-              {item}
+              <Icon name={PAGE_ICONS[item]} /><span>{item}</span>
             </button>
           ))}
         </aside>
@@ -266,7 +296,7 @@ export default function App() {
             </div>
             <div className="header-actions">
               {analysisRun.running && <span className="analysis-running-chip"><span /> Analysis running</span>}
-              <button className="secondary" onClick={() => void refresh()}>Refresh</button>
+              <button className="secondary" onClick={() => void refresh()}><Icon name="refresh" /> Refresh</button>
             </div>
           </header>
 
@@ -585,18 +615,18 @@ function Channels({ channels, api, refresh, notify, showError, analysisRun, anal
           <summary>Add a chat manually</summary>
           <form className="inline" onSubmit={submit}>
             <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="Telegram username, without @" required />
-            <button disabled={busy}>Add channel</button>
+            <button disabled={busy}><Icon name="plus" /> Add channel</button>
           </form>
         </details>
         <button className="secondary load-chats-button" onClick={loadChats} disabled={busy}>
-          {loading ? "Loading chats…" : "Load my Telegram chats"}
+          <Icon name="download" /> {loading ? "Loading chats…" : "Load my Telegram chats"}
         </button>
         {chats.length > 0 && <>
           <div className="channel-list-toolbar">
             <input value={chatQuery} onChange={(event) => setChatQuery(event.target.value)} placeholder="Filter chats by name, username, or type" />
             <span>{selectedChannels.length} selected</span>
-            <button type="button" className="secondary compact" disabled={busy || !visibleChats.some((chat) => !selected.has(chatHandle(chat)))} onClick={selectVisibleChats}>Select visible</button>
-            <button type="button" className="secondary compact" disabled={!selectedChannels.length || busy} onClick={() => updateSelectedHandles([])}>Clear selection</button>
+            <button type="button" className="secondary compact" disabled={busy || !visibleChats.some((chat) => !selected.has(chatHandle(chat)))} onClick={selectVisibleChats}><Icon name="users" size={16} /> Select visible</button>
+            <button type="button" className="secondary compact" disabled={!selectedChannels.length || busy} onClick={() => updateSelectedHandles([])}><Icon name="clear" size={16} /> Clear selection</button>
           </div>
           <div className="table channel-chat-table">
             <table>
@@ -656,7 +686,7 @@ function Channels({ channels, api, refresh, notify, showError, analysisRun, anal
           ))}
         </fieldset>
         <button onClick={analyze} disabled={busy}>
-          {analyzing ? "Analyzing selected chats…" : "Analyze selected chats"}
+          <Icon name="play" /> {analyzing ? "Analyzing selected chats…" : "Analyze selected chats"}
         </button>
         {analyzing && <p className="analysis-progress" role="status">{analysisProgress}</p>}
       </div>
@@ -854,11 +884,11 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted }
                       <button type="button" className="secondary compact" onClick={(event) => {
                         event.stopPropagation();
                         toggleAnalysis(item.id);
-                      }}>{analysisOpen ? "Hide" : "View"}</button>
+                      }}><Icon name={analysisOpen ? "clear" : "eye"} size={16} /> {analysisOpen ? "Hide" : "View"}</button>
                       <button type="button" className="danger compact" onClick={(event) => {
                         event.stopPropagation();
                         setDeleteCandidate(item);
-                      }}>Delete</button>
+                      }}><Icon name="trash" size={16} /> Delete</button>
                     </div>
                   </td>
                 </tr>
@@ -987,6 +1017,7 @@ function SuccessModal({ message, onClose }: { message: string; onClose: () => vo
 }
 
 function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
+  const [sourceImages, setSourceImages] = useState<{ paths: string[]; title: string } | null>(null);
   const grouped = new Map<string, StockSourceTableRow[]>();
   rows.forEach((row) => {
     const group = grouped.get(row.ticker) ?? [];
@@ -1005,13 +1036,13 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
         <table className="consolidated-table">
           <thead><tr>
             <th>Source</th><th>Date</th><th>Timing</th><th>Type</th><th>Entry</th><th>TP1</th><th>TP2</th>
-            <th>Stop</th><th>Support</th><th>Resistance</th><th>Return %</th><th>Risk %</th><th>Status</th><th>Notes</th>
+            <th>Stop</th><th>Support</th><th>Resistance</th><th>Return %</th><th>Risk %</th><th>Status</th><th>Source image</th><th>Notes</th>
           </tr></thead>
           {[...grouped.entries()].map(([ticker, stockRows]) => {
             const first = stockRows[0];
             return (
               <tbody key={ticker}>
-                <tr className="consolidated-stock-group"><td colSpan={14}>
+                <tr className="consolidated-stock-group"><td colSpan={15}>
                   <span className="consolidated-rank">#{first.rank ?? "—"}</span>
                   <strong>{first.ticker}</strong>
                   <span>{first.company}</span>
@@ -1033,6 +1064,11 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
                     <td className="numeric positive">{num(row.expected_return_pct)}</td>
                     <td className="numeric negative">{num(row.risk_pct)}</td>
                     <td><span className={`status-pill ${row.status === "active" ? "active" : "neutral"}`}>{row.status || "—"}</span></td>
+                    <td className="source-image-cell">
+                      {row.source_image_paths?.length ? <button type="button" className="secondary compact source-image-button" onClick={() => setSourceImages({ paths: row.source_image_paths ?? [], title: `${row.ticker} - ${row.source}` })}>
+                        <Icon name="image" size={15} /> View ({row.source_image_paths.length})
+                      </button> : "—"}
+                    </td>
                     <td className="analysis-summary">{row.notes_ar || row.analysis_summary_ar || "—"}</td>
                   </tr>
                 ))}
@@ -1040,6 +1076,28 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
             );
           })}
         </table>
+      </div>
+      {sourceImages && <SourceImageModal paths={sourceImages.paths} title={sourceImages.title} onClose={() => setSourceImages(null)} />}
+    </div>
+  );
+}
+
+function SourceImageModal({ paths, title, onClose }: { paths: string[]; title: string; onClose: () => void }) {
+  const [index, setIndex] = useState(0);
+  const currentPath = paths[index];
+  return (
+    <div className="error-modal-backdrop source-image-backdrop" role="dialog" aria-modal="true" aria-label={`Source image for ${title}`}>
+      <div className="error-modal-card source-image-modal-card">
+        <div className="source-image-modal-heading">
+          <div><h2 className="error-modal-title source-image-modal-title">Source image</h2><p>{title}</p></div>
+          {paths.length > 1 && <span>{index + 1} / {paths.length}</span>}
+        </div>
+        <img className="source-image-preview" src={convertFileSrc(currentPath)} alt={`Telegram source image for ${title}`} />
+        <div className="error-modal-actions">
+          {paths.length > 1 && <><button type="button" className="secondary" disabled={index === 0} onClick={() => setIndex((current) => current - 1)}>Previous</button><button type="button" className="secondary" disabled={index === paths.length - 1} onClick={() => setIndex((current) => current + 1)}>Next</button></>}
+          <a className="secondary source-image-open" href={`file:///${currentPath.replace(/\\/g, "/")}`} target="_blank" rel="noreferrer">Open file</a>
+          <button type="button" onClick={onClose}><Icon name="check" /> Close</button>
+        </div>
       </div>
     </div>
   );

@@ -164,6 +164,11 @@ class ReportService:
         if consolidated_source is not None:
             consensus, stock_code_summary, stock_code_details = _source_driven_tables(consolidated_source)
             stock_source_table = _consolidated_source_table(consolidated_source)
+            _attach_source_images(
+                stock_source_table,
+                image_rows,
+                {message.id: channel for message, channel in message_rows},
+            )
             client_inquiry_responses = _client_inquiry_rows(consolidated_source)
             source_counts = _consolidated_source_counts(consolidated_source)
             for channel in channels:
@@ -389,6 +394,41 @@ def _consolidated_source_table(payload: dict) -> list[dict]:
     return sorted(rows, key=lambda row: (
         int(row["rank"] or 999), row["ticker"], row["source"], row["latest_date"] or "",
     ))
+
+
+def _attach_source_images(
+    rows: list[dict],
+    image_rows: list[tuple[Image, Message]],
+    channels_by_message_id: dict[int, Channel],
+) -> None:
+    """Attach locally saved images to recommendation rows using their auditable source IDs."""
+    by_source_and_message: dict[tuple[str, str], list[str]] = {}
+    by_telegram_message: dict[str, list[str]] = {}
+
+    for image, message in image_rows:
+        if not Path(image.path).is_file():
+            continue
+        channel = channels_by_message_id.get(message.id)
+        if channel is None:
+            continue
+        telegram_message_id = str(message.telegram_message_id)
+        source_labels = {channel.handle}
+        if channel.title:
+            source_labels.add(channel.title)
+        for label in source_labels:
+            key = (label.strip().casefold(), telegram_message_id)
+            by_source_and_message.setdefault(key, []).append(image.path)
+        by_telegram_message.setdefault(telegram_message_id, []).append(image.path)
+
+    for row in rows:
+        source_message_id = str(row.get("source_message_id") or "").strip()
+        source = str(row.get("source") or "").strip().casefold()
+        paths = by_source_and_message.get((source, source_message_id), [])
+        if not paths:
+            candidates = by_telegram_message.get(source_message_id, [])
+            if len(set(candidates)) == 1:
+                paths = candidates
+        row["source_image_paths"] = list(dict.fromkeys(paths))
 
 
 def _client_inquiry_rows(payload: dict) -> list[dict]:

@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.79
+- Added a source-image button to each recommendation row when its saved Telegram image can be matched by channel and source message ID.
+- Added an in-app image viewer with multi-image navigation and direct file access.
+- Makes matching source images available to both new and previously saved Results entries.
+
 ## v0.1.78
 - Selects the applicable EGX trading session in Africa/Cairo time: the current session before or during market hours, otherwise the next Sunday-through-Thursday session.
 - Prevents empty analysis runs from creating saved Results entries and records detailed local diagnostics for empty input windows.

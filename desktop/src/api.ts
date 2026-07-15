@@ -35,6 +35,7 @@ export type StockSourceTableRow = {
   company_ar?: string;
   source: string;
   source_message_id?: string | null;
+  source_image_paths?: string[];
   source_entries: number;
   source_dates: string[];
   latest_date?: string | null;
