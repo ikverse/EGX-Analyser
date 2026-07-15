@@ -226,20 +226,22 @@ button.tab.active { background: #1f3c2d; color: #86efac; }
 .manual-channel-add { margin-top: .25rem; }
 .manual-channel-add summary { color: #94a3b8; cursor: pointer; font-size: .86rem; }
 .manual-channel-add[open] summary { color: #cbd5e1; margin-bottom: .75rem; }
-.channel-chat-table { margin-top: 0; }
-.channel-chat-table th { font-size: .78rem; padding: .65rem .85rem; }
-.channel-chat-table td { padding: .72rem .85rem; vertical-align: middle; }
+.channel-chat-table { background: #101b2c; border: 1px solid #2d4664; border-radius: 12px; box-shadow: 0 14px 30px #02061726; margin-top: 0; overflow: hidden; }
+.channel-chat-table table { border-collapse: separate; border-spacing: 0; }
+.channel-chat-table th { background: linear-gradient(100deg, #173852, #1b3152); border-bottom: 1px solid #3b668a; color: #dbeafe; font-size: .72rem; font-weight: 800; letter-spacing: .055em; padding: .74rem .85rem; text-transform: uppercase; }
+.channel-chat-table td { background: #111c2e; padding: .76rem .85rem; transition: background .16s ease, box-shadow .16s ease; vertical-align: middle; }
 .channel-chat-table th:nth-child(2), .channel-chat-table td:nth-child(2) { width: 110px; }
 .channel-chat-table th:last-child, .channel-chat-table td:last-child { text-align: right; width: 105px; }
 .channel-chat-row { cursor: pointer; outline: none; transition: background .16s ease; }
 .channel-chat-row:hover td, .channel-chat-row:focus-visible td { background: #172c42; }
 .channel-chat-row:focus-visible td { box-shadow: inset 3px 0 0 #86efac; }
-.channel-chat-row.is-selected td { background: #173424; border-bottom-color: #33654a; }
-.channel-chat-row.is-selected:hover td { background: #1c402c; }
+.channel-chat-row.is-selected td { background: linear-gradient(90deg, #173424, #142d2a); border-bottom-color: #3b7352; }
+.channel-chat-row.is-selected td:first-child { box-shadow: inset 4px 0 0 #86efac; }
+.channel-chat-row.is-selected:hover td { background: linear-gradient(90deg, #1c402c, #18342d); }
 .channel-chat-table strong { color: #e5e7eb; font-size: .92rem; }
 .channel-chat-username { color: #94a3b8; display: block; font-size: .78rem; margin-top: .12rem; }
-.channel-selection-state { color: #94a3b8; font-size: .8rem; font-weight: 700; }
-.channel-selection-state.selected { color: #bbf7d0; }
+.channel-selection-state { color: #94a3b8; font-size: .75rem; font-weight: 800; letter-spacing: .03em; }
+.channel-selection-state.selected { background: #1a4a2a; border: 1px solid #3f8058; border-radius: 999px; color: #bbf7d0; padding: .23rem .5rem; }
 .analysis-setup-section .section-heading { margin-bottom: .65rem; }
 .section-heading {
   margin: 0 0 1rem;
@@ -779,6 +781,7 @@ tr:hover td { background: #131f33; }
 .status-pill.neutral { background: #172033; color: #94a3b8; }
 .recommendation-date-basis { display: inline-block; margin: .1rem .15rem .1rem 0; padding: .15rem .4rem; border-radius: 999px; background: #1b3152; color: #bfdbfe; font-size: .7rem; font-weight: 700; white-space: nowrap; }
 .compact { padding: .38rem .65rem; font-size: .8rem; }
+.model-selector-help { color: #94a3b8; display: block; font-size: .78rem; font-weight: 400; line-height: 1.4; margin: .3rem 0 .55rem; }
 
 /* ── Responsive ── */
 @media (max-width: 700px) {

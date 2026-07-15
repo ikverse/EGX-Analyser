@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.75
+- Lists every model reported by the selected AI provider instead of filtering by modality or provider-specific capabilities.
+- Fixed Channels selection highlighting by normalizing Telegram handles and made rapid or bulk selections update consistently.
+- Refined the Telegram chat table with a higher-contrast header and clearer selected-row styling.
+
 ## v0.1.74
 - Refined the Results tab with a saved-run overview, clear result totals, stronger empty-state guidance, and expanded-run metadata.
 - Improved visual hierarchy for nested recommendation and client-inquiry sections without changing analysis data or actions.

@@ -38,26 +38,15 @@ _QWEN_VISION_PREFERENCE = (
 
 
 def _qwen_vision_models(catalog: list[object]) -> list[str]:
-    """Return every accessible Qwen text-and-image model in a stable quality order."""
-    available: dict[str, bool] = {}
+    """Return every model exposed by the saved Qwen account."""
+    available: set[str] = set()
     for item in catalog:
         if not isinstance(item, dict) or not isinstance(item.get("id"), str):
             continue
         model_id = item["id"].strip()
-        architecture = item.get("architecture") if isinstance(item.get("architecture"), dict) else {}
-        modalities = architecture.get("input_modalities") or item.get("input_modalities") or []
-        supports_images = isinstance(modalities, list) and "image" in modalities
-        known_vision_family = model_id.startswith(("qwen3-vl", "qwen-vl-", "qwen2.5-vl", "qvq"))
-        if supports_images or known_vision_family:
-            available[model_id] = True
-
-    def priority(model_id: str) -> tuple[int, str]:
-        for index, preferred in enumerate(_QWEN_VISION_PREFERENCE):
-            if model_id == preferred or model_id.startswith(f"{preferred}-"):
-                return index, model_id
-        return len(_QWEN_VISION_PREFERENCE), model_id
-
-    return sorted(available, key=priority)
+        if model_id:
+            available.add(model_id)
+    return sorted(available)
 
 
 def _ollama_api_url(settings) -> str:
@@ -65,20 +54,15 @@ def _ollama_api_url(settings) -> str:
 
 
 def _ollama_vision_models(catalog: list[object]) -> list[str]:
-    """Return installed Ollama models that can accept images."""
+    """Return every installed Ollama model reported by the local service."""
     models: list[str] = []
     for item in catalog:
         if not isinstance(item, dict) or not isinstance(item.get("name"), str):
             continue
         name = item["name"].strip()
-        details = item.get("details") if isinstance(item.get("details"), dict) else {}
-        families = details.get("families") if isinstance(details.get("families"), list) else []
-        supports_images = any("vision" in str(family).lower() or "vl" in str(family).lower() for family in families)
-        known_vision_name = any(token in name.lower() for token in ("-vl", "llava", "minicpm-v", "gemma3", "moondream"))
-        if supports_images or known_vision_name:
+        if name:
             models.append(name)
-    preferred = ["qwen3-vl:4b", "qwen3-vl:8b"]
-    return sorted(set(models), key=lambda model: (preferred.index(model) if model in preferred else len(preferred), model))
+    return sorted(set(models))
 telegram_authenticator = TelegramAuthenticator()
 
 
@@ -184,17 +168,8 @@ async def available_models() -> list[str]:
             raise HTTPException(503, f"Unable to connect to {provider.title()}. Check your internet connection and try again.") from error
         if provider == "qwen":
             return _qwen_vision_models(catalog)
-        compatible = []
-        for model in catalog:
-            if not isinstance(model, dict) or not isinstance(model.get("id"), str):
-                continue
-            architecture = model.get("architecture") or {}
-            modalities = architecture.get("input_modalities") or model.get("input_modalities") or []
-            parameters = model.get("supported_parameters") or []
-            if "image" in modalities and any(item in parameters for item in ("response_format", "structured_outputs")):
-                compatible.append(model["id"])
-        preferred = {"openrouter": ["openrouter/free"]}.get(provider, [])
-        return preferred + sorted(set(model for model in compatible if model not in preferred))
+        return sorted({model["id"].strip() for model in catalog
+                       if isinstance(model, dict) and isinstance(model.get("id"), str) and model["id"].strip()})
     try:
         models = await AsyncOpenAI(api_key=settings.openai_api_key).models.list()
     except AuthenticationError as error:
@@ -207,9 +182,7 @@ async def available_models() -> list[str]:
         raise HTTPException(502, f"OpenAI could not load models (status {error.status_code}). Try again shortly.") from error
     except Exception as error:
         raise HTTPException(502, "Unable to load available OpenAI models. Try again shortly.") from error
-    allowed = [model.id for model in models.data if model.id.startswith("gpt-") and
-               not any(term in model.id for term in ("audio", "realtime", "transcribe", "tts", "image", "chat"))]
-    return sorted(set(allowed), reverse=True)
+    return sorted({model.id for model in models.data if model.id}, reverse=True)
 
 
 @router.put("/settings")

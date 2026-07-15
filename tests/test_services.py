@@ -51,7 +51,7 @@ QWEN_CONSOLIDATED_OUTPUT = {
 }
 
 
-def test_qwen_vision_models_prioritize_and_return_all_accessible_models():
+def test_qwen_models_return_every_accessible_model():
     catalog = [
         {"id": "qwen-plus", "architecture": {"input_modalities": ["text"]}},
         {"id": "qwen3-vl-flash", "architecture": {"input_modalities": ["text", "image"]}},
@@ -61,14 +61,15 @@ def test_qwen_vision_models_prioritize_and_return_all_accessible_models():
     ]
 
     assert api._qwen_vision_models(catalog) == [
-        "qwen3-vl-plus-2026-01-01",
+        "qwen-plus",
+        "qwen-vl-max",
         "qwen3-vl-235b-a22b-instruct",
         "qwen3-vl-flash",
-        "qwen-vl-max",
+        "qwen3-vl-plus-2026-01-01",
     ]
 
 
-def test_ollama_vision_models_exclude_text_only_models_and_prefer_qwen():
+def test_ollama_models_return_every_installed_model():
     catalog = [
         {"name": "qwen3:4b", "details": {"families": ["qwen3"]}},
         {"name": "llava:7b", "details": {"families": ["llama", "clip"]}},
@@ -76,7 +77,7 @@ def test_ollama_vision_models_exclude_text_only_models_and_prefer_qwen():
         {"name": "qwen3-vl:4b", "details": {"families": ["qwen3vl", "vision"]}},
     ]
 
-    assert api._ollama_vision_models(catalog) == ["qwen3-vl:4b", "qwen3-vl:8b", "llava:7b"]
+    assert api._ollama_vision_models(catalog) == ["llava:7b", "qwen3-vl:4b", "qwen3-vl:8b", "qwen3:4b"]
 
 class FakeAnalyzer:
     async def analyze(self, text: str, image_paths: list[str], transcripts: list[str] | None = None) -> AnalysisResult:

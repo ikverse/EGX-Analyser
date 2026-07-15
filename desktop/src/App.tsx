@@ -27,6 +27,10 @@ type UpdateCandidate = {
 
 const pages: Page[] = ["Channels", "Results", "Settings"];
 
+function normalizeChannelHandle(value: string): string {
+  return value.trim().replace(/^@/, "").toLocaleLowerCase();
+}
+
 function loadChannelAnalysisConfig(): ChannelAnalysisConfig {
   try {
     return {
@@ -483,14 +487,20 @@ function Channels({ channels, api, refresh, notify, showError, analysisRun, anal
   };
 
   const updateSelectedHandles = (handles: string[]) => {
-    updateAnalysisConfig((current) => ({ ...current, selectedHandles: handles }));
+    updateAnalysisConfig((current) => ({
+      ...current,
+      selectedHandles: [...new Set(handles.map(normalizeChannelHandle).filter(Boolean))],
+    }));
   };
 
   const addChat = (chat: TelegramChat) => {
     setLoading(true);
     void api.selectTelegramChat(chat)
       .then((channel) => {
-        updateSelectedHandles([...new Set([...selectedHandles, channel.handle])]);
+        updateAnalysisConfig((current) => ({
+          ...current,
+          selectedHandles: [...new Set([...current.selectedHandles, channel.handle].map(normalizeChannelHandle).filter(Boolean))],
+        }));
         return refresh();
       })
       .then(() => notify("success", `${chat.title} is selected for this session.`))
@@ -499,7 +509,11 @@ function Channels({ channels, api, refresh, notify, showError, analysisRun, anal
   };
 
   const removeChat = (h: string) => {
-    updateSelectedHandles(selectedHandles.filter((item) => item !== h));
+    const selectedHandle = normalizeChannelHandle(h);
+    updateAnalysisConfig((current) => ({
+      ...current,
+      selectedHandles: current.selectedHandles.filter((item) => normalizeChannelHandle(item) !== selectedHandle),
+    }));
     notify("success", "Chat removed from this session.");
   };
 
@@ -509,7 +523,10 @@ function Channels({ channels, api, refresh, notify, showError, analysisRun, anal
     setLoading(true);
     void Promise.all(toSelect.map((chat) => api.selectTelegramChat(chat)))
       .then((selectedChannels) => {
-        updateSelectedHandles([...new Set([...selectedHandles, ...selectedChannels.map((channel) => channel.handle)])]);
+        updateAnalysisConfig((current) => ({
+          ...current,
+          selectedHandles: [...new Set([...current.selectedHandles, ...selectedChannels.map((channel) => channel.handle)].map(normalizeChannelHandle).filter(Boolean))],
+        }));
         return refresh();
       })
       .then(() => notify("success", `${toSelect.length} visible chats selected for this session.`))
@@ -517,13 +534,13 @@ function Channels({ channels, api, refresh, notify, showError, analysisRun, anal
       .finally(() => setLoading(false));
   };
 
-  const selected = new Set(selectedHandles);
-  const selectedChannels = channels.filter((channel) => selected.has(channel.handle));
+  const selected = new Set(selectedHandles.map(normalizeChannelHandle));
+  const selectedChannels = channels.filter((channel) => selected.has(normalizeChannelHandle(channel.handle)));
 
   const chatHandle = (chat: TelegramChat) => {
-    if (chat.username) return chat.username;
+    if (chat.username) return normalizeChannelHandle(chat.username);
     const raw = chat.id.replace(/^-/, "");
-    return raw.startsWith("100") ? raw.slice(3) : raw;
+    return normalizeChannelHandle(raw.startsWith("100") ? raw.slice(3) : raw);
   };
   const visibleChats = chats
     .filter((chat) => `${chat.title} ${chat.username} ${chat.kind}`.toLocaleLowerCase().includes(chatQuery.trim().toLocaleLowerCase()))
@@ -1338,7 +1355,7 @@ function ModelSelector({ api, configured, selected, onChange, showError }: {
       const loaded = await api.models();
       setModels(loaded);
       if (announce && loaded.length === 0) {
-        showError("No compatible analysis models are available to this API key.");
+        showError("No models are available to this provider account.");
       }
     } catch (reason) {
       showError(`Could not load models: ${fullError(reason)}`);
@@ -1352,6 +1369,7 @@ function ModelSelector({ api, configured, selected, onChange, showError }: {
   return (
     <label>
       Analysis model
+      <small className="model-selector-help">Shows every model currently available from the selected provider. Choose a vision-capable model when analyzing photos.</small>
       <div className="model-row">
         <select value={selected} onChange={(e) => onChange(e.target.value)}>
           <option value={selected}>{selected || "Choose a model"}</option>
