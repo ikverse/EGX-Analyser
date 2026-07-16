@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime
 import json
 from pathlib import Path
 import shutil
@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Channel, Image, Message, Recommendation
+from app.time_utils import cairo_now
 
 
 def create_selected_input_trace(storage_root: Path, messages: list[dict[str, Any]],
@@ -21,7 +22,7 @@ def create_selected_input_trace(storage_root: Path, messages: list[dict[str, Any
     It is created before the provider call and therefore remains available when a
     provider rejects or times out on an analysis request.
     """
-    created_at = datetime.now(timezone.utc)
+    created_at = cairo_now()
     directory = storage_root / "analysis-traces" / created_at.strftime("%Y-%m-%d") / created_at.strftime("%H%M%S_%f")
     image_directory = directory / "images"
     image_directory.mkdir(parents=True, exist_ok=True)
@@ -128,7 +129,7 @@ def save_analysis_performance(trace: dict[str, object], timings_ms: dict[str, in
 async def export_analysis_trace(session: AsyncSession, storage_root: Path, channel_ids: list[int],
                                 start: datetime, end: datetime, consolidated_response: str | None = None) -> dict[str, object]:
     """Save the exact text and images considered in one selected-chat analysis run."""
-    created_at = datetime.now(timezone.utc)
+    created_at = cairo_now()
     directory = storage_root / "analysis-traces" / created_at.strftime("%Y-%m-%d") / created_at.strftime("%H%M%S")
     image_directory = directory / "images"
     image_directory.mkdir(parents=True, exist_ok=True)

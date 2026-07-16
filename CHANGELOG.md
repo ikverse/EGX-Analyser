@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.83
+- Replaced all application table-header gradients with solid Light/Dark theme surfaces.
+- Added direct analysis-completion navigation to the newly created Result, including automatic expansion, scroll, and visual focus.
+- Added Results shortcuts for opening the latest run and returning to Channels.
+- Moved model-output audit notices from Results to Settings diagnostics.
+- Standardized displayed timestamps, reports, diagnostics, analysis traces, and saved media folders on the DST-aware Africa/Cairo timezone.
+
 ## v0.1.82
 - Removed local correction and mutation of AI analysis output; the model response is now saved exactly as returned, with validation warnings retained for traceability.
 - Enabled Tauri's asset protocol feature required by saved Telegram source-image previews in packaged builds.

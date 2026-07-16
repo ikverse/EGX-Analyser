@@ -5,10 +5,11 @@ import json
 import logging
 import os
 import tempfile
-from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
+
+from app.time_utils import cairo_iso
 
 LOGGER_NAME = "egx.diagnostics"
 
@@ -36,7 +37,7 @@ def app_errors_path() -> Path:
 class JsonDiagnosticFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
-            "timestamp": datetime.now(UTC).isoformat(),
+            "timestamp": cairo_iso(),
             "level": record.levelname,
             "event": record.getMessage(),
         }
@@ -76,7 +77,7 @@ def structlog_file_processor(log_path: Path):
     _handler = RotatingFileHandler(log_path, maxBytes=1_000_000, backupCount=3, encoding="utf-8")
 
     def processor(logger_inst, method: str, event_dict: dict) -> dict:
-        entry = {"timestamp": datetime.now(UTC).isoformat(), "level": method, **event_dict}
+        entry = {"timestamp": cairo_iso(), "level": method, **event_dict}
         _handler.emit(logging.makeLogRecord({"msg": json.dumps(entry, ensure_ascii=False, default=str)}))
         return event_dict
 

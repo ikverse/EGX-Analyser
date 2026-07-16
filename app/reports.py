@@ -4,13 +4,13 @@ import json
 import os
 from pathlib import Path
 from statistics import median
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
 from app.models import Channel, Image, Media, Message, Recommendation, Report, Stock, StockMention
+from app.time_utils import CAIRO_TIMEZONE, as_cairo, cairo_now
 
 try:
     import arabic_reshaper
@@ -34,14 +34,13 @@ class ReportService:
         self.session, self.settings = session, settings
 
     async def generate_daily(self, report_mode: str = "calendar", report_date: datetime | None = None) -> Report:
-        generated_at = report_date or datetime.now(timezone.utc)
-        cairo = ZoneInfo("Africa/Cairo")
-        local_day = generated_at.astimezone(cairo).date()
-        start = datetime.combine(local_day, time(0, 0), tzinfo=cairo)
+        generated_at = as_cairo(report_date) if report_date else cairo_now()
+        local_day = generated_at.date()
+        start = datetime.combine(local_day, time(0, 0), tzinfo=CAIRO_TIMEZONE)
         end = start + timedelta(days=1)
         if report_mode == "session":
-            start = datetime.combine(local_day, time.fromisoformat(self.settings.egx_session_start), tzinfo=cairo)
-            end = datetime.combine(local_day, time.fromisoformat(self.settings.egx_session_end), tzinfo=cairo)
+            start = datetime.combine(local_day, time.fromisoformat(self.settings.egx_session_start), tzinfo=CAIRO_TIMEZONE)
+            end = datetime.combine(local_day, time.fromisoformat(self.settings.egx_session_end), tzinfo=CAIRO_TIMEZONE)
         return await self._generate(start.astimezone(timezone.utc), end.astimezone(timezone.utc), report_mode)
 
     async def generate_selected_chat_report(self, channel_ids: list[int], start: datetime, end: datetime,
@@ -189,7 +188,7 @@ class ReportService:
             channel_results.append({"channel": channel.title or channel.handle, "status": status,
                                     "messages": len(texts), "recommendations": recommendations, "stock_codes": mentions})
 
-        generated_at = datetime.now(timezone.utc)
+        generated_at = cairo_now()
         directory = self.settings.storage_root / "reports" / generated_at.strftime("%Y-%m-%d")
         directory.mkdir(parents=True, exist_ok=True)
         display_recommendation_count = sum(recommendation_counts.values())
@@ -265,7 +264,7 @@ class ReportService:
                                consolidated_source, stock_source_table, client_inquiry_responses),
             encoding="utf-8",
         )
-        raw_lines = [f"EGX Intelligence - Original AI Responses ({generated_at:%Y-%m-%d %H:%M UTC})", ""]
+        raw_lines = [f"EGX Intelligence - Original AI Responses ({generated_at:%Y-%m-%d %H:%M Cairo})", ""]
         if consolidated_raw_response:
             raw_lines += ["Consolidated selected-chat analysis", "", consolidated_raw_response, "", "=" * 90, ""]
         else:
@@ -275,7 +274,7 @@ class ReportService:
                 raw_lines += [
                     f"Channel: {channel.title or channel.handle}",
                     f"Telegram message: {message.telegram_message_id}",
-                    f"Published: {message.published_at.isoformat()}",
+                    f"Published: {as_cairo(message.published_at).isoformat()}",
                     "", message.ai_response_raw, "", "=" * 90, "",
                 ]
         if len(raw_lines) == 2:
@@ -629,7 +628,7 @@ def _build_html_report(
     # ── header ────────────────────────────────────────────────────────────────
     sections.append(
         f'<h1>EGX Intelligence Report</h1>'
-        f'<p class="meta">Generated {generated_at:%Y-%m-%d %H:%M UTC} &nbsp;·&nbsp; '
+        f'<p class="meta">Generated {generated_at:%Y-%m-%d %H:%M Cairo} &nbsp;·&nbsp; '
         f'Mode: {e(report_mode)} &nbsp;·&nbsp; '
         f'Messages: {len(message_rows)} &nbsp;·&nbsp; '
         f'Recommendations: {len(recommendation_rows)}</p>'

@@ -1,4 +1,4 @@
-import { FormEvent, Fragment, isValidElement, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, Fragment, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
@@ -9,6 +9,7 @@ import {
   DiagnosticEntry, SettingsInput, SettingsStatus, TelegramChat,
   StockSourceRow, StockSourceTableRow, StockSummaryRow,
 } from "./api";
+import { cairoDateInputValue, formatCairoDateTime } from "./time";
 
 type Page = "Channels" | "Results" | "Settings";
 type ThemeMode = "light" | "dark";
@@ -115,7 +116,8 @@ export default function App() {
   const [engineStarting, setEngineStarting] = useState(true);
   const [toast, setToast] = useState<Toast>(null);
   const [errorModal, setErrorModal] = useState<string | null>(null);
-  const [successModal, setSuccessModal] = useState<string | null>(null);
+  const [successModal, setSuccessModal] = useState<{ message: string; resultId?: number } | null>(null);
+  const [focusedResultId, setFocusedResultId] = useState<number | null>(null);
   const [availableUpdate, setAvailableUpdate] = useState<UpdateCandidate | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [downloadingUpdate, setDownloadingUpdate] = useState(false);
@@ -134,7 +136,7 @@ export default function App() {
     const short = fullText.length > 120 ? `${fullText.slice(0, 117)}…` : fullText;
     setToast({ kind: "warning", text: short });
   }, []);
-  const showSuccess = useCallback((message: string) => setSuccessModal(message), []);
+  const showSuccess = useCallback((message: string, resultId?: number) => setSuccessModal({ message, resultId }), []);
 
   const updateAnalysisConfig = useCallback((updater: (current: ChannelAnalysisConfig) => ChannelAnalysisConfig) => {
     setAnalysisConfig((current) => {
@@ -206,6 +208,7 @@ export default function App() {
           `${result.messages_analyzed} of ${result.messages_in_window} messages were analyzed. ` +
           `Target suggestion date: ${result.target_date}. Inputs sent: ${contentTypeLabel(result.content_types)}. ` +
           `The result is now available in Results.${noStockContext}`,
+          result.report.id,
         );
       })
       .catch((reason) => showError(fullError(reason)))
@@ -337,6 +340,9 @@ export default function App() {
               showError={showError}
               analysisResults={analysisResults}
               onAnalysisDeleted={(id) => setAnalysisResults((current) => current.filter((item) => item.id !== id))}
+              focusedResultId={focusedResultId}
+              onFocusHandled={() => setFocusedResultId(null)}
+              onBackToAnalysis={() => setPage("Channels")}
             />
           )}
           {page === "Settings" && (
@@ -351,13 +357,22 @@ export default function App() {
               onCheckForUpdates={() => void checkForUpdates(true)}
               themeMode={themeMode}
               onThemeModeChange={setThemeMode}
+              analysisResults={analysisResults}
             />
           )}
         </section>
       </main>
 
       {errorModal && <ErrorModal message={errorModal} onClose={() => setErrorModal(null)} />}
-      {successModal && <SuccessModal message={successModal} onClose={() => setSuccessModal(null)} />}
+      {successModal && <SuccessModal
+        message={successModal.message}
+        onClose={() => setSuccessModal(null)}
+        onOpenResult={successModal.resultId ? () => {
+          setPage("Results");
+          setFocusedResultId(successModal.resultId!);
+          setSuccessModal(null);
+        } : undefined}
+      />}
 
       {toast && (
         <div className={`toast ${toast.kind}`} role="status">
@@ -389,13 +404,6 @@ function contentTypeLabel(contentTypes: AnalysisContentType[]): string {
   return contentTypes.map((item) => CONTENT_TYPE_LABEL[item]).join(", ");
 }
 
-function cairoDateInputValue(): string {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit",
-  }).formatToParts(new Date());
-  const value = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
-  return `${value("year")}-${value("month")}-${value("day")}`;
-}
 
 // ── Reports ───────────────────────────────────────────────────────────────────
 
@@ -705,19 +713,30 @@ function Channels({ channels, api, refresh, notify, showError, analysisRun, anal
 
 // ── Results (merged Recommendations + Search) ─────────────────────────────────
 
-function Results({ api, notify, showError, analysisResults, onAnalysisDeleted }: {
+function Results({ api, notify, showError, analysisResults, onAnalysisDeleted, focusedResultId, onFocusHandled, onBackToAnalysis }: {
   api: ApiClient;
   notify: Notify; showError: ShowError; analysisResults: AnalysisResultHistory[];
   onAnalysisDeleted: (id: number) => void;
+  focusedResultId: number | null;
+  onFocusHandled: () => void;
+  onBackToAnalysis: () => void;
 }) {
   return (
-    <AnalysisResultHistoryTable items={analysisResults} api={api} notify={notify} showError={showError} onDeleted={onAnalysisDeleted} />
+    <AnalysisResultHistoryTable
+      items={analysisResults}
+      api={api}
+      notify={notify}
+      showError={showError}
+      onDeleted={onAnalysisDeleted}
+      focusedResultId={focusedResultId}
+      onFocusHandled={onFocusHandled}
+      onBackToAnalysis={onBackToAnalysis}
+    />
   );
 }
 
 function formatGeneratedAt(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  return formatCairoDateTime(value);
 }
 
 function normalizeStockSearch(value: string): string {
@@ -804,14 +823,32 @@ function ModelRetryAuditPanel({ audit }: { audit: ModelRetryAudit }) {
   </div>;
 }
 
-function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted }: {
+function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted, focusedResultId, onFocusHandled, onBackToAnalysis }: {
   items: AnalysisResultHistory[]; api: ApiClient; notify: Notify; showError: ShowError; onDeleted: (id: number) => void;
+  focusedResultId: number | null;
+  onFocusHandled: () => void;
+  onBackToAnalysis: () => void;
 }) {
   const [expandedAnalysis, setExpandedAnalysis] = useState<number | null>(null);
   const [expandedSection, setExpandedSection] = useState<"recommendations" | "inquiries" | null>(null);
   const [stockQuery, setStockQuery] = useState("");
   const [deleteCandidate, setDeleteCandidate] = useState<AnalysisResultHistory | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const rowRefs = useRef(new Map<number, HTMLTableRowElement>());
+
+  useEffect(() => {
+    if (focusedResultId === null || !items.some((item) => item.id === focusedResultId)) return;
+    setExpandedAnalysis(focusedResultId);
+    setExpandedSection("recommendations");
+    const frame = window.requestAnimationFrame(() => {
+      rowRefs.current.get(focusedResultId)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    const timer = window.setTimeout(onFocusHandled, 2_500);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [focusedResultId, items, onFocusHandled]);
   if (!items.length) return <div className="results-empty-state">
     <strong>No saved analysis results</strong>
     <span>Run an analysis from Channels. Each completed run will appear here with its recommendations and client inquiry replies.</span>
@@ -865,6 +902,16 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted }
           <span><strong>{totalRecommendationRows}</strong> recommendation rows</span>
           <span><strong>{totalInquiryReplies}</strong> inquiry replies</span>
         </div>
+        <div className="results-overview-actions">
+          <button type="button" className="secondary compact" onClick={onBackToAnalysis}><Icon name="channels" size={16} /> Back to analysis</button>
+          <button type="button" className="compact" onClick={() => {
+            const latest = items[0];
+            if (!latest) return;
+            setExpandedAnalysis(latest.id);
+            setExpandedSection("recommendations");
+            window.requestAnimationFrame(() => rowRefs.current.get(latest.id)?.scrollIntoView({ behavior: "smooth", block: "center" }));
+          }}><Icon name="eye" size={16} /> Open latest result</button>
+        </div>
       </section>
       <table className="analysis-history-table">
         <colgroup>
@@ -886,7 +933,14 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted }
             const stockCount = new Set(item.stock_source_table.map((row) => row.ticker)).size;
             return (
               <Fragment key={item.id}>
-                <tr className="analysis-history-row" onClick={() => toggleAnalysis(item.id)}>
+                <tr
+                  className={`analysis-history-row ${focusedResultId === item.id ? "is-focused" : ""}`}
+                  onClick={() => toggleAnalysis(item.id)}
+                  ref={(element) => {
+                    if (element) rowRefs.current.set(item.id, element);
+                    else rowRefs.current.delete(item.id);
+                  }}
+                >
                   <td><strong>Analysis · {formatGeneratedAt(item.generated_at)}</strong></td>
                   <td>{item.target_date || "—"}</td>
                   <td>{contentTypeLabel(item.content_types)}</td>
@@ -920,11 +974,6 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted }
                       </div>
                       <div className="analysis-section-list">
                         <AnalysisPerformancePanel performance={item.performance} />
-                        <ModelRetryAuditPanel audit={item.model_retry_audit} />
-                        {!!item.model_validation_warnings.length && <div className="analysis-result-warning">
-                          <strong>Model output warning</strong>
-                          <span>{item.model_correction_attempted ? "An automatic correction was attempted. " : ""}{item.model_validation_warnings.join(" ")}</span>
-                        </div>}
                         <button type="button" className="analysis-section-row" onClick={() => toggleSection("recommendations")} aria-expanded={recommendationsOpen}>
                           <span><strong>Recommendations table</strong><small>One model-returned row for each dated source recommendation</small></span>
                           <span>{item.stock_source_table.length} rows - {recommendationsOpen ? "Hide" : "View"}</span>
@@ -1015,13 +1064,14 @@ function dateBasisLabel(basis: string): string {
   return labels[basis] ?? basis;
 }
 
-function SuccessModal({ message, onClose }: { message: string; onClose: () => void }) {
+function SuccessModal({ message, onClose, onOpenResult }: { message: string; onClose: () => void; onOpenResult?: () => void }) {
   return (
     <div className="error-modal-backdrop" role="dialog" aria-modal="true" aria-label="Analysis completed">
       <div className="error-modal-card success-modal-card">
         <h2 className="error-modal-title success-modal-title">Analysis completed</h2>
         <p className="success-modal-body">{message}</p>
         <div className="error-modal-actions">
+          {onOpenResult && <button type="button" className="secondary" onClick={onOpenResult}><Icon name="eye" /> Open result</button>}
           <button type="button" onClick={onClose}>OK</button>
         </div>
       </div>
@@ -1513,11 +1563,12 @@ function SettingsSection({ title, description, open, onToggle, children }: {
   );
 }
 
-function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showError, checkingUpdate, onCheckForUpdates, themeMode, onThemeModeChange }: {
+function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showError, checkingUpdate, onCheckForUpdates, themeMode, onThemeModeChange, analysisResults }: {
   api: ApiClient; status: SettingsStatus | null; onSaved: () => Promise<boolean>;
   onRunTelegramCheck: () => Promise<boolean>;
   notify: Notify; showError: ShowError; checkingUpdate: boolean; onCheckForUpdates: () => void;
   themeMode: ThemeMode; onThemeModeChange: (theme: ThemeMode) => void;
+  analysisResults: AnalysisResultHistory[];
 }) {
   const [values, setValues] = useState<SettingsInput>({
     ai_provider: status?.ai_provider || "qwen",
@@ -1559,6 +1610,7 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
   const selectedModel = localProvider
     ? values.ollama_model || status?.ollama_model || "qwen3-vl:4b"
     : values.openai_model || "";
+  const outputAudits = analysisResults.filter((item) => item.model_validation_warnings.length > 0);
 
   useEffect(() => { void getVersion().then(setAppVersion).catch(() => setAppVersion("Unknown")); }, []);
   useEffect(() => { void api.egxCatalog().then(setCatalogStatus).catch(() => setCatalogStatus(null)); }, [api]);
@@ -1833,6 +1885,14 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
 
       <SettingsSection title="Support and diagnostics" description="Local request logs and error traces" open={openSection === "diagnostics"} onToggle={() => toggleSection("diagnostics")}>
         <p>Stores local request results and error traces. API keys, codes, and passwords are never logged.</p>
+        {outputAudits.length > 0 && <div className="diagnostic-output-audits">
+          <strong>Model output audits</strong>
+          <p>These non-blocking validation notices apply to saved model responses. They never change the returned data.</p>
+          {outputAudits.map((item) => <div key={item.id} className="diagnostic-output-audit">
+            <span>{formatGeneratedAt(item.generated_at)}</span>
+            <p>{item.model_validation_warnings.join(" ")}</p>
+          </div>)}
+        </div>}
         <button type="button" className="secondary" disabled={loadingDiagnostics}
           onClick={() => {
             setLoadingDiagnostics(true);
@@ -1848,7 +1908,7 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
         </button>
         {diagnostics.length > 0 && (
           <pre>{diagnostics.map((entry) =>
-            `${entry.timestamp || ""} ${entry.level} ${entry.event} ${entry.method || ""} ${entry.path || ""} ${entry.status_code || ""} ${entry.error_type || ""}`
+            `${entry.timestamp ? formatGeneratedAt(entry.timestamp) : ""} ${entry.level} ${entry.event} ${entry.method || ""} ${entry.path || ""} ${entry.status_code || ""} ${entry.error_type || ""}`
           ).join("\n")}</pre>
         )}
       </SettingsSection>

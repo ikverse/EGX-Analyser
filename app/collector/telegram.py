@@ -6,6 +6,7 @@ from app.config import Settings
 from app.models import Channel, Image, Media
 from app.schemas import MessageCreate
 from app.services import MessageService
+from app.time_utils import as_cairo
 
 _PROMOTIONAL_TERMS = (
     "advertisement", "sponsored", "promotion", "promo code", "discount", "subscribe", "join our channel",
@@ -59,7 +60,7 @@ class TelegramCollector:
                     message = await service.ingest(MessageCreate(channel_handle=handle, telegram_message_id=remote.id,
                         published_at=published_at, text=remote.message or "", views=remote.views))
                     if isinstance(remote.media, MessageMediaPhoto):
-                        folder = self.settings.storage_root / "images" / handle / remote.date.strftime("%Y/%m/%d")
+                        folder = self.settings.storage_root / "images" / handle / as_cairo(remote.date).strftime("%Y/%m/%d")
                         folder.mkdir(parents=True, exist_ok=True)
                         filename = folder / f"{remote.id}_{remote.photo.id}.jpg"
                         if not filename.exists(): await client.download_media(remote, file=str(filename))
@@ -70,7 +71,7 @@ class TelegramCollector:
                     elif isinstance(remote.media, MessageMediaDocument) and remote.document:
                         attributes = remote.document.attributes or []
                         if any(isinstance(attribute, DocumentAttributeAudio) for attribute in attributes):
-                            folder = self.settings.storage_root / "audio" / handle / remote.date.strftime("%Y/%m/%d")
+                            folder = self.settings.storage_root / "audio" / handle / as_cairo(remote.date).strftime("%Y/%m/%d")
                             folder.mkdir(parents=True, exist_ok=True)
                             filename = folder / f"{remote.id}_{remote.document.id}.ogg"
                             if not filename.exists():
