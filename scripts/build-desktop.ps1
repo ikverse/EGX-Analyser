@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [switch]$Release
+    [switch]$Release,
+    [switch]$SkipDependencyInstall
 )
 
 $ErrorActionPreference = "Stop"
@@ -42,8 +43,10 @@ if ($Release) {
 
 Push-Location $root
 try {
-    & $python -m pip install --no-build-isolation -e ".[dev]"
-    if ($LASTEXITCODE -ne 0) { throw "Could not install the local Python project into the existing virtual environment." }
+    if (-not $SkipDependencyInstall) {
+        & $python -m pip install --no-build-isolation -e ".[dev]"
+        if ($LASTEXITCODE -ne 0) { throw "Could not install the local Python project into the existing virtual environment." }
+    }
     & $python scripts/generate_desktop_icon.py
 
     # Build the sidecar as --onedir (avoids %TEMP% self-extraction that triggers
@@ -69,8 +72,10 @@ try {
     } finally { Pop-Location }
     Push-Location "desktop"
     try {
-        npm install
-        if ($LASTEXITCODE -ne 0) { throw "Could not install desktop dependencies." }
+        if (-not $SkipDependencyInstall) {
+            npm ci
+            if ($LASTEXITCODE -ne 0) { throw "Could not install desktop dependencies." }
+        }
         $buildLog = Join-Path $root "desktop-build.log"
         & cmd.exe /d /c "npm run tauri build > `"$buildLog`" 2>&1"
         $buildExitCode = $LASTEXITCODE

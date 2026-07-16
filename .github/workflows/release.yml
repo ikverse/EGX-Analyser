@@ -5,6 +5,10 @@ on:
     tags:
       - "v*"
 
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
@@ -21,6 +25,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Restore Rust build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            desktop/src-tauri/target
+          key: windows-tauri-${{ hashFiles('desktop/src-tauri/Cargo.lock', 'desktop/package-lock.json', 'pyproject.toml', 'egx-intelligence-api.spec') }}
+          restore-keys: |
+            windows-tauri-
       - name: Verify release tag matches bundled version
         shell: pwsh
         run: |
@@ -43,7 +59,7 @@ jobs:
       - name: Install frontend and Python build dependencies
         shell: pwsh
         run: |
-          npm install --prefix desktop
+          npm ci --prefix desktop
           python -m venv .venv
           .\.venv\Scripts\python.exe -m pip install --upgrade pip
           .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
@@ -59,7 +75,7 @@ jobs:
         shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: powershell -ExecutionPolicy Bypass -File scripts/build-desktop.ps1 -Release
+        run: powershell -ExecutionPolicy Bypass -File scripts/build-desktop.ps1 -Release -SkipDependencyInstall
       - name: Create update manifest
         shell: pwsh
         run: |
@@ -82,6 +98,7 @@ jobs:
         with:
           name: ${{ steps.release_title.outputs.title }}
           generate_release_notes: true
+          fail_on_unmatched_files: true
           files: |
             release/egx-analyzer-*-setup.exe
             release/egx-analyzer-*-setup.exe.sig

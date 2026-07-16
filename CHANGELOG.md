@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.86
+- Accelerated GitHub release builds with npm, pip, and Rust/Cargo dependency caches.
+- Made CI dependency installation deterministic and removed redundant installation work during the signed desktop build.
+- Serialized releases for the same tag and fail-fast when expected release files are missing.
+
 ## v0.1.85
 - Strengthened the centralized Light and Dark theme contrast across navigation, cards, tables, inputs, selected rows, and status states.
 - Replaced the packaged Windows taskbar icon with the current EGX Analyzer mark and explicitly configured it for desktop bundles.
