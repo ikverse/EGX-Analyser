@@ -1,6 +1,6 @@
 [package]
 name = "egx-intelligence"
-version = "0.1.81"
+version = "0.1.82"
 description = "Egyptian stock intelligence desktop application"
 authors = ["EGX Analyzer"]
 edition = "2021"
@@ -9,7 +9,7 @@ edition = "2021"
 tauri-build = { version = "2.0", features = [] }
 
 [dependencies]
-tauri = { version = "2.0", features = [] }
+tauri = { version = "2.0", features = ["protocol-asset"] }
 serde_json = "1"
 tauri-plugin-shell = "2.0"
 tauri-plugin-updater = "2"

@@ -12,7 +12,7 @@ from openai import AsyncOpenAI
 from app.config import Settings
 from app.content_updates import ContentUpdateService
 from app.schemas import AnalysisResult
-from app.analysis_validation import enforce_client_inquiry_separation, validate_consolidated_output
+from app.analysis_validation import validate_consolidated_output
 
 try:
     from PIL import Image as PillowImage
@@ -313,7 +313,10 @@ class AIAnalysisService:
             "Client/member inquiry replies belong to LIST 1 only; they are reference information, never main recommendations. "
             "Use each SOURCE exactly as written below in every data_points[].source value and include the exact TELEGRAM_ID as "
             "data_points[].source_message_id. Include the same exact SOURCE and TELEGRAM_ID in every client_inquiry_responses item. "
-            "Do not treat a source label as a stock recommendation by itself.",
+            "Do not treat a source label as a stock recommendation by itself. Before returning JSON, internally assign every "
+            "supporting TELEGRAM_ID to exactly one destination: LIST 1 IDs only in client_inquiry_responses, LIST 2 IDs only "
+            "in top_consolidated_recommendations, or excluded. Never use one TELEGRAM_ID in both arrays, and never place a "
+            "LIST 1 TELEGRAM_ID in a recommendation data point.",
         ]
         image_paths: list[str] = []
         image_references: dict[str, int] = {}
@@ -369,79 +372,22 @@ class AIAnalysisService:
         source_data = "\n".join(parts)
         initial = await self._analyze_prompt(source_data, image_paths, metrics, trace_directory, _CORE_ANALYSIS_PROTOCOL)
         initial_metrics = dict(initial.input_metrics)
-        initial_payload, initial_separation_warnings = enforce_client_inquiry_separation(
-            json.loads(initial.raw_response), messages,
-        )
+        initial_payload = json.loads(initial.raw_response)
         warnings = validate_consolidated_output(initial_payload, messages)
-        if not warnings:
-            initial_metrics["prompt_assembly_ms"] = round((perf_counter() - prompt_assembly_started) * 1000)
-            initial_metrics["model_request_count"] = 1
-            initial_metrics["model_requests_total_ms"] = initial_metrics.get("model_request_ms", 0)
-            return AnalysisOutcome(
-                result=_analysis_result_from_payload(initial_payload),
-                raw_response=json.dumps(initial_payload, ensure_ascii=False),
-                input_metrics=initial_metrics,
-                validation_warnings=initial_separation_warnings,
-                retry_audit={
-                    "attempted": False,
-                    "status": "not_required",
-                    "trigger_warnings": [],
-                    "local_separation_warnings": initial_separation_warnings,
-                    "final_validation_warnings": [],
-                },
-            )
-        if trace_directory is not None:
-            (trace_directory / "initial-provider-response.json").write_text(
-                initial.raw_response, encoding="utf-8",
-            )
-            (trace_directory / "initial-consolidated-ai-response.json").write_text(
-                json.dumps(initial_payload, ensure_ascii=False, indent=2), encoding="utf-8",
-            )
-        correction = (
-            "\n\nCORRECTION REQUIRED: Your previous JSON failed these audit checks: "
-            + " | ".join(warnings)
-            + ". Re-read all original messages and images. Return a complete replacement JSON only. "
-            "Keep every marked client inquiry exclusively in client_inquiry_responses. Every recommendation data point and inquiry item "
-            "must use an exact supplied SOURCE and TELEGRAM_ID."
-        )
-        if trace_directory is not None:
-            (trace_directory / "retry-instruction.txt").write_text(correction, encoding="utf-8")
-        corrected = await self._analyze_prompt(
-            source_data + correction, image_paths, metrics, None, _CORE_ANALYSIS_PROTOCOL,
-        )
-        corrected_payload, corrected_separation_warnings = enforce_client_inquiry_separation(
-            json.loads(corrected.raw_response), messages,
-        )
-        remaining_warnings = validate_consolidated_output(corrected_payload, messages)
-        final_warnings = [
-            "Initial model response required an automatic separation correction.",
-            *initial_separation_warnings,
-            *corrected_separation_warnings,
-            *remaining_warnings,
-        ]
-        corrected_metrics = dict(corrected.input_metrics)
-        corrected_metrics["prompt_assembly_ms"] = round((perf_counter() - prompt_assembly_started) * 1000)
-        corrected_metrics["model_request_count"] = 2
-        corrected_metrics["initial_model_request_ms"] = initial_metrics.get("model_request_ms", 0)
-        corrected_metrics["correction_model_request_ms"] = corrected_metrics.get("model_request_ms", 0)
-        corrected_metrics["model_requests_total_ms"] = (
-            corrected_metrics["initial_model_request_ms"] + corrected_metrics["correction_model_request_ms"]
-        )
+        initial_metrics["prompt_assembly_ms"] = round((perf_counter() - prompt_assembly_started) * 1000)
+        initial_metrics["model_request_count"] = 1
+        initial_metrics["model_requests_total_ms"] = initial_metrics.get("model_request_ms", 0)
         return AnalysisOutcome(
-            result=_analysis_result_from_payload(corrected_payload),
-            raw_response=json.dumps(corrected_payload, ensure_ascii=False),
-            input_metrics=corrected_metrics,
-            validation_warnings=final_warnings,
-            correction_attempted=True,
+            result=_analysis_result_from_payload(initial_payload),
+            raw_response=initial.raw_response,
+            input_metrics=initial_metrics,
+            validation_warnings=warnings,
+            correction_attempted=False,
             retry_audit={
-                "attempted": True,
-                "status": "passed" if not remaining_warnings else "warnings_remaining",
-                "trigger_warnings": warnings,
-                "local_separation_warnings": [*initial_separation_warnings, *corrected_separation_warnings],
-                "final_validation_warnings": remaining_warnings,
-                "initial_response_path": "initial-provider-response.json",
-                "initial_normalized_response_path": "initial-consolidated-ai-response.json",
-                "retry_instruction_path": "retry-instruction.txt",
+                "attempted": False,
+                "status": "audit_only" if warnings else "not_required",
+                "trigger_warnings": [],
+                "final_validation_warnings": warnings,
                 "final_response_path": "consolidated-ai-response.json",
             },
         )

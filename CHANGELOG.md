@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.82
+- Removed local correction and mutation of AI analysis output; the model response is now saved exactly as returned, with validation warnings retained for traceability.
+- Enabled Tauri's asset protocol feature required by saved Telegram source-image previews in packaged builds.
+- Refined the shared Light and Dark themes with a light-responsive sidebar, stronger text contrast, darker dark-mode surfaces, and flat token-driven component styling without shadows or glows.
+
 ## v0.1.81
 - Replaced the desktop application icon with the EGX Analyzer violet market-and-pyramid mark and added the same icon beside the app name on startup and in navigation.
 - Enabled Tauri asset-protocol access for saved Telegram source images so source-image previews can load inside the app.
