@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.89
+- Replaced the violet theme with a centralized blue-slate Light and Dark palette.
+- Improved contrast for surfaces, borders, text, selected states, and semantic status feedback.
+- Replaced gradient primary buttons with solid accessible blue interaction states.
+
 ## v0.1.88
 - Refined Channels into a clearer select-then-analyze workspace with stronger selected states and responsive controls.
 - Stabilized Results history columns and actions while preserving the full recommendation-table behavior.
