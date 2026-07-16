@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.1.93
+- Fixed result-table source images in packaged Windows builds by allowing Tauri's asset protocol to read the managed local Telegram image folder.
+
 ## v0.1.92
 - Preserved Rust compilation caches across application version-only releases instead of invalidating them with Node or Python metadata.
 - Added prefix-restored npm and pip download caches so dependency archives survive release-version changes.
