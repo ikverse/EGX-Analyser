@@ -1590,16 +1590,18 @@ header strong {
 }
 
 .analysis-history-table {
-  min-width: 1120px;
+  min-width: 1320px;
   table-layout: fixed;
 }
 
-.analysis-history-output-col { width: 27%; }
-.analysis-history-date-col { width: 12%; }
-.analysis-history-inputs-col { width: 17%; }
-.analysis-history-scope-col { width: 12%; }
-.analysis-history-records-col { width: 16%; }
-.analysis-history-actions-col { width: 16%; }
+.analysis-history-output-col { width: 12%; }
+.analysis-history-generated-col { width: 16%; }
+.analysis-history-date-col { width: 10%; }
+.analysis-history-inputs-col { width: 13%; }
+.analysis-history-sources-col { width: 16%; }
+.analysis-history-scope-col { width: 10%; }
+.analysis-history-records-col { width: 12%; }
+.analysis-history-actions-col { width: 11%; }
 
 .analysis-history-table th,
 .analysis-history-table td {

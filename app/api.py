@@ -24,6 +24,7 @@ from app.schemas import (ChannelUpdate, CollectionRequest, DailyReportRequest, M
 from app.services import AnalyticsService, MessageService, SearchService
 from app.repositories import get_or_create_channel
 from app.telegram_auth import TelegramAuthenticator
+from app.time_utils import cairo_iso
 from telethon import TelegramClient
 from openai import APIConnectionError, APIStatusError, AsyncOpenAI, AuthenticationError, BadRequestError, RateLimitError
 from zoneinfo import ZoneInfo
@@ -545,7 +546,10 @@ async def analysis_results(session: AsyncSession = Depends(get_session)) -> list
     return [
         {
             "id": item.id,
-            "generated_at": item.report_date,
+            # SQLite returns timezone-aware UTC columns as naive values. Treat
+            # those values as UTC and serialize an explicit Cairo offset so the
+            # browser cannot mistake UTC clock time for local clock time.
+            "generated_at": cairo_iso(item.report_date),
             "target_date": item.summary.get("target_date"),
             "messages_analyzed": item.summary.get("messages_analyzed", 0),
             "content_types": item.summary.get("content_types", ["text", "images", "audio"]),

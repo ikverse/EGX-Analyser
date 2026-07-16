@@ -211,7 +211,7 @@ async def test_egx_catalog_refresh_cache_waits_until_the_weekly_interval(session
 
 
 async def test_analysis_results_returns_only_batch_analysis_reports(session):
-    now = datetime.now(timezone.utc)
+    now = datetime(2026, 7, 16, 13, 1, 51, tzinfo=timezone.utc)
     session.add_all([
         Report(
             report_date=now,
@@ -238,6 +238,7 @@ async def test_analysis_results_returns_only_batch_analysis_reports(session):
     results = await api.analysis_results(session)
 
     assert len(results) == 1
+    assert results[0]["generated_at"] == "2026-07-16T16:01:51+03:00"
     assert results[0]["target_date"] == "2026-07-15"
     assert results[0]["stock_source_table"][0]["ticker"] == "COMI"
 

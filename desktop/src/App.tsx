@@ -979,14 +979,16 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted, 
       <table className="analysis-history-table">
         <colgroup>
           <col className="analysis-history-output-col" />
+          <col className="analysis-history-generated-col" />
           <col className="analysis-history-date-col" />
           <col className="analysis-history-inputs-col" />
+          <col className="analysis-history-sources-col" />
           <col className="analysis-history-scope-col" />
           <col className="analysis-history-records-col" />
           <col className="analysis-history-actions-col" />
         </colgroup>
         <thead>
-          <tr><th>Generated output</th><th>Target date</th><th>Inputs sent</th><th>Scope</th><th>Records</th><th className="analysis-history-actions-heading">Actions</th></tr>
+          <tr><th>Generated output</th><th>Generated at</th><th>Target date</th><th>Inputs sent</th><th>Sources</th><th>Scope</th><th>Records</th><th className="analysis-history-actions-heading">Actions</th></tr>
         </thead>
         <tbody>
           {items.map((item) => {
@@ -994,6 +996,10 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted, 
             const recommendationsOpen = analysisOpen && expandedSection === "recommendations";
             const inquiriesOpen = analysisOpen && expandedSection === "inquiries";
             const stockCount = new Set(item.stock_source_table.map((row) => row.ticker)).size;
+            const sources = [...new Set([
+              ...item.stock_source_table.map((row) => row.source),
+              ...item.client_inquiry_responses.map((row) => row.source),
+            ].filter(Boolean))];
             return (
               <Fragment key={item.id}>
                 <tr
@@ -1004,9 +1010,11 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted, 
                     else rowRefs.current.delete(item.id);
                   }}
                 >
-                  <td><strong>Analysis · {formatGeneratedAt(item.generated_at)}</strong></td>
+                  <td><strong>Analysis Recommendations · {item.target_date || "No target date"}</strong></td>
+                  <td>{formatGeneratedAt(item.generated_at)}</td>
                   <td>{item.target_date || "—"}</td>
                   <td>{contentTypeLabel(item.content_types)}</td>
+                  <td>{sources.join(", ") || "—"}</td>
                   <td>{item.messages_analyzed} messages</td>
                   <td>{stockCount} stocks / {item.stock_source_table.length} source rows</td>
                   <td className="analysis-history-actions">
@@ -1024,7 +1032,7 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted, 
                 </tr>
                 {analysisOpen && (
                   <tr className="analysis-history-expanded">
-                    <td colSpan={6}>
+                    <td colSpan={8}>
                       <AnalysisRunSummaryCard item={item} />
                       <div className="analysis-section-list">
                         <button type="button" className="analysis-section-row" onClick={() => toggleSection("recommendations")} aria-expanded={recommendationsOpen}>
