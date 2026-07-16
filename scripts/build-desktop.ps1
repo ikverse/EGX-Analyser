@@ -7,6 +7,18 @@ param(
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $python = Join-Path $root ".venv\Scripts\python.exe"
+$buildStartedAt = Get-Date
+
+function Write-BuildTiming {
+    param([string]$Stage, [datetime]$StartedAt)
+    $duration = (Get-Date) - $StartedAt
+    $message = "TIMING | $Stage | $($duration.ToString('mm\\:ss'))"
+    Write-Host $message -ForegroundColor DarkCyan
+    if ($env:GITHUB_STEP_SUMMARY) {
+        "- $message" | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+    }
+}
+
 if (-not (Test-Path $python)) { throw "Create the Python environment first: scripts/bootstrap-windows.ps1" }
 if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { throw "Node.js 20+ is required to build the desktop installer." }
 if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) { throw "Rust is required to build the desktop installer." }
@@ -49,6 +61,7 @@ try {
     }
     & $python scripts/generate_desktop_icon.py
 
+    $sidecarStartedAt = Get-Date
     # Build the sidecar as --onedir (avoids %TEMP% self-extraction that triggers
     # Windows Defender ASR "Block executable files" rule).
     & $python -m PyInstaller --noconfirm --clean egx-intelligence-api.spec
@@ -63,12 +76,15 @@ try {
     if (-not (Test-Path $sidecarExe)) { throw "Sidecar executable was not produced: $sidecarExe" }
     if (-not (Test-Path $pythonDll)) { throw "PyInstaller sidecar is missing python312.dll: $pythonDll" }
     Write-Host "Sidecar folder copied to $sidecarsDir" -ForegroundColor Green
+    Write-BuildTiming -Stage "Python sidecar packaging" -StartedAt $sidecarStartedAt
     Push-Location "desktop\src-tauri"
     try {
+        $cargoStartedAt = Get-Date
         Write-Host "Running cargo check..." -ForegroundColor Cyan
         cargo check
         if ($LASTEXITCODE -ne 0) { throw "cargo check failed. Fix Rust compilation errors before building the installer." }
         Write-Host "cargo check passed." -ForegroundColor Green
+        Write-BuildTiming -Stage "Rust preflight" -StartedAt $cargoStartedAt
     } finally { Pop-Location }
     Push-Location "desktop"
     try {
@@ -77,10 +93,12 @@ try {
             if ($LASTEXITCODE -ne 0) { throw "Could not install desktop dependencies." }
         }
         $buildLog = Join-Path $root "desktop-build.log"
+        $desktopBuildStartedAt = Get-Date
         & cmd.exe /d /c "npm run tauri build > `"$buildLog`" 2>&1"
         $buildExitCode = $LASTEXITCODE
         Get-Content $buildLog
         if ($buildExitCode -ne 0) { throw "Desktop build failed. See desktop-build.log for the exact cause." }
+        Write-BuildTiming -Stage "Tauri installer packaging" -StartedAt $desktopBuildStartedAt
     } finally { Pop-Location }
 } finally {
     if ($loadedDefaultSigningKey) { Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY -ErrorAction SilentlyContinue }
@@ -88,4 +106,5 @@ try {
     Pop-Location
 }
 
+Write-BuildTiming -Stage "Total desktop build" -StartedAt $buildStartedAt
 Write-Host "Installer created under desktop\src-tauri\target\release\bundle\nsis" -ForegroundColor Green

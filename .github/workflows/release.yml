@@ -20,23 +20,33 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: desktop/package-lock.json
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
-      - name: Restore Rust build cache
+      - name: Restore npm download cache
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\npm-cache
+          key: windows-npm-downloads-v2-${{ hashFiles('desktop/package-lock.json') }}
+          restore-keys: |
+            windows-npm-downloads-v2-
+      - name: Restore pip download cache
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pip\Cache
+          key: windows-pip-downloads-v2-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            windows-pip-downloads-v2-
+      - name: Restore Rust compilation cache
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             desktop/src-tauri/target
-          key: windows-tauri-${{ hashFiles('desktop/src-tauri/Cargo.lock', 'desktop/package-lock.json', 'pyproject.toml', 'egx-intelligence-api.spec') }}
+          key: windows-rust-tauri-v2-${{ hashFiles('desktop/src-tauri/Cargo.lock') }}
           restore-keys: |
-            windows-tauri-
+            windows-rust-tauri-v2-
       - name: Verify release tag matches bundled version
         shell: pwsh
         run: |

@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.92
+- Preserved Rust compilation caches across application version-only releases instead of invalidating them with Node or Python metadata.
+- Added prefix-restored npm and pip download caches so dependency archives survive release-version changes.
+- Added release-log timings for Python sidecar packaging, Rust preflight, Tauri packaging, and total build time.
+
 ## v0.1.91
 - Stops the local `egx-intelligence-api` sidecar before the Windows updater applies an installer.
 - Restores the local engine automatically if downloading or installing an update fails.
