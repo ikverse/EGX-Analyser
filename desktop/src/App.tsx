@@ -14,7 +14,7 @@ import { cairoDateInputValue, formatCairoDateTime } from "./time";
 type Page = "Channels" | "Results" | "Settings";
 type ThemeMode = "light" | "dark";
 type Toast = { kind: "success" | "warning"; text: string } | null;
-type AnalysisRunState = { running: boolean; progress: string };
+type AnalysisRunState = { running: boolean; progress: string; startedAt?: number };
 type ChannelAnalysisConfig = {
   selectedHandles: string[];
   contentTypes: AnalysisContentType[];
@@ -61,6 +61,30 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
 
 function normalizeChannelHandle(value: string): string {
   return value.trim().replace(/^@/, "").toLocaleLowerCase();
+}
+
+function formatElapsedTime(startedAt?: number): string {
+  if (!startedAt) return "";
+  const totalSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  return `${Math.floor(totalSeconds / 60)}m ${totalSeconds % 60}s`;
+}
+
+function AnalysisRunningStatus({ progress, startedAt }: { progress: string; startedAt?: number }) {
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setTick((current) => current + 1), 1_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  return (
+    <span className="analysis-running-chip" title={progress}>
+      <span className="online-dot" />
+      <strong>Analysis running</strong>
+      <small>{progress} · {formatElapsedTime(startedAt)}</small>
+    </span>
+  );
 }
 
 function loadChannelAnalysisConfig(): ChannelAnalysisConfig {
@@ -186,11 +210,11 @@ export default function App() {
 
   const runAnalysis = useCallback((channelIds: number[]) => {
     if (analysisRun.running) return;
-    setAnalysisRun({ running: true, progress: "Collecting selected chat data..." });
+    setAnalysisRun({ running: true, progress: "Collecting selected chat data...", startedAt: Date.now() });
     const progressTimers = [
-      window.setTimeout(() => setAnalysisRun({ running: true, progress: "Preparing selected text, images, and audio..." }), 1_500),
-      window.setTimeout(() => setAnalysisRun({ running: true, progress: "Analyzing selected content with the AI model..." }), 5_000),
-      window.setTimeout(() => setAnalysisRun({ running: true, progress: "Saving the analysis result..." }), 20_000),
+      window.setTimeout(() => setAnalysisRun((current) => ({ ...current, progress: "Preparing selected text, images, and audio..." })), 1_500),
+      window.setTimeout(() => setAnalysisRun((current) => ({ ...current, progress: "Analyzing selected content with the AI model..." })), 5_000),
+      window.setTimeout(() => setAnalysisRun((current) => ({ ...current, progress: "Saving the analysis result..." })), 20_000),
     ];
     void api.analyzeSelected(
       channelIds,
@@ -315,7 +339,7 @@ export default function App() {
               </span>
             </div>
             <div className="header-actions">
-              {analysisRun.running && <span className="analysis-running-chip"><span /> Analysis running</span>}
+              {analysisRun.running && <AnalysisRunningStatus progress={analysisRun.progress} startedAt={analysisRun.startedAt} />}
               <button className="secondary" onClick={() => void refresh()}><Icon name="refresh" /> Refresh</button>
             </div>
           </header>
@@ -639,7 +663,7 @@ function Channels({ channels, api, refresh, notify, showError, analysisRun, anal
         <h3 className="section-heading">1. Choose chats for this session</h3>
         <p className="section-description">Load your Telegram chats, then select only the sources you want to analyze.</p>
         <details className="manual-channel-add">
-          <summary>Add a chat manually</summary>
+          <summary>Add a Telegram chat by username</summary>
           <form className="inline" onSubmit={submit}>
             <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="Telegram username, without @" required />
             <button disabled={busy}><Icon name="plus" /> Add channel</button>
@@ -672,7 +696,18 @@ function Channels({ channels, api, refresh, notify, showError, analysisRun, anal
                   >
                     <td><strong>{chat.title}</strong>{chat.username && <span className="channel-chat-username">@{chat.username}</span>}</td>
                     <td>{chat.kind}</td>
-                    <td><span className={isSelected ? "channel-selection-state selected" : "channel-selection-state"}>{isSelected ? "Selected" : "Select"}</span></td>
+                    <td>
+                      <label className="channel-selection-control" onClick={(event) => event.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          disabled={busy}
+                          aria-label={`${isSelected ? "Remove" : "Select"} ${chat.title}`}
+                          onChange={() => toggleChatSelection(chat)}
+                        />
+                        <span className={isSelected ? "channel-selection-state selected" : "channel-selection-state"}>{isSelected ? "Selected" : "Select"}</span>
+                      </label>
+                    </td>
                   </tr>
                 );
               })}</tbody>
@@ -712,10 +747,12 @@ function Channels({ channels, api, refresh, notify, showError, analysisRun, anal
             </label>
           ))}
         </fieldset>
-        <button onClick={analyze} disabled={busy}>
-          <Icon name="play" /> {analyzing ? "Analyzing selected chats…" : "Analyze selected chats"}
-        </button>
-        {analyzing && <p className="analysis-progress" role="status">{analysisProgress}</p>}
+        <div className="analysis-action-bar">
+          <button onClick={analyze} disabled={busy}>
+            <Icon name="play" /> {analyzing ? "Analyzing selected chats…" : "Analyze selected chats"}
+          </button>
+          {analyzing && <p className="analysis-progress" role="status">{analysisProgress}</p>}
+        </div>
       </div>
     </>
   );
@@ -1101,6 +1138,7 @@ function SuccessModal({ message, onClose, onOpenResult }: { message: string; onC
 
 function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
   const [sourceImages, setSourceImages] = useState<{ paths: string[]; title: string } | null>(null);
+  const [compact, setCompact] = useState(false);
   const grouped = new Map<string, StockSourceTableRow[]>();
   rows.forEach((row) => {
     const group = grouped.get(row.ticker) ?? [];
@@ -1112,11 +1150,19 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
   return (
     <div className="consolidated-table-wrap">
       <div className="consolidated-table-title">
-        <strong>EGX recommendations by source</strong>
-        <span>Each row preserves one model-returned dated recommendation without combining source values.</span>
+        <div>
+          <strong>EGX recommendations by source</strong>
+          <span>Each row preserves one model-returned dated recommendation without combining source values.</span>
+        </div>
+        <div className="consolidated-table-tools">
+          <span className="table-scroll-hint">Scroll horizontally to view every price field</span>
+          <button type="button" className="secondary compact" onClick={() => setCompact((current) => !current)}>
+            {compact ? "Comfortable rows" : "Compact rows"}
+          </button>
+        </div>
       </div>
       <div className="consolidated-table-scroll">
-        <table className="consolidated-table">
+        <table className={compact ? "consolidated-table is-compact" : "consolidated-table"}>
           <thead><tr>
             <th>Source</th><th>Date</th><th>Timing</th><th>Type</th><th>Entry</th><th>TP1</th><th>TP2</th>
             <th>Stop</th><th>Support</th><th>Resistance</th><th>Return %</th><th>Risk %</th><th>Status</th><th>Source image</th><th>Notes</th>
@@ -1688,7 +1734,7 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
       </div>
 
       <SettingsSection title="AI Analysis" description={`${providerDetails[provider].label} · ${status?.ai_configured ? "configured" : "not configured"}`} open={openSection === "ai"} onToggle={() => toggleSection("ai")}>
-        <form onSubmit={save}>
+        <form className="settings-ai-form" onSubmit={save}>
           <p>{localProvider ? "Ollama runs the selected model on this computer. Install the model manually, then load the installed vision models below." : "Cloud provider keys are encrypted and stored only on this computer."}</p>
           <label>
             AI provider
@@ -1748,19 +1794,21 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
             onChange={(model) => setValues((cur) => localProvider ? { ...cur, ollama_model: model } : { ...cur, openai_model: model })}
             showError={showError}
           />
-          <label>
+          <label className="analysis-guidance-field">
             Supplementary extraction guidance
             <textarea
               value={values.analysis_instructions || ""}
               onChange={(e) => setValues((cur) => ({ ...cur, analysis_instructions: e.target.value }))}
               placeholder="For example: prioritize EGX table rows, preserve entries and targets exactly as posted, and flag conflicting channel details."
-              rows={6}
+              rows={4}
             />
             <span className="credential-note">
               Optional source-specific guidance sent with each analysis. Fixed EGX eligibility, inquiry separation, and JSON output rules remain enforced.
             </span>
           </label>
-          <button disabled={saving}>{saving ? "Saving…" : "Save settings"}</button>
+          <div className="settings-save-bar">
+            <button disabled={saving}>{saving ? "Saving…" : "Save settings"}</button>
+          </div>
         </form>
       </SettingsSection>
 

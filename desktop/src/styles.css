@@ -1900,3 +1900,162 @@ header strong {
   .settings-overview { grid-template-columns: 1fr 1fr; }
   .model-row { grid-template-columns: 1fr; }
 }
+
+/* ── Workflow polish: denser controls without changing analysis behavior ── */
+.analysis-running-chip {
+  align-items: center;
+  gap: .45rem;
+  max-width: 34rem;
+  padding: .45rem .7rem;
+}
+
+.analysis-running-chip strong {
+  color: var(--text);
+  font-size: .8rem;
+  white-space: nowrap;
+}
+
+.analysis-running-chip small {
+  color: var(--text-soft);
+  font-size: .76rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.channel-chat-table table { table-layout: fixed; }
+.channel-chat-table th:nth-child(2), .channel-chat-table td:nth-child(2) { width: 9rem; }
+.channel-chat-table th:nth-child(3), .channel-chat-table td:nth-child(3) { text-align: right; width: 9.5rem; }
+.channel-chat-table td { padding-block: .72rem; }
+
+.channel-selection-control {
+  align-items: center;
+  cursor: pointer;
+  display: inline-flex;
+  justify-content: flex-end;
+  margin: 0;
+}
+
+.channel-selection-control input { accent-color: var(--primary); margin: 0; opacity: 0; position: absolute; }
+.channel-selection-control input:focus-visible + .channel-selection-state { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+.analysis-action-bar {
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  bottom: .8rem;
+  display: flex;
+  gap: .85rem;
+  justify-content: space-between;
+  margin-top: .15rem;
+  padding: .65rem;
+  position: sticky;
+  z-index: 2;
+}
+
+.analysis-action-bar .analysis-progress { margin: 0; }
+
+/* ── Result-table navigation: preserve every current column and row ── */
+.consolidated-table-title {
+  align-items: center;
+  gap: 1rem;
+}
+
+.consolidated-table-title > div:first-child { display: grid; gap: .2rem; min-width: 0; }
+.consolidated-table-title > div:first-child > span { color: var(--text-soft); font-size: .82rem; }
+
+.consolidated-table-tools {
+  align-items: center;
+  display: flex;
+  flex-shrink: 0;
+  gap: .65rem;
+}
+
+.table-scroll-hint { color: var(--text-faint); font-size: .76rem; white-space: nowrap; }
+
+.consolidated-table-scroll {
+  max-height: min(70vh, 46rem);
+  overflow: auto;
+  overscroll-behavior: contain;
+  position: relative;
+  scrollbar-gutter: stable both-edges;
+}
+
+.consolidated-table thead th {
+  background: var(--table-header);
+  position: sticky;
+  top: 0;
+  z-index: 4;
+}
+
+.consolidated-table tbody tr:not(.consolidated-stock-group) td:first-child {
+  background: var(--surface);
+  box-shadow: 1px 0 0 var(--border);
+  left: 0;
+  position: sticky;
+  z-index: 2;
+}
+
+.consolidated-table thead th:first-child {
+  box-shadow: 1px 0 0 var(--border);
+  left: 0;
+  z-index: 5;
+}
+
+.consolidated-table.is-compact td { padding-block: .42rem; }
+.consolidated-table.is-compact .consolidated-stock-group td { padding-block: .38rem; }
+
+/* ── Settings: two-column configuration with a compact, reachable save action ── */
+.settings-ai-form {
+  display: grid;
+  gap: .9rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settings-ai-form > p,
+.settings-ai-form > .analysis-guidance-field,
+.settings-ai-form > .settings-save-bar { grid-column: 1 / -1; }
+
+.settings-ai-form > p { margin: 0; }
+.analysis-guidance-field textarea { min-height: 8rem; resize: vertical; }
+
+.settings-save-bar {
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  bottom: .8rem;
+  padding-top: .75rem;
+  position: sticky;
+  z-index: 2;
+}
+
+.settings-save-bar button { width: 100%; }
+
+/* ── Consistent hierarchy and keyboard-only focus feedback ── */
+.section-heading { letter-spacing: .025em; text-transform: none; }
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+@media (max-width: 900px) {
+  .analysis-running-chip small { display: none; }
+  .settings-ai-form { grid-template-columns: 1fr; }
+  .settings-ai-form > p,
+  .settings-ai-form > .analysis-guidance-field,
+  .settings-ai-form > .settings-save-bar { grid-column: auto; }
+}
+
+@media (max-width: 760px) {
+  .analysis-action-bar { align-items: stretch; flex-direction: column; }
+  .analysis-action-bar button { width: 100%; }
+  .consolidated-table-title, .consolidated-table-tools { align-items: flex-start; flex-direction: column; }
+  .table-scroll-hint { white-space: normal; }
+  .channel-chat-table th:nth-child(2), .channel-chat-table td:nth-child(2) { width: 5.5rem; }
+  .channel-chat-table th:nth-child(3), .channel-chat-table td:nth-child(3) { width: 6.8rem; }
+}

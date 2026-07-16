@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.96
+- Refined Channels with denser rows, clearer checkbox selection, and a sticky analysis action area.
+- Added live analysis phase and elapsed-time feedback in the application header.
+- Improved the recommendation table with sticky headers and source column, a compact-row toggle, and scroll guidance.
+- Reorganized AI settings into a responsive two-column layout with a compact, reachable save action.
+
 ## v0.1.95
 - Combined each expanded analysis run's metadata and timing into one responsive summary card.
 
