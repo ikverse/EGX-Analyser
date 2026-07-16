@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.85
+- Strengthened the centralized Light and Dark theme contrast across navigation, cards, tables, inputs, selected rows, and status states.
+- Replaced the packaged Windows taskbar icon with the current EGX Analyzer mark and explicitly configured it for desktop bundles.
+
 ## v0.1.84
 - Fixed the packaged desktop app becoming stuck on its startup screen by allowing its WebView to connect to the local loopback intelligence engine.
 
