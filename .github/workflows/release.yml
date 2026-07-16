@@ -2,50 +2,21 @@ name: Publish desktop update
 
 on:
   push:
-    branches:
-      - main
+    tags:
+      - "v*"
 
 concurrency:
-  group: desktop-release-${{ github.sha }}
+  group: desktop-release-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
   contents: write
 
 jobs:
-  release_gate:
-    runs-on: windows-latest
-    outputs:
-      should_release: ${{ steps.release.outputs.should_release }}
-      tag: ${{ steps.release.outputs.tag }}
-      version: ${{ steps.release.outputs.version }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Detect an approved versioned release commit
-        id: release
-        shell: pwsh
-        run: |
-          $version = (Get-Content desktop/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
-          $tag = "v$version"
-          $subject = git log -1 --pretty=%s
-          $shouldRelease = $subject -like "${tag}:*"
-          "version=$version" | Add-Content -Path $env:GITHUB_OUTPUT
-          "tag=$tag" | Add-Content -Path $env:GITHUB_OUTPUT
-          "should_release=$($shouldRelease.ToString().ToLowerInvariant())" | Add-Content -Path $env:GITHUB_OUTPUT
-          if ($shouldRelease) {
-            Write-Host "Release commit detected: $subject"
-          } else {
-            Write-Host "Skipping release. Use the commit format '$tag: description' after synchronizing every bundled version."
-          }
-
   release:
-    needs: release_gate
-    if: needs.release_gate.outputs.should_release == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -79,7 +50,7 @@ jobs:
       - name: Verify release tag matches bundled version
         shell: pwsh
         run: |
-          $tag = '${{ needs.release_gate.outputs.tag }}'
+          $tag = $env:GITHUB_REF_NAME
           if ($tag -notmatch '^v(?<version>\d+\.\d+\.\d+)$') {
             throw "Release tags must use vMAJOR.MINOR.PATCH; received '$tag'."
           }
@@ -94,24 +65,6 @@ jobs:
           if ($mismatches) {
             $actual = ($versions.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ', '
             throw "Release tag $tag requires every bundled version to be $expected. Found: $actual"
-          }
-      - name: Create or verify release tag
-        shell: pwsh
-        run: |
-          $tag = '${{ needs.release_gate.outputs.tag }}'
-          git fetch --tags --force
-          $existingTagTarget = git rev-parse -q --verify "refs/tags/${tag}^{}"
-          if ($LASTEXITCODE -eq 0) {
-            if ($existingTagTarget -ne $env:GITHUB_SHA) {
-              throw "Existing tag $tag points to $existingTagTarget instead of $env:GITHUB_SHA. Refusing to publish a mismatched release."
-            }
-            Write-Host "Release tag $tag already points to this commit."
-          } else {
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            $subject = git log -1 --pretty=%s
-            git tag -a $tag -m $subject $env:GITHUB_SHA
-            git push origin $tag
           }
       - name: Install frontend and Python build dependencies
         shell: pwsh
@@ -136,7 +89,7 @@ jobs:
       - name: Create update manifest
         shell: pwsh
         run: |
-          $version = '${{ needs.release_gate.outputs.version }}'
+          $version = '${{ github.ref_name }}'.TrimStart('v')
           New-Item -ItemType Directory -Force release | Out-Null
           $installer = Get-ChildItem desktop/src-tauri/target/release/bundle/nsis -Filter '*.exe' | Select-Object -First 1
           $safeInstaller = Join-Path $PWD "release/egx-analyzer-$version-x64-setup.exe"
@@ -147,14 +100,12 @@ jobs:
         id: release_title
         shell: pwsh
         run: |
-          $title = git log -1 --pretty=%s
-          if (-not $title) { $title = "EGX Analyzer ${{ needs.release_gate.outputs.tag }}" }
+          $title = git tag -l $env:GITHUB_REF_NAME --format="%(contents:subject)"
+          if (-not $title) { $title = "EGX Analyzer $env:GITHUB_REF_NAME" }
           "title=$title" | Add-Content -Path $env:GITHUB_OUTPUT
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.release_gate.outputs.tag }}
-          target_commitish: ${{ github.sha }}
           name: ${{ steps.release_title.outputs.title }}
           generate_release_notes: true
           fail_on_unmatched_files: true
