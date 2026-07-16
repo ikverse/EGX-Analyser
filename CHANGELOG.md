@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.1.95
+- Combined each expanded analysis run's metadata and timing into one responsive summary card.
+
 ## v0.1.94
 - Fixed the release build timing formatter so GitHub Actions continues from PyInstaller packaging into Rust and Tauri packaging.
 

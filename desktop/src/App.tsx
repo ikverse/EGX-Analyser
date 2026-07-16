@@ -799,11 +799,12 @@ function formatDuration(milliseconds: number | undefined): string {
   return seconds >= 60 ? `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s` : `${seconds.toFixed(seconds >= 10 ? 0 : 1)}s`;
 }
 
-function AnalysisPerformancePanel({ performance }: { performance: AnalysisPerformance }) {
-  if (!Object.keys(performance).length) return null;
+function AnalysisRunSummaryCard({ item }: { item: AnalysisResultHistory }) {
+  const { performance } = item;
   const modelDuration = performance.model_requests_total_ms ?? performance.model_request_ms ?? performance.model_pipeline_ms;
   const totalDuration = performance.total_analysis_ms ?? performance.total_before_commit_ms;
   const calls = performance.model_request_count ?? 1;
+  const stockCount = new Set(item.stock_source_table.map((row) => row.ticker)).size;
   const stages = [
     ["Telegram collection", performance.telegram_collection_ms],
     ["Model preparation", performance.image_preparation_ms],
@@ -812,13 +813,32 @@ function AnalysisPerformancePanel({ performance }: { performance: AnalysisPerfor
     ["Save results", performance.report_generation_ms],
   ].filter(([, duration]) => typeof duration === "number") as Array<[string, number]>;
   const slowest = stages.reduce<[string, number] | null>((current, stage) => !current || stage[1] > current[1] ? stage : current, null);
-  return <section className="analysis-performance" aria-label="Analysis timing">
-    <div><strong>Analysis timing</strong><span>Total: {formatDuration(totalDuration)}</span></div>
-    <p>{calls > 1 ? `${calls} AI requests were made, including an automatic validation retry. ` : "One AI request was made. "}
-      {slowest ? `Longest stage: ${slowest[0]} (${formatDuration(slowest[1])}).` : ""}</p>
-    <div className="analysis-performance-stages">
-      {stages.map(([label, duration]) => <span key={label}>{label}<strong>{formatDuration(duration)}</strong></span>)}
+  const totalLabel = typeof totalDuration === "number" ? formatDuration(totalDuration) : "Not recorded";
+  const timingSummary = calls > 1
+    ? `${calls} AI requests, including a validation retry`
+    : "One AI request";
+
+  return <section className="analysis-run-summary" aria-label="Analysis run and timing">
+    <div className="analysis-run-summary-header">
+      <div>
+        <span className="results-eyebrow">Analysis run</span>
+        <strong>{formatGeneratedAt(item.generated_at)}</strong>
+        <p>{item.messages_analyzed} messages analyzed · {stockCount} stocks · {item.stock_source_table.length} source rows</p>
+      </div>
+      <div className="analysis-run-total">
+        <span>Analysis timing</span>
+        <strong>{totalLabel}</strong>
+        <small>{timingSummary}</small>
+      </div>
     </div>
+    <div className="analysis-run-summary-metrics">
+      <span>Target date <strong>{item.target_date || "—"}</strong></span>
+      <span>Inputs <strong>{contentTypeLabel(item.content_types)}</strong></span>
+      {slowest && <span>Longest stage <strong>{slowest[0]} · {formatDuration(slowest[1])}</strong></span>}
+    </div>
+    {!!stages.length && <div className="analysis-performance-stages">
+      {stages.map(([label, duration]) => <span key={label}>{label}<strong>{formatDuration(duration)}</strong></span>)}
+    </div>}
   </section>;
 }
 
@@ -972,18 +992,8 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted, 
                 {analysisOpen && (
                   <tr className="analysis-history-expanded">
                     <td colSpan={6}>
-                      <div className="analysis-expanded-header">
-                        <div>
-                          <span className="results-eyebrow">Analysis run</span>
-                          <strong>{formatGeneratedAt(item.generated_at)}</strong>
-                        </div>
-                        <div className="analysis-expanded-meta">
-                          <span>Target: <strong>{item.target_date || "—"}</strong></span>
-                          <span>Inputs: <strong>{contentTypeLabel(item.content_types)}</strong></span>
-                        </div>
-                      </div>
+                      <AnalysisRunSummaryCard item={item} />
                       <div className="analysis-section-list">
-                        <AnalysisPerformancePanel performance={item.performance} />
                         <button type="button" className="analysis-section-row" onClick={() => toggleSection("recommendations")} aria-expanded={recommendationsOpen}>
                           <span><strong>Recommendations table</strong><small>One model-returned row for each dated source recommendation</small></span>
                           <span>{item.stock_source_table.length} rows - {recommendationsOpen ? "Hide" : "View"}</span>
