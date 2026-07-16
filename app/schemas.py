@@ -9,6 +9,8 @@ class ExtractedRecommendation(BaseModel):
     ticker: str | None = None
     signal: Signal
     entry: float | None = None
+    entry_low: float | None = None
+    entry_high: float | None = None
     target: float | None = None
     target_2: float | None = None
     stop_loss: float | None = None
@@ -41,11 +43,6 @@ class MessageCreate(BaseModel):
     author: str | None = None
     views: int | None = None
     forwarded_from: str | None = None
-
-
-class ChannelCreate(BaseModel):
-    handle: str = Field(min_length=3, max_length=255)
-    title: str | None = Field(default=None, max_length=255)
 
 
 class TelegramChatSelect(BaseModel):

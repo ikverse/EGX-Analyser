@@ -46,6 +46,8 @@ export type StockSourceTableRow = {
   recommendation_type?: "buy" | "sell" | string;
   notes_ar?: string;
   buy_price?: number | null;
+  buy_price_low?: number | null;
+  buy_price_high?: number | null;
   target_1?: number | null;
   target_2?: number | null;
   stop_loss?: number | null;
@@ -68,6 +70,8 @@ export type ClientInquiryResponse = {
   current_trend_ar?: string;
   last_price?: number | null;
   buy_price?: number | null;
+  buy_price_low?: number | null;
+  buy_price_high?: number | null;
   target_1?: number | null;
   target_2?: number | null;
   stop_loss?: number | null;
@@ -181,7 +185,6 @@ export class ApiClient {
       method: "POST", body: JSON.stringify({ channel_ids, content_types, analysis_mode, target_date, analyze: true }),
     });
   }
-  addChannel(handle: string, title?: string) { return this.request<Channel>("/channels", { method: "POST", body: JSON.stringify({ handle, title }) }); }
   setChannelActive(id: number, active: boolean) { return this.request<Channel>(`/channels/${id}`, { method: "PATCH", body: JSON.stringify({ active }) }); }
   consensus() { return this.request<Consensus[]>("/analytics/consensus"); }
   recommendations() { return this.request<Array<Record<string, unknown>>>("/recommendations"); }

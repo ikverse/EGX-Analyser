@@ -57,6 +57,7 @@ class MessageService:
             stock = await stocks.resolve(item.ticker, item.company_name)
             recommendation = Recommendation(message_id=message.id, stock_id=stock.id if stock else None,
                 signal=item.signal.value, company_name=item.company_name, ticker_raw=item.ticker, entry=item.entry,
+                entry_low=item.entry_low, entry_high=item.entry_high,
                 target=item.target, target_2=item.target_2, stop_loss=item.stop_loss, reason=item.reason, risk_level=item.risk_level,
                 time_horizon=item.time_horizon, indicators=item.indicators, confidence=item.confidence)
             self.session.add(recommendation)

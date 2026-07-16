@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
+from app.entry_points import format_entry_point, normalize_entry_point
 from app.models import Channel, Image, Media, Message, Recommendation, Report, Stock, StockMention
 from app.time_utils import CAIRO_TIMEZONE, as_cairo, cairo_now
 
@@ -205,7 +206,7 @@ class ReportService:
                 lines.append(
                     f"| {row['rank'] or '-'} | {row['ticker']} | {row['company']} | {row['company_ar'] or '-'} | "
                     f"{row['source']} | {', '.join(row['source_dates']) or '-'} | {', '.join(row['effective_date_bases']) or '-'} | {row['recommendation_type'] or '-'} | "
-                    f"{row['buy_price'] or '-'} | {row['target_1'] or '-'} | {row['target_2'] or '-'} | "
+                    f"{format_entry_point(row['buy_price'], row.get('buy_price_low'), row.get('buy_price_high'))} | {row['target_1'] or '-'} | {row['target_2'] or '-'} | "
                     f"{row['stop_loss'] or '-'} | {row['support'] or '-'} | {row['resistance'] or '-'} | "
                     f"{row['expected_return_pct'] or '-'} | {row['risk_pct'] or '-'} | {row['status'] or '-'} | {row['notes_ar'] or row['analysis_summary_ar'] or '-'} |"
                 )
@@ -352,7 +353,7 @@ def _consolidated_source_counts(payload: dict) -> dict[str, dict[str, int]]:
 
 
 _SOURCE_VALUE_FIELDS = (
-    "buy_price", "target_1", "target_2", "stop_loss", "support", "resistance",
+    "buy_price", "buy_price_low", "buy_price_high", "target_1", "target_2", "stop_loss", "support", "resistance",
     "expected_return_pct", "risk_pct",
 )
 
@@ -387,8 +388,11 @@ def _consolidated_source_table(payload: dict) -> list[dict]:
                 "status": str(item.get("status") or ""),
                 "analysis_summary_ar": str(item.get("analysis_summary_ar") or ""),
                 "recommendation_type": str(point.get("recommendation_type") or "buy").lower(),
-                "notes_ar": str(point.get("notes_ar") or ""),
-                **{field: point.get(field) for field in _SOURCE_VALUE_FIELDS},
+            "notes_ar": str(point.get("notes_ar") or ""),
+            "buy_price": normalize_entry_point(point.get("buy_price"), point.get("buy_price_low"), point.get("buy_price_high"))[0],
+            "buy_price_low": normalize_entry_point(point.get("buy_price"), point.get("buy_price_low"), point.get("buy_price_high"))[1],
+            "buy_price_high": normalize_entry_point(point.get("buy_price"), point.get("buy_price_low"), point.get("buy_price_high"))[2],
+            **{field: point.get(field) for field in _SOURCE_VALUE_FIELDS if field not in {"buy_price", "buy_price_low", "buy_price_high"}},
             })
     return sorted(rows, key=lambda row: (
         int(row["rank"] or 999), row["ticker"], row["source"], row["latest_date"] or "",
@@ -453,7 +457,9 @@ def _client_inquiry_rows(payload: dict) -> list[dict]:
             "reply_summary_ar": str(item.get("reply_summary_ar") or ""),
             "current_trend_ar": str(item.get("current_trend_ar") or ""),
             "last_price": item.get("last_price"),
-            "buy_price": item.get("buy_price"),
+            "buy_price": normalize_entry_point(item.get("buy_price"), item.get("buy_price_low"), item.get("buy_price_high"))[0],
+            "buy_price_low": normalize_entry_point(item.get("buy_price"), item.get("buy_price_low"), item.get("buy_price_high"))[1],
+            "buy_price_high": normalize_entry_point(item.get("buy_price"), item.get("buy_price_low"), item.get("buy_price_high"))[2],
             "target_1": item.get("target_1"),
             "target_2": item.get("target_2"),
             "stop_loss": item.get("stop_loss"),
@@ -676,7 +682,7 @@ def _build_html_report(
                     f'<td>{e(", ".join(row["effective_date_bases"]) or "-")}</td>'
                     f'<td>{e(row["recommendation_type"] or "-")}</td>'
                     f'<td>{badge(row["status"] or "HOLD")}</td>'
-                    f'<td class="num">{e(row["buy_price"] or "-")}</td>'
+                    f'<td class="num">{e(format_entry_point(row["buy_price"], row.get("buy_price_low"), row.get("buy_price_high")))}</td>'
                     f'<td class="num">{e(row["target_1"] or "-")}</td>'
                     f'<td class="num">{e(row["target_2"] or "-")}</td>'
                     f'<td class="num">{e(row["stop_loss"] or "-")}</td>'

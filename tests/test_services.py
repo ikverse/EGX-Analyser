@@ -34,6 +34,7 @@ from app.analysis_filter import has_past_recommendation_context, is_non_actionab
 from app.analysis_validation import validate_consolidated_output
 from app.repositories import StockRepository
 from app.stock_catalog import EGXStockCatalog, normalize_stock_name
+from app.entry_points import normalize_entry_point
 from zoneinfo import ZoneInfo
 
 
@@ -50,6 +51,29 @@ QWEN_CONSOLIDATED_OUTPUT = {
     "text_based_categories": {"most_important_stocks": [{"stock_code": "MFPC", "stock_name_en": "Mobaco", "stock_name_ar": "موبكو"}], "trading_stocks": [{"stock_code": "MFPC", "stock_name_en": "Mobaco", "stock_name_ar": "موبكو"}], "watchlist_stocks": [{"stock_code": "EFII", "stock_name_en": "E-Finance", "stock_name_ar": "إي فاينانس"}]},
     "daily_breakdown": {"2026-07-12": {"total_mentions": 3, "top_stock_of_day": "MFPC"}},
 }
+
+
+def test_entry_point_ranges_preserve_exact_source_bounds():
+    assert normalize_entry_point(24.5) == (24.5, None, None)
+    assert normalize_entry_point("24.50-25.20") == (None, 24.5, 25.2)
+    assert normalize_entry_point("\u0645\u0646 \u0662\u0664\u066b\u0665\u0660 \u0625\u0644\u0649 \u0662\u0665\u066b\u0662\u0660") == (None, 24.5, 25.2)
+
+
+def test_source_table_keeps_entry_range_without_averaging():
+    payload = {
+        "top_consolidated_recommendations": [{
+            "stock_code": "COMI", "stock_name_en": "CIB", "stock_name_ar": "CIB Arabic",
+            "rank": 1, "mention_count": 1, "status": "active", "data_points": [{
+                "date": "2026-07-16", "source": "CFI", "buy_price": None,
+                "buy_price_low": 24.5, "buy_price_high": 25.2,
+            }],
+        }],
+    }
+
+    row = _consolidated_source_table(payload)[0]
+    assert row["buy_price"] is None
+    assert row["buy_price_low"] == 24.5
+    assert row["buy_price_high"] == 25.2
 
 
 def test_qwen_models_return_every_accessible_model():

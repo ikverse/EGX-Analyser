@@ -357,6 +357,7 @@ export default function App() {
           {page === "Channels" && (
             <Channels
               channels={channels}
+              settings={settings}
               api={api}
               refresh={refresh}
               notify={notify}
@@ -365,6 +366,14 @@ export default function App() {
               analysisConfig={analysisConfig}
               updateAnalysisConfig={updateAnalysisConfig}
               onAnalyze={runAnalysis}
+              onModelChange={async (model) => {
+                if (!settings) throw new Error("Settings are still loading.");
+                const saved = await api.saveSettings(settings.ai_provider === "ollama"
+                  ? { ollama_model: model }
+                  : { openai_model: model });
+                setSettings(saved);
+                notify("success", `Analysis model set to ${model}.`);
+              }}
             />
           )}
           {page === "Results" && (
@@ -520,14 +529,14 @@ function Reports({ api, rows, setRows, notify, showError }: {
 
 // ── Channels ──────────────────────────────────────────────────────────────────
 
-function Channels({ channels, api, refresh, notify, showError, analysisRun, analysisConfig, updateAnalysisConfig, onAnalyze }: {
-  channels: Channel[]; api: ApiClient;
+function Channels({ channels, settings, api, refresh, notify, showError, analysisRun, analysisConfig, updateAnalysisConfig, onAnalyze, onModelChange }: {
+  channels: Channel[]; settings: SettingsStatus | null; api: ApiClient;
   refresh: () => Promise<boolean>; notify: Notify; showError: ShowError;
   analysisRun: AnalysisRunState; analysisConfig: ChannelAnalysisConfig;
   updateAnalysisConfig: (updater: (current: ChannelAnalysisConfig) => ChannelAnalysisConfig) => void;
   onAnalyze: (channelIds: number[]) => void;
+  onModelChange: (model: string) => Promise<void>;
 }) {
-  const [handle, setHandle] = useState("");
   const [chatQuery, setChatQuery] = useState("");
   const [chats, setChats] = useState<TelegramChat[]>(() => {
     try { return JSON.parse(sessionStorage.getItem("egx.telegramChats") || "[]") as TelegramChat[]; }
@@ -539,20 +548,6 @@ function Channels({ channels, api, refresh, notify, showError, analysisRun, anal
   const busy = loading || analysisRun.running;
   const analyzing = analysisRun.running;
   const analysisProgress = analysisRun.progress;
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    setLoading(true);
-    void api.addChannel(handle)
-      .then((channel) => {
-        updateSelectedHandles([...new Set([...selectedHandles, channel.handle])]);
-        setHandle("");
-        return refresh();
-      })
-      .then(() => notify("success", "Channel added for analysis."))
-      .catch((reason) => showError(fullError(reason)))
-      .finally(() => setLoading(false));
-  };
 
   const loadChats = () => {
     setLoading(true);
@@ -662,13 +657,6 @@ function Channels({ channels, api, refresh, notify, showError, analysisRun, anal
       <div className="channels-section channel-picker-section">
         <h3 className="section-heading">1. Choose chats for this session</h3>
         <p className="section-description">Load your Telegram chats, then select only the sources you want to analyze.</p>
-        <details className="manual-channel-add">
-          <summary>Add a Telegram chat by username</summary>
-          <form className="inline" onSubmit={submit}>
-            <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="Telegram username, without @" required />
-            <button disabled={busy}><Icon name="plus" /> Add channel</button>
-          </form>
-        </details>
         <button className="secondary load-chats-button" onClick={loadChats} disabled={busy}>
           <Icon name="download" /> {loading ? "Loading chats…" : "Load my Telegram chats"}
         </button>
@@ -748,6 +736,14 @@ function Channels({ channels, api, refresh, notify, showError, analysisRun, anal
           ))}
         </fieldset>
         <div className="analysis-action-bar">
+          <ModelSelector
+            api={api}
+            configured={Boolean(settings?.ai_configured || settings?.ai_provider === "ollama")}
+            selected={settings?.ai_provider === "ollama" ? settings.ollama_model : settings?.openai_model || ""}
+            onChange={onModelChange}
+            showError={showError}
+            compact
+          />
           <button onClick={analyze} disabled={busy}>
             <Icon name="play" /> {analyzing ? "Analyzing selected chats…" : "Analyze selected chats"}
           </button>
@@ -1111,6 +1107,13 @@ function num(v: unknown): string {
   return Number.isNaN(n) ? String(v) : String(n);
 }
 
+function entryDisplay(value: unknown, low?: unknown, high?: unknown): string {
+  const hasLow = low !== undefined && low !== null && low !== "";
+  const hasHigh = high !== undefined && high !== null && high !== "";
+  if (hasLow && hasHigh) return `${num(low)}–${num(high)}`;
+  return num(value);
+}
+
 function dateBasisLabel(basis: string): string {
   const labels: Record<string, string> = {
     explicit_date: "Explicit date",
@@ -1184,7 +1187,7 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
                     <td>{row.source_dates.join(", ") || "—"}</td>
                     <td>{row.effective_date_bases?.length ? row.effective_date_bases.map((basis) => <span key={basis} className="recommendation-date-basis">{dateBasisLabel(basis)}</span>) : "—"}</td>
                     <td><span className={`status-pill ${row.recommendation_type === "sell" ? "neutral" : "active"}`}>{row.recommendation_type || "buy"}</span></td>
-                    <td className="numeric">{num(row.buy_price)}</td>
+                    <td className="numeric">{entryDisplay(row.buy_price, row.buy_price_low, row.buy_price_high)}</td>
                     <td className="numeric positive">{num(row.target_1)}</td>
                     <td className="numeric positive">{num(row.target_2)}</td>
                     <td className="numeric negative">{num(row.stop_loss)}</td>
@@ -1262,11 +1265,12 @@ function ClientInquiryResponses({ rows }: { rows: ClientInquiryResponse[] }) {
 }
 
 function ClientInquiryCard({ row }: { row: ClientInquiryResponse }) {
-  const availableLevels = (levels: Array<[string, number | null | undefined]>) => levels
+  const availableLevels = (levels: Array<[string, string | number | null | undefined]>) => levels
     .filter(([, value]) => value !== undefined && value !== null)
     .map(([label, value]) => [label, num(value)] as const);
+  const entry = entryDisplay(row.buy_price, row.buy_price_low, row.buy_price_high);
   const tradeLevels = availableLevels([
-    ["سعر الدخول", row.buy_price], ["الهدف الأول", row.target_1], ["الهدف الثاني", row.target_2], ["وقف الخسارة", row.stop_loss],
+    ["سعر الدخول", entry], ["الهدف الأول", row.target_1], ["الهدف الثاني", row.target_2], ["وقف الخسارة", row.stop_loss],
   ]);
   const marketLevels = availableLevels([
     ["آخر سعر", row.last_price], ["الدعم", row.support], ["المقاومة", row.resistance],
@@ -1567,12 +1571,13 @@ function Search({ api, onResult, showError }: {
 
 // ── Model selector ────────────────────────────────────────────────────────────
 
-function ModelSelector({ api, configured, selected, onChange, showError }: {
+function ModelSelector({ api, configured, selected, onChange, showError, compact = false }: {
   api: ApiClient; configured: boolean; selected: string;
-  onChange: (value: string) => void; showError: ShowError;
+  onChange: (value: string) => Promise<void>; showError: ShowError; compact?: boolean;
 }) {
   const [models, setModels] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const load = useCallback(async (announce: boolean) => {
     if (!configured) {
@@ -1595,16 +1600,23 @@ function ModelSelector({ api, configured, selected, onChange, showError }: {
 
   useEffect(() => { void load(false); }, [load]);
 
+  const choose = (value: string) => {
+    setSaving(true);
+    void onChange(value)
+      .catch((reason) => showError(`Could not change the analysis model: ${fullError(reason)}`))
+      .finally(() => setSaving(false));
+  };
+
   return (
-    <label>
+    <label className={compact ? "model-selector model-selector-compact" : "model-selector"}>
       Analysis model
-      <small className="model-selector-help">Shows every model currently available from the selected provider. Choose a vision-capable model when analyzing photos.</small>
+      {!compact && <small className="model-selector-help">Shows every model currently available from the selected provider. Choose a vision-capable model when analyzing photos.</small>}
       <div className="model-row">
-        <select value={selected} onChange={(e) => onChange(e.target.value)}>
+        <select value={selected} onChange={(e) => choose(e.target.value)} disabled={!configured || saving}>
           <option value={selected}>{selected || "Choose a model"}</option>
           {models.filter((m) => m !== selected).map((m) => <option key={m} value={m}>{m}</option>)}
         </select>
-        <button type="button" onClick={() => void load(true)} disabled={!configured || loading}>
+        <button type="button" onClick={() => void load(true)} disabled={!configured || loading || saving}>
           {loading ? "Loading…" : "Load models"}
         </button>
       </div>
@@ -1673,9 +1685,7 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
   };
   const currentProvider = providerDetails[provider];
   const localProvider = provider === "ollama";
-  const selectedModel = localProvider
-    ? values.ollama_model || status?.ollama_model || "qwen3-vl:4b"
-    : values.openai_model || "";
+  const configuredModel = status?.ai_provider === "ollama" ? status.ollama_model : status?.openai_model;
   const outputAudits = analysisResults.filter((item) => item.model_validation_warnings.length > 0);
 
   useEffect(() => { void getVersion().then(setAppVersion).catch(() => setAppVersion("Unknown")); }, []);
@@ -1727,7 +1737,7 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
     <div className="settings">
 
       <div className="settings-overview" aria-label="Current configuration">
-        <span><strong>AI</strong> {providerDetails[provider].label} · {selectedModel || "No model selected"}</span>
+        <span><strong>AI</strong> {providerDetails[provider].label} · {configuredModel || "No model selected"}</span>
         <span><strong>Telegram</strong> {status?.telegram_authorized ? "Connected" : "Not connected"}</span>
         <span><strong>Catalog</strong> {catalogStatus ? `${catalogStatus.stock_count} stocks` : "Loading"}</span>
         <span><strong>App</strong> v{appVersion || "..."}</span>
@@ -1787,13 +1797,7 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
               </span>
             </label>
           )}
-          <ModelSelector
-            api={api}
-            configured={Boolean(status?.ai_provider === provider && (localProvider || status.ai_configured))}
-            selected={selectedModel}
-            onChange={(model) => setValues((cur) => localProvider ? { ...cur, ollama_model: model } : { ...cur, openai_model: model })}
-            showError={showError}
-          />
+          <p className="credential-note">Choose the saved analysis model from the Channels page after configuring this provider.</p>
           <label className="analysis-guidance-field">
             Supplementary extraction guidance
             <textarea

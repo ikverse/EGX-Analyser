@@ -96,6 +96,8 @@ class Recommendation(Base):
     company_name: Mapped[str] = mapped_column(String(255))
     ticker_raw: Mapped[str | None] = mapped_column(String(30))
     entry: Mapped[float | None] = mapped_column(Float)
+    entry_low: Mapped[float | None] = mapped_column(Float)
+    entry_high: Mapped[float | None] = mapped_column(Float)
     target: Mapped[float | None] = mapped_column(Float)
     target_2: Mapped[float | None] = mapped_column(Float)
     stop_loss: Mapped[float | None] = mapped_column(Float)

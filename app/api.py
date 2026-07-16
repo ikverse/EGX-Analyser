@@ -19,7 +19,7 @@ from app.diagnostics import diagnostics_path, logger, recent_entries
 from app.models import Channel, Image, Media, Message, Recommendation, Report, Stock
 from app.reports import ReportService, _attach_source_images
 from app.stock_catalog import EGXStockCatalog
-from app.schemas import (ChannelCreate, ChannelUpdate, CollectionRequest, DailyReportRequest, MessageCreate, SearchRequest, SettingsUpdate, TelegramChatSelect,
+from app.schemas import (ChannelUpdate, CollectionRequest, DailyReportRequest, MessageCreate, SearchRequest, SettingsUpdate, TelegramChatSelect,
                          TelegramCodeRequest, TelegramCodeVerification)
 from app.services import AnalyticsService, MessageService, SearchService
 from app.repositories import get_or_create_channel
@@ -454,16 +454,6 @@ async def list_messages(session: AsyncSession = Depends(get_session), limit: int
 async def list_channels(session: AsyncSession = Depends(get_session)) -> list[dict]:
     return [{"id": item.id, "handle": item.handle, "title": item.title, "active": item.active,
              "analyst_score": item.analyst_score} for item in (await session.scalars(select(Channel))).all()]
-
-
-@router.post("/channels")
-async def create_channel(payload: ChannelCreate, session: AsyncSession = Depends(get_session)) -> dict:
-    channel = await get_or_create_channel(session, payload.handle)
-    if payload.title:
-        channel.title = payload.title
-    channel.active = True
-    await session.commit()
-    return {"id": channel.id, "handle": channel.handle, "active": channel.active}
 
 
 @router.post("/telegram/chats/select")
