@@ -1,5 +1,5 @@
 name: Publish desktop update
-run-name: ${{ github.ref_name }} - Consolidate stock Notes and limit targets to TP1/TP2
+run-name: ${{ github.ref_name }} - Clarify Results timestamps and report sources
 
 on:
   push:

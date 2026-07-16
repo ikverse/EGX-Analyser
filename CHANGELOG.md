@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.98
+- Corrected saved result timestamps so UTC database values display with the proper Cairo time and daylight-saving offset.
+- Renamed each generated result to `Analysis Recommendations` with its target date.
+- Added separate Generated at and Sources columns to the Results history table.
+- Consolidated unique recommendation and inquiry sources in the main result row while retaining detailed source references inside expanded results.
+
 ## v0.1.97
 - Consolidated Results Notes into one concise, stock-specific summary across all occurrences while preserving source rows and references separately.
 - Merged equivalent Arabic and English recommendation wording without repeating the same insight, while retaining distinct T+1, watchlist, entry, target, stop-loss, and risk information.
