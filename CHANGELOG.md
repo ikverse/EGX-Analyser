@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.99
+- Fixed analysis failures on existing desktop installations whose SQLite database predates recommendation entry-range columns.
+- Added automatic startup migration for nullable `entry_low` and `entry_high` fields while preserving existing recommendation data.
+- Added regression coverage that upgrades a legacy database and verifies its saved recommendation values remain intact.
+
 ## v0.1.98
 - Corrected saved result timestamps so UTC database values display with the proper Cairo time and daylight-saving offset.
 - Renamed each generated result to `Analysis Recommendations` with its target date.

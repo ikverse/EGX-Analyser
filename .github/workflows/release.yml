@@ -1,5 +1,5 @@
 name: Publish desktop update
-run-name: ${{ github.ref_name }} - Clarify Results timestamps and report sources
+run-name: ${{ github.ref_name }} - Repair legacy entry-range database schema
 
 on:
   push:

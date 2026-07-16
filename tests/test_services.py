@@ -12,7 +12,7 @@ from httpx import Request, Response
 from openai import AuthenticationError
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from app import api
+from app import api, database
 from app.models import Base, Image, Recommendation, Report, StockMention
 from app.schemas import AnalysisResult, CollectionRequest, ExtractedRecommendation, ExtractedStockMention, MessageCreate, TelegramChatSelect
 from app.ai.service import (
@@ -148,6 +148,45 @@ async def session():
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as current: yield current
     await engine.dispose()
+
+
+async def test_sqlite_startup_adds_entry_range_columns_to_legacy_database(tmp_path, monkeypatch):
+    database_path = tmp_path / "legacy.db"
+    legacy_engine = create_async_engine(f"sqlite+aiosqlite:///{database_path.as_posix()}")
+    async with legacy_engine.begin() as connection:
+        await connection.exec_driver_sql(
+            "CREATE TABLE recommendations (id INTEGER PRIMARY KEY, entry FLOAT, target_2 FLOAT)"
+        )
+        await connection.exec_driver_sql(
+            "INSERT INTO recommendations (id, entry, target_2) VALUES (1, 24.5, 28.0)"
+        )
+    await legacy_engine.dispose()
+
+    settings = SimpleNamespace(database_url=f"sqlite+aiosqlite:///{database_path.as_posix()}")
+    monkeypatch.setattr(database, "get_settings", lambda: settings)
+    monkeypatch.setattr(database, "_engine", None)
+    monkeypatch.setattr(database, "_session_factory", None)
+
+    await database.init_database()
+
+    engine, _ = database._engine_and_factory()
+    async with engine.connect() as connection:
+        columns = {
+            row[1]: row[2]
+            for row in (await connection.exec_driver_sql("PRAGMA table_info(recommendations)")).all()
+        }
+        saved = (
+            await connection.exec_driver_sql(
+                "SELECT entry, target_2, entry_low, entry_high FROM recommendations WHERE id = 1"
+            )
+        ).one()
+    await engine.dispose()
+    database._engine = None
+    database._session_factory = None
+
+    assert columns["entry_low"] == "FLOAT"
+    assert columns["entry_high"] == "FLOAT"
+    assert saved == (24.5, 28.0, None, None)
 
 
 async def test_message_ingestion_is_idempotent(session):

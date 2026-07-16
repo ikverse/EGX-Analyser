@@ -6,6 +6,22 @@ from app.config import get_settings
 _engine = None
 _session_factory = None
 
+_SQLITE_COMPATIBILITY_COLUMNS = {
+    "recommendations": {
+        "target_2": "FLOAT",
+        "entry_low": "FLOAT",
+        "entry_high": "FLOAT",
+    },
+    "channels": {
+        "last_collected_message_id": "INTEGER",
+        "last_collected_at": "DATETIME",
+    },
+    "messages": {
+        "processing_error": "TEXT",
+        "ai_response_raw": "TEXT",
+    },
+}
+
 
 def _engine_and_factory():
     global _engine, _session_factory
@@ -33,8 +49,10 @@ async def init_database() -> None:
     from app.models import Base
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
-        migrations = {"recommendations": {"target_2": "FLOAT"}, "channels": {"last_collected_message_id": "INTEGER", "last_collected_at": "DATETIME"}, "messages": {"processing_error": "TEXT", "ai_response_raw": "TEXT"}}
-        for table, additions in migrations.items():
+        for table, additions in _SQLITE_COMPATIBILITY_COLUMNS.items():
             columns = {column[1] for column in (await connection.exec_driver_sql(f"PRAGMA table_info({table})")).all()}
             for name, definition in additions.items():
-                if name not in columns: await connection.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+                if name not in columns:
+                    await connection.exec_driver_sql(
+                        f"ALTER TABLE {table} ADD COLUMN {name} {definition}"
+                    )
