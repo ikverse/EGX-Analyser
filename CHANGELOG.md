@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.87
+- Rotated the Tauri updater public key after verifying the new `egx-analyzer-2026` signing-key pair.
+- Requires one manual installer download from GitHub Releases to migrate existing installations; later in-app updates use the new signing identity.
+
 ## v0.1.86
 - Accelerated GitHub release builds with npm, pip, and Rust/Cargo dependency caches.
 - Made CI dependency installation deterministic and removed redundant installation work during the signed desktop build.
