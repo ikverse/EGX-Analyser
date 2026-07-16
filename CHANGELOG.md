@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.1.84
+- Fixed the packaged desktop app becoming stuck on its startup screen by allowing its WebView to connect to the local loopback intelligence engine.
+
 ## v0.1.83
 - Replaced all application table-header gradients with solid Light/Dark theme surfaces.
 - Added direct analysis-completion navigation to the newly created Result, including automatic expansion, scroll, and visual focus.

@@ -1,7 +1,7 @@
 {
   "name": "egx-intelligence-desktop",
   "private": true,
-  "version": "0.1.83",
+  "version": "0.1.84",
   "type": "module",
   "scripts": {
     "dev": "vite",
