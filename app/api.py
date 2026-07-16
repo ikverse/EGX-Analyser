@@ -17,7 +17,7 @@ from app.content_updates import ContentUpdateError, ContentUpdateService
 from app.database import get_session
 from app.diagnostics import diagnostics_path, logger, recent_entries
 from app.models import Channel, Image, Media, Message, Recommendation, Report, Stock
-from app.reports import ReportService, _attach_source_images
+from app.reports import ReportService, _attach_source_images, ensure_stock_notes_summaries
 from app.stock_catalog import EGXStockCatalog
 from app.schemas import (ChannelUpdate, CollectionRequest, DailyReportRequest, MessageCreate, SearchRequest, SettingsUpdate, TelegramChatSelect,
                          TelegramCodeRequest, TelegramCodeVerification)
@@ -568,6 +568,7 @@ def _analysis_table_with_source_images(
     channels_by_message_id: dict[int, Channel],
 ) -> list[dict]:
     table = [dict(row) for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+    ensure_stock_notes_summaries(table)
     _attach_source_images(table, image_rows, channels_by_message_id)
     return table
 

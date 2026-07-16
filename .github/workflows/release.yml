@@ -1,4 +1,5 @@
 name: Publish desktop update
+run-name: ${{ github.ref_name }} - Consolidate stock Notes and limit targets to TP1/TP2
 
 on:
   push:
@@ -86,6 +87,26 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: powershell -ExecutionPolicy Bypass -File scripts/build-desktop.ps1 -Release -SkipDependencyInstall
+      - name: Read versioned release summary
+        id: release_metadata
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $lines = Get-Content CHANGELOG.md
+          $start = [Array]::IndexOf($lines, "## $tag")
+          if ($start -lt 0) { throw "CHANGELOG.md has no release section for $tag." }
+          $bodyLines = @()
+          for ($index = $start + 1; $index -lt $lines.Count; $index++) {
+            if ($lines[$index] -match '^##\s+') { break }
+            $bodyLines += $lines[$index]
+          }
+          $body = ($bodyLines -join "`n").Trim()
+          if (-not $body) { throw "CHANGELOG.md section $tag has no release summary." }
+          $summary = ($bodyLines | Where-Object { $_ -match '^-' } | Select-Object -First 1) -replace '^-\s*', ''
+          if (-not $summary) { $summary = 'Desktop update' }
+          New-Item -ItemType Directory -Force release | Out-Null
+          Set-Content -Path release/release-notes.md -Value $body -Encoding utf8
+          "title=EGX Analyzer $tag - $summary" | Add-Content -Path $env:GITHUB_OUTPUT
       - name: Create update manifest
         shell: pwsh
         run: |
@@ -95,19 +116,13 @@ jobs:
           $safeInstaller = Join-Path $PWD "release/egx-analyzer-$version-x64-setup.exe"
           Copy-Item $installer.FullName $safeInstaller
           Copy-Item "$($installer.FullName).sig" "$safeInstaller.sig"
-          powershell -ExecutionPolicy Bypass -File scripts/new-update-manifest.ps1 -Repository '${{ github.repository }}' -Version $version -ReleaseNotes 'See this release for changes.' -InstallerPath $safeInstaller
-      - name: Read descriptive release title
-        id: release_title
-        shell: pwsh
-        run: |
-          $title = git tag -l $env:GITHUB_REF_NAME --format="%(contents:subject)"
-          if (-not $title) { $title = "EGX Analyzer $env:GITHUB_REF_NAME" }
-          "title=$title" | Add-Content -Path $env:GITHUB_OUTPUT
+          $releaseNotes = Get-Content release/release-notes.md -Raw
+          powershell -ExecutionPolicy Bypass -File scripts/new-update-manifest.ps1 -Repository '${{ github.repository }}' -Version $version -ReleaseNotes $releaseNotes -InstallerPath $safeInstaller
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          name: ${{ steps.release_title.outputs.title }}
-          generate_release_notes: true
+          name: ${{ steps.release_metadata.outputs.title }}
+          body_path: release/release-notes.md
           fail_on_unmatched_files: true
           files: |
             release/egx-analyzer-*-setup.exe

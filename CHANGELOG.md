@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.97
+- Consolidated Results Notes into one concise, stock-specific summary across all occurrences while preserving source rows and references separately.
+- Merged equivalent Arabic and English recommendation wording without repeating the same insight, while retaining distinct T+1, watchlist, entry, target, stop-loss, and risk information.
+- Limited recommendation extraction and display to TP1 and TP2, excluding TP3 and later targets in Arabic and English even when returned by the model.
+- Added backward-compatible Notes generation for existing saved results without requiring a database migration.
+- Added the release version and changelog summary to GitHub Actions runs, GitHub Releases, and the in-app update manifest.
+
 ## v0.1.96
 - Refined Channels with denser rows, clearer checkbox selection, and a sticky analysis action area.
 - Added live analysis phase and elapsed-time feedback in the application header.

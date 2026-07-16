@@ -1181,7 +1181,7 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
                   {first.company_ar && <span className="consolidated-company-ar">{first.company_ar}</span>}
                   <span className="consolidated-mentions">{first.mention_count} total mentions</span>
                 </td></tr>
-                {stockRows.map((row) => (
+                {stockRows.map((row, rowIndex) => (
                   <tr key={`${row.ticker}-${row.source}-${row.latest_date ?? "unknown"}-${row.buy_price ?? "none"}`}>
                     <td className="source-cell">{row.source}</td>
                     <td>{row.source_dates.join(", ") || "—"}</td>
@@ -1201,7 +1201,7 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
                         <Icon name="image" size={15} /> View ({row.source_image_paths.length})
                       </button> : "—"}
                     </td>
-                    <td className="analysis-summary">{row.notes_ar || row.analysis_summary_ar || "—"}</td>
+                    {rowIndex === 0 && <td className="analysis-summary" rowSpan={stockRows.length}>{first.notes_summary || "—"}</td>}
                   </tr>
                 ))}
               </tbody>

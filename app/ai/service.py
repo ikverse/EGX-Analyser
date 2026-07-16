@@ -12,6 +12,7 @@ from openai import AsyncOpenAI
 from app.config import Settings
 from app.content_updates import ContentUpdateService
 from app.entry_points import normalize_entry_point
+from app.recommendation_notes import remove_unsupported_targets
 from app.schemas import AnalysisResult
 from app.analysis_validation import validate_consolidated_output
 
@@ -35,8 +36,8 @@ class AnalysisOutcome:
 
 _OUTPUT_CONTRACT = """Return only one JSON object in this consolidated EGX report structure:
 - analysis_period: string describing the covered dates.
-- top_consolidated_recommendations: ranked array. Each item has stock_code, stock_name_en, stock_name_ar, mention_count, rank, status, analysis_summary_ar, and data_points.
-- data_points: array for each stock. Each item has date, effective_date_basis, source, source_message_id, recommendation_type, buy_price, buy_price_low, buy_price_high, target_1, target_2, stop_loss, support, resistance, expected_return_pct, risk_pct, and notes_ar. source must exactly equal the supplied MESSAGE source label and source_message_id must exactly equal its TELEGRAM_ID. recommendation_type is buy or sell. notes_ar is a concise Arabic note for narrative/chart recommendations that do not use a table; otherwise it is null. effective_date_basis is either explicit_date or t_plus_1. For a single entry, use buy_price only. For an explicit entry range, set buy_price to null and preserve the exact left and right values in buy_price_low and buy_price_high; never average, round, infer, or swap them.
+- top_consolidated_recommendations: ranked array. Each item has stock_code, stock_name_en, stock_name_ar, mention_count, rank, status, notes_summary, analysis_summary_ar, and data_points. notes_summary is one concise, stock-specific summary generated only after grouping every occurrence of that exact stock. Merge duplicate and semantically equivalent Arabic/English recommendations (for example T+1 wording and سهم مراقبة / stock to watch), preserve genuinely different insights, and never copy full source messages or image text. analysis_summary_ar remains optional for backward compatibility.
+- data_points: array for each stock. Each item has date, effective_date_basis, source, source_message_id, recommendation_type, buy_price, buy_price_low, buy_price_high, target_1, target_2, stop_loss, support, resistance, expected_return_pct, risk_pct, and notes_ar. Extract only the first two take-profit levels. Ignore TP3, target 3, third target, مستهدف ثالث, الهدف الثالث, and every later target; never return them in any field or summary. source must exactly equal the supplied MESSAGE source label and source_message_id must exactly equal its TELEGRAM_ID. recommendation_type is buy or sell. notes_ar is a concise Arabic note for narrative/chart recommendations that do not use a table; otherwise it is null. effective_date_basis is either explicit_date or t_plus_1. For a single entry, use buy_price only. For an explicit entry range, set buy_price to null and preserve the exact left and right values in buy_price_low and buy_price_high; never average, round, infer, or swap them.
 - achieved_targets: array with stock_code, stock_name_en, status_ar, date, and source.
 - client_inquiry_responses: array for stock-specific replies to customer/member questions. Each item has stock_code, stock_name_en, stock_name_ar, source, date, source_message_id, source_excerpt, question_summary_ar, reply_summary_ar, current_trend_ar, last_price, buy_price, buy_price_low, buy_price_high, target_1, target_2, stop_loss, support, resistance, advice_ar, and alternate_scenario_ar. Include source_message_id and source_excerpt when present in the source data. Use the same exact single-entry/range rules as data_points.
 - text_based_categories: object with most_important_stocks, trading_stocks, and watchlist_stocks arrays. Each array item has stock_code, stock_name_en, and stock_name_ar.
@@ -207,7 +208,7 @@ def _analysis_result_from_consolidated_payload(payload: dict[str, Any]) -> Analy
             continue
         company_name = str(rank_item.get("stock_name_en") or ticker).strip()
         mention_count = rank_item.get("mention_count")
-        summary = rank_item.get("analysis_summary_ar")
+        summary = remove_unsupported_targets(rank_item.get("notes_summary") or rank_item.get("analysis_summary_ar"))
         data_points = rank_item.get("data_points") if isinstance(rank_item.get("data_points"), list) else []
         mentions.append({
             "ticker": ticker, "company_name": company_name, "context": summary,
@@ -297,6 +298,9 @@ class AIAnalysisService:
             "intended for the target effective date into top_consolidated_recommendations. For each source row, preserve entry, "
             "TP1, TP2, stop loss, support, and resistance whenever visible. If any qualifying dated source table exists, the main "
             "recommendations array must contain its stock rows; do this before creating client_inquiry_responses.",
+            "TAKE-PROFIT LIMIT: Extract and return only TP1 and TP2 (target_1 and target_2). Completely ignore TP3, target 3, "
+            "third target, take profit 3, مستهدف ثالث, الهدف الثالث, and any fourth or later target. Do not mention ignored "
+            "targets in notes_summary, analysis_summary_ar, notes_ar, or any other output field.",
             "Entry values require special care. A single entry is buy_price only. If a source explicitly shows an entry range in "
             "Arabic or English (for example 24.50-25.20, 24.50–25.20, 'from 24.50 to 25.20', or 'من 24.50 إلى 25.20'), "
             "return buy_price=null, buy_price_low=the exact left value, and buy_price_high=the exact right value. Never average, "
@@ -328,6 +332,13 @@ class AIAnalysisService:
             "supporting TELEGRAM_ID to exactly one destination: LIST 1 IDs only in client_inquiry_responses, LIST 2 IDs only "
             "in top_consolidated_recommendations, or excluded. Never use one TELEGRAM_ID in both arrays, and never place a "
             "LIST 1 TELEGRAM_ID in a recommendation data point.",
+            "NOTES SUMMARY: Group all LIST 2 findings by exact stock_code before writing notes_summary. Produce exactly one concise, "
+            "factual notes_summary per stock from all of that stock's occurrences, regardless of source. Treat semantically equivalent "
+            "Arabic and English wording as one insight (including T+1/next-session equivalents and سهم مراقبة/stock-to-watch wording); "
+            "this semantic merge applies only after date eligibility is established and does not broaden the literal T+1 date exception. "
+            "Mention each meaning once. Preserve distinct insights such as T+1, watchlist status, entry range, targets, stop loss, and "
+            "risk warnings. Do not paste, enumerate, or paraphrase whole source messages, captions, tables, or image text. Keep source, "
+            "source_message_id, and per-source values only in data_points for traceability. Keep notes_summary under 60 words.",
         ]
         image_paths: list[str] = []
         image_references: dict[str, int] = {}

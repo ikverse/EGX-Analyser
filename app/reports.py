@@ -3,6 +3,7 @@ from html import escape
 import json
 import os
 from pathlib import Path
+import re
 from statistics import median
 
 from sqlalchemy import select
@@ -11,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings
 from app.entry_points import format_entry_point, normalize_entry_point
 from app.models import Channel, Image, Media, Message, Recommendation, Report, Stock, StockMention
+from app.recommendation_notes import remove_unsupported_targets
 from app.time_utils import CAIRO_TIMEZONE, as_cairo, cairo_now
 
 try:
@@ -202,16 +204,17 @@ class ReportService:
         if consolidated_source is not None:
             lines += ["", "## Qwen consolidated analysis", f"- Analysis period: {consolidated_source.get('analysis_period') or report_mode}"]
             lines += ["", "| Rank | Code | Company (EN) | Company (AR) | Source | Date | Timing | Type | Entry | TP1 | TP2 | Stop | Support | Resistance | Return % | Risk % | Status | Notes |", "| ---: | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |"]
+            noted_tickers: set[str] = set()
             for row in stock_source_table:
+                notes = row["notes_summary"] if row["ticker"] not in noted_tickers else "-"
+                noted_tickers.add(row["ticker"])
                 lines.append(
                     f"| {row['rank'] or '-'} | {row['ticker']} | {row['company']} | {row['company_ar'] or '-'} | "
                     f"{row['source']} | {', '.join(row['source_dates']) or '-'} | {', '.join(row['effective_date_bases']) or '-'} | {row['recommendation_type'] or '-'} | "
                     f"{format_entry_point(row['buy_price'], row.get('buy_price_low'), row.get('buy_price_high'))} | {row['target_1'] or '-'} | {row['target_2'] or '-'} | "
                     f"{row['stop_loss'] or '-'} | {row['support'] or '-'} | {row['resistance'] or '-'} | "
-                    f"{row['expected_return_pct'] or '-'} | {row['risk_pct'] or '-'} | {row['status'] or '-'} | {row['notes_ar'] or row['analysis_summary_ar'] or '-'} |"
+                    f"{row['expected_return_pct'] or '-'} | {row['risk_pct'] or '-'} | {row['status'] or '-'} | {notes or '-'} |"
                 )
-                if row["analysis_summary_ar"]:
-                    lines.append(f"- {row['ticker']} / {row['source']}: {row['analysis_summary_ar']}")
             lines += ["", "## Achieved targets"]
             for item in consolidated_source.get("achieved_targets", []):
                 if isinstance(item, dict):
@@ -357,6 +360,136 @@ _SOURCE_VALUE_FIELDS = (
     "expected_return_pct", "risk_pct",
 )
 
+_T_PLUS_ONE_RE = re.compile(
+    r"(?:\bt\s*(?:\+|plus)\s*1\b|\bnext\s+(?:trading\s+)?session\b|\bnext\s+day\b|"
+    r"جلس(?:ة|ه)\s+(?:الغد|القادمة|التالي(?:ة|ه))|اليوم\s+التالي|قصير\s+الأجل)", re.IGNORECASE,
+)
+_WATCHLIST_RE = re.compile(
+    r"(?:\bwatch\s*list\b|\bstock\s+to\s+watch\b|\bunder\s+watch\b|سهم\s+(?:ل?لمراقب(?:ة|ه)|مراقب(?:ة|ه))|للمراقب(?:ة|ه))",
+    re.IGNORECASE,
+)
+_RISK_WARNING_RE = re.compile(
+    r"(?:\brisk\b|\bcaution\b|\bwarning\b|\bvolatile\b|مخاطر|تحذير|الحذر|تذبذب)", re.IGNORECASE,
+)
+
+
+def _compact_notes_summary(value: object) -> str:
+    """Keep a model summary short and remove repeated sentences without exposing source text."""
+    text = remove_unsupported_targets(value)
+    if not text:
+        return ""
+    unique: list[str] = []
+    seen: set[str] = set()
+    for sentence in re.split(r"(?<=[.!?؟])\s+|\s*[;·]\s*", text):
+        sentence = sentence.strip()
+        key = re.sub(r"[^\w\u0600-\u06ff]+", "", sentence.casefold())
+        if sentence and key and key not in seen:
+            seen.add(key)
+            unique.append(sentence)
+    words = " ".join(unique).split()
+    if len(words) > 60:
+        words = words[:60]
+    compact = " ".join(words).strip(" -·;,")
+    if len(compact) > 420:
+        compact = compact[:420].rsplit(" ", 1)[0].rstrip(" -·;,")
+    return compact
+
+
+def _display_number(value: object) -> str | None:
+    number = _as_number(value)
+    if number is None:
+        return None
+    return f"{number:g}"
+
+
+def _unique_values(values: list[object]) -> list[str]:
+    return list(dict.fromkeys(value for item in values if (value := _display_number(item)) is not None))
+
+
+def _stock_notes_summary(item: dict, payload: dict | None = None) -> str:
+    """Return one concise semantic summary for all findings of an exact stock."""
+    generated = item.get("notes_summary") or item.get("notes_summary_ar")
+    if generated:
+        return _compact_notes_summary(generated)
+
+    points = [point for point in item.get("data_points", []) if isinstance(point, dict)]
+    texts = [str(item.get("analysis_summary_ar") or "")]
+    for point in points:
+        texts.extend(str(point.get(key) or "") for key in ("notes_ar", "context", "reason", "notes", "comment"))
+    combined = "\n".join(texts)
+    ticker = str(item.get("stock_code") or item.get("ticker") or "").strip().upper()
+    categories = (payload or {}).get("text_based_categories")
+    watchlist = categories.get("watchlist_stocks", []) if isinstance(categories, dict) else []
+    in_watchlist = any(
+        isinstance(stock, dict) and str(stock.get("stock_code") or "").strip().upper() == ticker
+        for stock in watchlist if isinstance(watchlist, list)
+    )
+    t_plus_one = any(str(point.get("effective_date_basis") or "").casefold() == "t_plus_1" for point in points)
+    t_plus_one = t_plus_one or bool(_T_PLUS_ONE_RE.search(combined))
+    watched = in_watchlist or bool(_WATCHLIST_RE.search(combined))
+    risk_warning = bool(_RISK_WARNING_RE.search(combined))
+
+    mention_count = int(item.get("mention_count") or len(points) or 1)
+    meanings: list[str] = []
+    if t_plus_one:
+        meanings.append("a short-term T+1 opportunity")
+    if watched:
+        meanings.append("a stock to watch")
+    if meanings:
+        joined = meanings[0] if len(meanings) == 1 else f"{meanings[0]} and {meanings[1]}"
+        subject = f"{ticker} is " if ticker else ""
+        lead = f"{subject}mentioned in {mention_count} findings as {joined}." if mention_count > 1 else f"{subject}identified as {joined}."
+    else:
+        lead = f"{ticker or 'The stock'} consolidates {mention_count} stock-specific findings." if mention_count > 1 else f"{ticker or 'The stock'} has one stock-specific recommendation."
+
+    entries = _unique_values([point.get("buy_price") for point in points])
+    ranges = list(dict.fromkeys(
+        f"{low}–{high}" for point in points
+        if (low := _display_number(point.get("buy_price_low"))) is not None
+        and (high := _display_number(point.get("buy_price_high"))) is not None
+    ))
+    targets = _unique_values([point.get(field) for point in points for field in ("target_1", "target_2")])
+    stops = _unique_values([point.get("stop_loss") for point in points])
+    supports = _unique_values([point.get("support") for point in points])
+    resistances = _unique_values([point.get("resistance") for point in points])
+    risks = _unique_values([point.get("risk_pct") for point in points])
+    details: list[str] = []
+    if ranges:
+        details.append(f"entry range{'s' if len(ranges) > 1 else ''} {', '.join(ranges[:3])}")
+    if entries:
+        details.append(f"entry {', '.join(entries[:3])}")
+    if targets:
+        details.append(f"targets {', '.join(targets[:4])}")
+    if stops:
+        details.append(f"stop loss {', '.join(stops[:3])}")
+    if supports:
+        details.append(f"support {', '.join(supports[:3])}")
+    if resistances:
+        details.append(f"resistance {', '.join(resistances[:3])}")
+    if risks:
+        details.append(f"reported risk {', '.join(value + '%' for value in risks[:3])}")
+    elif risk_warning:
+        details.append("risk warning noted")
+    return _compact_notes_summary(f"{lead} {'; '.join(details)}".strip())
+
+
+def ensure_stock_notes_summaries(rows: list[dict]) -> list[dict]:
+    """Backfill the new stock-level Notes field for previously saved result rows."""
+    grouped: dict[str, list[dict]] = {}
+    for row in rows:
+        grouped.setdefault(str(row.get("ticker") or "").upper(), []).append(row)
+    for ticker, stock_rows in grouped.items():
+        existing = next((row.get("notes_summary") for row in stock_rows if row.get("notes_summary")), None)
+        summary = _compact_notes_summary(existing) if existing else _stock_notes_summary({
+            "stock_code": ticker,
+            "mention_count": max((int(row.get("mention_count") or 0) for row in stock_rows), default=len(stock_rows)),
+            "analysis_summary_ar": next((row.get("analysis_summary_ar") for row in stock_rows if row.get("analysis_summary_ar")), ""),
+            "data_points": stock_rows,
+        })
+        for row in stock_rows:
+            row["notes_summary"] = summary
+    return rows
+
 
 def _consolidated_source_table(payload: dict) -> list[dict]:
     """Create one display row for every model-returned recommendation data point.
@@ -369,6 +502,7 @@ def _consolidated_source_table(payload: dict) -> list[dict]:
     for item in payload.get("top_consolidated_recommendations", []):
         if not isinstance(item, dict) or not item.get("stock_code"):
             continue
+        notes_summary = _stock_notes_summary(item, payload)
         for point in item.get("data_points", []):
             if not isinstance(point, dict):
                 continue
@@ -387,6 +521,7 @@ def _consolidated_source_table(payload: dict) -> list[dict]:
                 "mention_count": int(item.get("mention_count") or 1),
                 "status": str(item.get("status") or ""),
                 "analysis_summary_ar": str(item.get("analysis_summary_ar") or ""),
+                "notes_summary": notes_summary,
                 "recommendation_type": str(point.get("recommendation_type") or "buy").lower(),
             "notes_ar": str(point.get("notes_ar") or ""),
             "buy_price": normalize_entry_point(point.get("buy_price"), point.get("buy_price_low"), point.get("buy_price_high"))[0],
@@ -394,9 +529,9 @@ def _consolidated_source_table(payload: dict) -> list[dict]:
             "buy_price_high": normalize_entry_point(point.get("buy_price"), point.get("buy_price_low"), point.get("buy_price_high"))[2],
             **{field: point.get(field) for field in _SOURCE_VALUE_FIELDS if field not in {"buy_price", "buy_price_low", "buy_price_high"}},
             })
-    return sorted(rows, key=lambda row: (
+    return ensure_stock_notes_summaries(sorted(rows, key=lambda row: (
         int(row["rank"] or 999), row["ticker"], row["source"], row["latest_date"] or "",
-    ))
+    )))
 
 
 def _attach_source_images(
@@ -494,16 +629,7 @@ def _source_driven_tables(payload: dict) -> tuple[list[dict], list[dict], list[d
             for source_details in per_source.values():
                 for detail in source_details:
                     detail["analysis_summary_ar"] = str(summary)
-        # Build a combined notes string for this ticker from all available text
-        note_parts: list[str] = []
-        if summary:
-            note_parts.append(str(summary))
-        for point in points:
-            for key in ("context", "reason", "notes", "comment", "ملاحظات", "تعليق"):
-                val = point.get(key)
-                if val and str(val).strip() and str(val).strip() not in note_parts:
-                    note_parts.append(str(val).strip())
-        ticker_notes = " · ".join(note_parts)
+        ticker_notes = _stock_notes_summary(item, payload)
         summaries.append({"ticker": ticker, "company": company, "company_ar": company_ar, "occurrences": int(item.get("mention_count") or len(points)),
                           "by_chat": by_source, "data_samples": [{"channel": source, "data": values[0]} for source, values in per_source.items() if values]})
         for source, source_details in per_source.items():
@@ -670,7 +796,15 @@ def _build_html_report(
                 '<th class="num">Return %</th><th class="num">Risk %</th><th>Notes</th>'
                 '</tr></thead><tbody>'
             )
+            row_counts: dict[str, int] = {}
             for row in stock_source_table:
+                row_counts[row["ticker"]] = row_counts.get(row["ticker"], 0) + 1
+            rendered_notes: set[str] = set()
+            for row in stock_source_table:
+                notes_cell = ""
+                if row["ticker"] not in rendered_notes:
+                    rendered_notes.add(row["ticker"])
+                    notes_cell = f'<td rowspan="{row_counts[row["ticker"]]}">{e(row["notes_summary"] or "-")}</td>'
                 sections.append(
                     f'<tr>'
                     f'<td class="num">{e(row["rank"] or "-")}</td>'
@@ -690,7 +824,7 @@ def _build_html_report(
                     f'<td class="num">{e(row["resistance"] or "-")}</td>'
                     f'<td class="num">{e(row["expected_return_pct"] or "-")}</td>'
                     f'<td class="num">{e(row["risk_pct"] or "-")}</td>'
-                    f'<td class="ar">{e(row["notes_ar"] or row["analysis_summary_ar"] or "-")}</td>'
+                    f'{notes_cell}'
                     f'</tr>'
                 )
             sections.append('</tbody></table>')

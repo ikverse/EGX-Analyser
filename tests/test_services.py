@@ -361,6 +361,84 @@ def test_qwen_consolidated_output_normalizes_to_recommendations():
     assert result.recommendations[0].target_2 == 40.0
 
 
+def test_consolidated_parser_uses_stock_notes_summary():
+    payload = json.loads(json.dumps(QWEN_CONSOLIDATED_OUTPUT))
+    payload["top_consolidated_recommendations"][0]["notes_summary"] = "Concise stock-level finding."
+
+    result = _analysis_result_from_payload(payload)
+
+    assert result.stock_mentions[0].context == "Concise stock-level finding."
+    assert result.recommendations[0].reason == "Concise stock-level finding."
+
+
+def test_third_and_later_targets_are_excluded_from_parsing_and_notes():
+    payload = json.loads(json.dumps(QWEN_CONSOLIDATED_OUTPUT))
+    stock = payload["top_consolidated_recommendations"][0]
+    stock["notes_summary"] = "TP1 38.7; TP2 40; TP3 42; مستهدف ثالث 42; target 4: 44; risk warning."
+    stock["data_points"][0]["target_3"] = 42
+    stock["data_points"][0]["tp4"] = 44
+
+    result = _analysis_result_from_payload(payload)
+    rows = _consolidated_source_table(payload)
+
+    assert result.recommendations[0].target == 38.7
+    assert result.recommendations[0].target_2 == 40.0
+    assert "TP3" not in (result.recommendations[0].reason or "")
+    assert "مستهدف ثالث" not in (result.recommendations[0].reason or "")
+    assert "target 4" not in (result.recommendations[0].reason or "")
+    assert "TP1 38.7" in rows[0]["notes_summary"]
+    assert "TP2 40" in rows[0]["notes_summary"]
+    assert "risk warning" in rows[0]["notes_summary"]
+    assert "target_3" not in rows[0]
+    assert "tp4" not in rows[0]
+
+
+def test_stock_notes_merge_bilingual_equivalents_and_keep_distinct_levels():
+    payload = {
+        "top_consolidated_recommendations": [{
+            "stock_code": "COMI", "stock_name_en": "CIB", "mention_count": 3, "rank": 1, "status": "active",
+            "data_points": [
+                {"source": "One", "source_message_id": "1", "effective_date_basis": "t_plus_1",
+                 "buy_price_low": 24.5, "buy_price_high": 25.2, "target_1": 27, "notes_ar": "T+1 recommendation"},
+                {"source": "Two", "source_message_id": "2", "target_2": 28, "stop_loss": 23.8,
+                 "notes_ar": "سهم للمراقبة"},
+                {"source": "Three", "source_message_id": "3", "notes_ar": "Next trading session; تحذير من المخاطر"},
+            ],
+        }],
+        "text_based_categories": {"watchlist_stocks": [{"stock_code": "COMI"}]},
+    }
+
+    rows = _consolidated_source_table(payload)
+    summaries = {row["notes_summary"] for row in rows}
+
+    assert len(rows) == 3
+    assert len(summaries) == 1
+    summary = summaries.pop()
+    assert summary.count("T+1") == 1
+    assert "stock to watch" in summary
+    assert "entry range 24.5–25.2" in summary
+    assert "targets 27, 28" in summary
+    assert "stop loss 23.8" in summary
+    assert "risk warning noted" in summary
+    assert "Next trading session" not in summary
+    assert "سهم للمراقبة" not in summary
+
+
+def test_saved_result_rows_receive_backward_compatible_stock_notes():
+    legacy_rows = [
+        {"ticker": "COMI", "mention_count": 2, "effective_date_bases": ["t_plus_1"],
+         "notes_ar": "T+1", "source": "One", "source_dates": []},
+        {"ticker": "COMI", "mention_count": 2, "effective_date_bases": [],
+         "notes_ar": "سهم مراقبة", "source": "Two", "source_dates": []},
+    ]
+
+    rows = api._analysis_table_with_source_images(legacy_rows, [], {})
+
+    assert rows[0]["notes_summary"] == rows[1]["notes_summary"]
+    assert "T+1" in rows[0]["notes_summary"]
+    assert "stock to watch" in rows[0]["notes_summary"]
+
+
 def test_oversized_image_payload_is_optimized_without_losing_an_image_input(tmp_path):
     from PIL import Image as PillowImage
 
