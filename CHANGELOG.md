@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.1.94
+- Fixed the release build timing formatter so GitHub Actions continues from PyInstaller packaging into Rust and Tauri packaging.
+
 ## v0.1.93
 - Fixed result-table source images in packaged Windows builds by allowing Tauri's asset protocol to read the managed local Telegram image folder.
 

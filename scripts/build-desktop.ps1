@@ -12,7 +12,7 @@ $buildStartedAt = Get-Date
 function Write-BuildTiming {
     param([string]$Stage, [datetime]$StartedAt)
     $duration = (Get-Date) - $StartedAt
-    $message = "TIMING | $Stage | $($duration.ToString('mm\\:ss'))"
+    $message = "TIMING | $Stage | $($duration.ToString('mm\:ss'))"
     Write-Host $message -ForegroundColor DarkCyan
     if ($env:GITHUB_STEP_SUMMARY) {
         "- $message" | Add-Content -Path $env:GITHUB_STEP_SUMMARY
