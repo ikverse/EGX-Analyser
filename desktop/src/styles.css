@@ -1331,3 +1331,399 @@ tr:hover td,
 @media (max-width: 760px) {
   .results-overview-actions { justify-content: flex-start; }
 }
+
+/* â”€â”€ Workspace layout refinement â”€â”€ */
+.shell {
+  grid-template-columns: 248px minmax(0, 1fr);
+}
+
+aside {
+  gap: .4rem;
+  padding: 1.75rem 1.15rem;
+}
+
+aside h1 {
+  font-size: 1.28rem;
+  margin: 0 .45rem 2.2rem;
+}
+
+aside button {
+  border-radius: 10px;
+  font-size: .98rem;
+  gap: .7rem;
+  min-height: 2.85rem;
+  padding: .72rem .8rem;
+}
+
+section {
+  max-width: 1720px;
+  padding: clamp(1.5rem, 2.3vw, 2.75rem) clamp(1.25rem, 2.7vw, 3.25rem);
+}
+
+header {
+  align-items: center;
+  margin-bottom: clamp(1.5rem, 2.4vw, 2.5rem);
+}
+
+header strong {
+  font-size: clamp(1.35rem, 1.6vw, 1.7rem);
+}
+
+/* Channels: one clear selection workspace followed by an analysis control card. */
+.channels-section {
+  border-bottom: 0;
+  margin-bottom: 1.35rem;
+  padding-bottom: 0;
+}
+
+.channel-picker-section,
+.analysis-setup-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: clamp(1rem, 1.7vw, 1.4rem);
+}
+
+.channel-picker-section {
+  gap: .95rem;
+}
+
+.section-heading {
+  color: var(--text);
+  font-size: .78rem;
+  font-weight: 800;
+  letter-spacing: .085em;
+}
+
+.section-description {
+  color: var(--text-soft);
+  font-size: .94rem;
+  max-width: 760px;
+}
+
+.load-chats-button {
+  min-height: 2.8rem;
+  padding-inline: 1rem;
+}
+
+.manual-channel-add {
+  border-top: 1px solid var(--border);
+  margin-top: .1rem;
+  padding-top: .85rem;
+}
+
+.manual-channel-add summary {
+  color: var(--text-soft);
+  font-size: .82rem;
+  font-weight: 650;
+}
+
+.channel-list-toolbar {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  gap: .6rem;
+  margin: .25rem 0;
+  padding: .65rem;
+}
+
+.channel-list-toolbar input {
+  min-height: 2.7rem;
+}
+
+.channel-list-toolbar span {
+  color: var(--primary);
+  font-size: .82rem;
+  padding-inline: .15rem;
+}
+
+.channel-chat-table {
+  border-radius: var(--radius-md);
+  margin-top: 0;
+}
+
+.channel-chat-table th {
+  font-size: .7rem;
+  padding: .82rem 1rem;
+}
+
+.channel-chat-table td {
+  padding: .88rem 1rem;
+}
+
+.channel-chat-table strong {
+  font-size: .94rem;
+}
+
+.channel-chat-username {
+  font-size: .77rem;
+}
+
+.channel-selection-state {
+  color: var(--text-faint);
+  font-size: .74rem;
+}
+
+.channel-selection-state.selected {
+  font-size: .71rem;
+  font-weight: 800;
+  padding: .3rem .58rem;
+}
+
+.analysis-setup-section {
+  display: grid;
+  gap: .95rem;
+}
+
+.analysis-setup-section .section-heading {
+  margin: 0;
+}
+
+.analysis-window-note {
+  border-left: 3px solid var(--primary);
+  margin: 0;
+  padding: .9rem 1rem;
+}
+
+.analysis-window-note strong {
+  color: var(--primary);
+  font-size: .9rem;
+}
+
+.analysis-window-note p {
+  font-size: .84rem;
+  line-height: 1.5;
+}
+
+.analysis-date-mode,
+.analysis-content-types {
+  background: var(--surface-raised);
+  margin: 0;
+  padding: .9rem 1rem;
+}
+
+.analysis-date-mode legend,
+.analysis-content-types legend {
+  font-size: .78rem;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+
+.analysis-date-mode label,
+.analysis-content-types label {
+  font-size: .9rem;
+}
+
+.analysis-setup-section > button:last-of-type {
+  justify-self: start;
+  min-height: 2.9rem;
+  padding-inline: 1.15rem;
+}
+
+/* Results: retain the complete table while making history actions a stable column. */
+.analysis-history-wrap {
+  overflow-x: auto;
+  padding-bottom: .25rem;
+}
+
+.results-overview {
+  align-items: center;
+  display: grid;
+  gap: 1rem 1.35rem;
+  grid-template-columns: minmax(300px, 1.5fr) minmax(220px, .85fr) auto;
+  margin-bottom: 1.25rem;
+  padding: 1.25rem 1.4rem;
+}
+
+.results-overview h2 {
+  font-size: 1.35rem;
+  margin: .16rem 0 .3rem;
+}
+
+.results-overview p {
+  font-size: .9rem;
+  line-height: 1.45;
+}
+
+.results-overview-stats {
+  justify-content: flex-start;
+}
+
+.results-overview-stats span {
+  font-size: .78rem;
+  padding: .42rem .68rem;
+}
+
+.results-overview-actions {
+  display: grid;
+  gap: .5rem;
+  justify-items: stretch;
+}
+
+.results-overview-actions button {
+  min-height: 2.55rem;
+  white-space: nowrap;
+}
+
+.analysis-history-table {
+  min-width: 1120px;
+  table-layout: fixed;
+}
+
+.analysis-history-output-col { width: 27%; }
+.analysis-history-date-col { width: 12%; }
+.analysis-history-inputs-col { width: 17%; }
+.analysis-history-scope-col { width: 12%; }
+.analysis-history-records-col { width: 16%; }
+.analysis-history-actions-col { width: 16%; }
+
+.analysis-history-table th,
+.analysis-history-table td {
+  overflow-wrap: anywhere;
+}
+
+.analysis-history-table th {
+  padding: .82rem .95rem;
+}
+
+.analysis-history-table td {
+  padding: .9rem .95rem;
+}
+
+.analysis-history-actions,
+.analysis-history-actions-heading {
+  border-left: 1px solid var(--border);
+  text-align: center !important;
+}
+
+.analysis-history-action-buttons {
+  gap: .45rem;
+  justify-content: center;
+}
+
+.analysis-history-actions .compact {
+  min-width: 0;
+  padding-inline: .72rem;
+}
+
+.analysis-history-expanded td {
+  padding: 0 1.2rem 1.2rem;
+}
+
+.analysis-expanded-header {
+  padding: 1.05rem 0 .95rem;
+}
+
+.analysis-performance {
+  border-radius: var(--radius-sm);
+  margin-top: 1rem;
+}
+
+.analysis-section-list {
+  margin-top: 1rem;
+}
+
+/* Settings: compact status summary and calmer, scannable accordion sections. */
+.settings {
+  gap: .8rem;
+  max-width: 1120px;
+}
+
+.settings-overview {
+  display: grid;
+  gap: .55rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: .8rem;
+}
+
+.settings-overview span {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-soft);
+  display: grid;
+  font-size: .8rem;
+  gap: .15rem;
+  min-width: 0;
+  padding: .62rem .72rem;
+}
+
+.settings-overview strong {
+  color: var(--primary);
+  font-size: .7rem;
+  letter-spacing: .055em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.settings-section {
+  border-radius: var(--radius-md);
+}
+
+.settings-section-header {
+  font-size: 1rem;
+  min-height: 3.75rem;
+  padding: 1rem 1.2rem;
+}
+
+.settings-section-desc {
+  color: var(--text-faint);
+  font-size: .82rem;
+  padding: 0 1.2rem 1rem;
+}
+
+.settings-section-body {
+  gap: 1rem;
+  padding: 1.15rem 1.2rem 1.25rem;
+}
+
+.settings-subsection {
+  gap: .7rem;
+}
+
+.settings label {
+  font-size: .9rem;
+}
+
+.credential-header {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: .75rem .85rem;
+}
+
+.credential-note {
+  font-size: .8rem;
+  line-height: 1.42;
+}
+
+.model-row {
+  align-items: end;
+}
+
+@media (max-width: 1050px) {
+  .results-overview { grid-template-columns: 1fr auto; }
+  .results-overview-stats { grid-column: 1 / -1; }
+  .settings-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 760px) {
+  .shell { grid-template-columns: 1fr; }
+  aside { grid-template-columns: repeat(3, minmax(0, 1fr)); padding: .8rem; }
+  aside h1 { grid-column: 1 / -1; margin: .1rem .35rem .6rem; }
+  aside button { font-size: .84rem; justify-content: center; padding: .65rem .35rem; }
+  aside button span { display: none; }
+  section { padding: 1.15rem; }
+  header { align-items: flex-start; gap: .8rem; }
+  .header-actions { flex-wrap: wrap; justify-content: flex-end; }
+  .channel-list-toolbar { grid-template-columns: 1fr 1fr; }
+  .channel-list-toolbar input { grid-column: 1 / -1; }
+  .channel-list-toolbar span { grid-column: 1 / -1; }
+  .analysis-date-mode .analysis-date-picker { margin-left: 0; width: 100%; }
+  .analysis-date-picker input { flex: 1; }
+  .results-overview { grid-template-columns: 1fr; }
+  .results-overview-stats { grid-column: auto; }
+  .results-overview-actions { grid-template-columns: 1fr 1fr; }
+  .settings-overview { grid-template-columns: 1fr 1fr; }
+  .model-row { grid-template-columns: 1fr; }
+}

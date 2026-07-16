@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.88
+- Refined Channels into a clearer select-then-analyze workspace with stronger selected states and responsive controls.
+- Stabilized Results history columns and actions while preserving the full recommendation-table behavior.
+- Improved Settings grouping, status summaries, and responsive layout for faster scanning.
+
 ## v0.1.87
 - Rotated the Tauri updater public key after verifying the new `egx-analyzer-2026` signing-key pair.
 - Requires one manual installer download from GitHub Releases to migrate existing installations; later in-app updates use the new signing identity.
