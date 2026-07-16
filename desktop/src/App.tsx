@@ -1858,16 +1858,16 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
         </div>
       </SettingsSection>
 
-      <SettingsSection title="Appearance" description={`${themeMode === "light" ? "Light" : "Dark"} violet palette`} open={openSection === "appearance"} onToggle={() => toggleSection("appearance")}>
+      <SettingsSection title="Appearance" description={`${themeMode === "light" ? "Light" : "Dark"} charcoal and teal palette`} open={openSection === "appearance"} onToggle={() => toggleSection("appearance")}>
         <div className="settings-subsection appearance-settings">
           <strong>Application theme</strong>
-          <p>Choose the lavender and violet theme that is most comfortable for your workspace. Your choice is saved on this computer.</p>
+          <p>Choose the clear light or high-contrast dark workspace. Your preference is saved on this computer.</p>
           <div className="theme-picker" role="radiogroup" aria-label="Application theme">
             <button type="button" className={`theme-option theme-option-light ${themeMode === "light" ? "is-selected" : ""}`} role="radio" aria-checked={themeMode === "light"} onClick={() => onThemeModeChange("light")}>
-              <span className="theme-swatch" /><span><strong>Light</strong><small>Bright lavender workspace</small></span>
+              <span className="theme-swatch" /><span><strong>Light</strong><small>Bright neutral workspace</small></span>
             </button>
             <button type="button" className={`theme-option theme-option-dark ${themeMode === "dark" ? "is-selected" : ""}`} role="radio" aria-checked={themeMode === "dark"} onClick={() => onThemeModeChange("dark")}>
-              <span className="theme-swatch" /><span><strong>Dark</strong><small>Deep-indigo workspace</small></span>
+              <span className="theme-swatch" /><span><strong>Dark</strong><small>Deep charcoal workspace</small></span>
             </button>
           </div>
         </div>

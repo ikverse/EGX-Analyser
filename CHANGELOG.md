@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.90
+- Rebuilt Light and Dark mode around a centralized charcoal-and-teal token system with stronger accessible contrast.
+- Removed gradients and elevated shadow styling in favor of flat, bordered surfaces, consistent controls, and semantic status colors.
+- Stabilized recommendation-table column widths so dates, prices, badges, and actions remain readable without vertical wrapping.
+- Applied the saved theme before React starts to prevent an incorrect-theme flash during launch.
+
 ## v0.1.89
 - Replaced the violet theme with a centralized blue-slate Light and Dark palette.
 - Improved contrast for surfaces, borders, text, selected states, and semantic status feedback.
