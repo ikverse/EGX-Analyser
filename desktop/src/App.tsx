@@ -224,7 +224,10 @@ export default function App() {
     setDownloadProgress(0);
     let downloaded = 0;
     let contentLength = 0;
+    let engineStoppedForInstall = false;
     try {
+      await invoke("prepare_for_update");
+      engineStoppedForInstall = true;
       await availableUpdate.downloadAndInstall((event) => {
         if (event.event === "Started") contentLength = event.data.contentLength ?? 0;
         if (event.event === "Progress") {
@@ -236,6 +239,13 @@ export default function App() {
       notify("success", "Update installed. Restarting EGX Analyzer now.");
       await invoke("restart_app");
     } catch (reason) {
+      if (engineStoppedForInstall) {
+        try {
+          await invoke("restore_local_engine");
+        } catch (restoreReason) {
+          console.error("Could not restore the local engine after a failed update", restoreReason);
+        }
+      }
       setDownloadingUpdate(false);
       setDownloadProgress(null);
       showError(`Update could not be installed: ${fullError(reason)}. Use the installer from GitHub Releases if this continues.`);

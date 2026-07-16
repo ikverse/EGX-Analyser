@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.91
+- Stops the local `egx-intelligence-api` sidecar before the Windows updater applies an installer.
+- Restores the local engine automatically if downloading or installing an update fails.
+
 ## v0.1.90
 - Rebuilt Light and Dark mode around a centralized charcoal-and-teal token system with stronger accessible contrast.
 - Removed gradients and elevated shadow styling in favor of flat, bordered surfaces, consistent controls, and semantic status colors.

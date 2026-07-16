@@ -20,6 +20,21 @@ fn restart_app(app: tauri::AppHandle) {
     app.restart();
 }
 
+#[tauri::command]
+fn prepare_for_update(app: tauri::AppHandle) {
+    stop_local_engine(&app);
+}
+
+#[tauri::command]
+fn restore_local_engine(app: tauri::AppHandle) -> Result<(), String> {
+    stop_local_engine(&app);
+    let child = start_local_engine(&app).map_err(|error| error.to_string())?;
+    let engine = app.state::<LocalEngine>();
+    let mut guard = engine.0.lock().map_err(|_| "engine lock poisoned".to_string())?;
+    *guard = Some(child);
+    Ok(())
+}
+
 #[cfg(windows)]
 fn terminate_orphaned_engines() {
     let _ = std::process::Command::new("taskkill")
@@ -49,7 +64,7 @@ fn stop_local_engine(app: &tauri::AppHandle) {
     terminate_orphaned_engines();
 }
 
-fn start_local_engine(app: &tauri::App) -> Result<Child, Box<dyn std::error::Error>> {
+fn start_local_engine(app: &tauri::AppHandle) -> Result<Child, Box<dyn std::error::Error>> {
     #[cfg(windows)]
     terminate_orphaned_engines();
 
@@ -90,14 +105,14 @@ fn main() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![restart_app])
+        .invoke_handler(tauri::generate_handler![restart_app, prepare_for_update, restore_local_engine])
         .on_window_event(|window, event| {
             if matches!(event, WindowEvent::CloseRequested { .. }) {
                 stop_local_engine(&window.app_handle());
             }
         })
         .setup(|app| {
-            app.manage(LocalEngine(Mutex::new(Some(start_local_engine(app)?))));
+            app.manage(LocalEngine(Mutex::new(Some(start_local_engine(&app.handle())?))));
             Ok(())
         })
         .build(tauri::generate_context!())
