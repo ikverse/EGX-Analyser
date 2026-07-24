@@ -16,8 +16,12 @@ from app import api, database
 from app.models import Base, Image, Recommendation, Report, StockMention
 from app.schemas import AnalysisResult, CollectionRequest, ExtractedRecommendation, ExtractedStockMention, MessageCreate, TelegramChatSelect
 from app.ai.service import (
+    AIAnalysisService,
+    AnalysisOutcome,
     _analysis_result_from_payload,
+    _image_visual_signature,
     _prepared_image_data_url,
+    _visually_same_image,
     _write_provider_request_trace,
     analysis_output_schema,
 )
@@ -57,6 +61,21 @@ def test_entry_point_ranges_preserve_exact_source_bounds():
     assert normalize_entry_point(24.5) == (24.5, None, None)
     assert normalize_entry_point("24.50-25.20") == (None, 24.5, 25.2)
     assert normalize_entry_point("\u0645\u0646 \u0662\u0664\u066b\u0665\u0660 \u0625\u0644\u0649 \u0662\u0665\u066b\u0662\u0660") == (None, 24.5, 25.2)
+
+
+def test_visual_duplicate_detection_handles_recompressed_reposts(tmp_path):
+    from PIL import Image as PillowImage
+
+    original = tmp_path / "original.jpg"
+    repost = tmp_path / "repost.jpg"
+    different = tmp_path / "different.jpg"
+    image = PillowImage.new("RGB", (320, 180), (20, 55, 95))
+    image.save(original, quality=95)
+    image.save(repost, quality=75)
+    PillowImage.new("RGB", (320, 180), (95, 35, 20)).save(different, quality=75)
+
+    assert _visually_same_image(_image_visual_signature(str(original)), _image_visual_signature(str(repost)))
+    assert not _visually_same_image(_image_visual_signature(str(original)), _image_visual_signature(str(different)))
 
 
 def test_source_table_keeps_entry_range_without_averaging():
@@ -426,9 +445,11 @@ def test_third_and_later_targets_are_excluded_from_parsing_and_notes():
     assert "TP3" not in (result.recommendations[0].reason or "")
     assert "مستهدف ثالث" not in (result.recommendations[0].reason or "")
     assert "target 4" not in (result.recommendations[0].reason or "")
-    assert "TP1 38.7" in rows[0]["notes_summary"]
-    assert "TP2 40" in rows[0]["notes_summary"]
-    assert "risk warning" in rows[0]["notes_summary"]
+    assert "المستهدفان الأول والثاني" in rows[0]["notes_summary"]
+    assert "38.7" in rows[0]["notes_summary"]
+    assert "40" in rows[0]["notes_summary"]
+    assert "المخاطر المعلنة" in rows[0]["notes_summary"]
+    assert "تحذير من المخاطر" in rows[0]["notes_summary"]
     assert "target_3" not in rows[0]
     assert "tp4" not in rows[0]
 
@@ -455,11 +476,11 @@ def test_stock_notes_merge_bilingual_equivalents_and_keep_distinct_levels():
     assert len(summaries) == 1
     summary = summaries.pop()
     assert summary.count("T+1") == 1
-    assert "stock to watch" in summary
-    assert "entry range 24.5–25.2" in summary
-    assert "targets 27, 28" in summary
-    assert "stop loss 23.8" in summary
-    assert "risk warning noted" in summary
+    assert "سهماً للمراقبة" in summary
+    assert "نطاق الدخول: 24.5–25.2" in summary
+    assert "المستهدفان الأول والثاني: 27، 28" in summary
+    assert "وقف الخسارة: 23.8" in summary
+    assert "ورد تحذير من المخاطر" in summary
     assert "Next trading session" not in summary
     assert "سهم للمراقبة" not in summary
 
@@ -476,7 +497,18 @@ def test_saved_result_rows_receive_backward_compatible_stock_notes():
 
     assert rows[0]["notes_summary"] == rows[1]["notes_summary"]
     assert "T+1" in rows[0]["notes_summary"]
-    assert "stock to watch" in rows[0]["notes_summary"]
+    assert "سهماً للمراقبة" in rows[0]["notes_summary"]
+    assert "stock to watch" not in rows[0]["notes_summary"]
+
+
+def test_arabic_model_notes_summary_is_preserved_for_results():
+    payload = json.loads(json.dumps(QWEN_CONSOLIDATED_OUTPUT))
+    stock = payload["top_consolidated_recommendations"][0]
+    stock["notes_summary"] = "توصية مجمعة للسهم مع الالتزام بالمستهدفين الأول والثاني فقط."
+
+    rows = _consolidated_source_table(payload)
+
+    assert rows[0]["notes_summary"] == stock["notes_summary"]
 
 
 def test_oversized_image_payload_is_optimized_without_losing_an_image_input(tmp_path):
@@ -776,6 +808,77 @@ def test_client_inquiry_validation_does_not_mutate_model_payload():
     assert payload["top_consolidated_recommendations"][0]["mention_count"] == 2
     assert len(payload["top_consolidated_recommendations"][0]["data_points"]) == 2
     assert any("placed in recommendations" in warning for warning in warnings)
+
+
+def test_consolidated_validation_detects_ungrounded_and_duplicated_image_rows():
+    messages = [
+        {"source": "Ostoul", "telegram_message_id": 10, "text": ""},
+        {"source": "Ostoul", "telegram_message_id": 11, "text": ""},
+        {"source": "Ostoul", "telegram_message_id": 12, "text": ""},
+    ]
+    values = {
+        "recommendation_type": "buy", "buy_price_low": 15.10, "buy_price_high": 15.15,
+        "target_1": 16.40, "target_2": 18.55, "stop_loss": 14.60,
+    }
+    payload = {"top_consolidated_recommendations": [
+        {"stock_code": "PHDC", "stock_name_ar": "بالم هيلز", "data_points": [
+            {"source": "Ostoul", "source_message_id": "10",
+             "recommendation_evidence": "PHDC - سهم المراقبة - النصيحة بالشراء", **values},
+            {"source": "Ostoul", "source_message_id": "11",
+             "recommendation_evidence": "PHDC - الأسهم الأكثر سيولة", **values},
+        ]},
+        {"stock_code": "MASR", "stock_name_ar": "مدينة مصر", "data_points": [
+            {"source": "Ostoul", "source_message_id": "12",
+             "recommendation_evidence": "MASR - توصية شراء قصيرة الأجل", **values},
+        ]},
+    ]}
+
+    warnings = validate_consolidated_output(payload, messages)
+
+    assert any("lacks explicit recommendation context" in warning and "message 11" in warning for warning in warnings)
+    assert any("repeats identical trade values" in warning and "PHDC" in warning for warning in warnings)
+    assert any("different stocks" in warning and "MASR" in warning and "PHDC" in warning for warning in warnings)
+
+
+@pytest.mark.asyncio
+async def test_consolidated_analysis_retries_invalid_provenance_once():
+    invalid = {
+        "analysis_period": "test", "top_consolidated_recommendations": [{
+            "stock_code": "COMI", "stock_name_en": "CIB", "data_points": [{
+                "source": "CFI", "source_message_id": "7", "recommendation_type": "buy", "target_1": 100,
+            }],
+        }], "client_inquiry_responses": [],
+    }
+    corrected = json.loads(json.dumps(invalid))
+    corrected["top_consolidated_recommendations"][0]["data_points"][0]["recommendation_evidence"] = (
+        "COMI - توصية شراء"
+    )
+    responses = [invalid, corrected]
+    service = object.__new__(AIAnalysisService)
+    service.settings = SimpleNamespace()
+    service.prompt = ""
+
+    async def fake_analyze_prompt(*_args, **_kwargs):
+        payload = responses.pop(0)
+        return AnalysisOutcome(
+            result=_analysis_result_from_payload(payload), raw_response=json.dumps(payload, ensure_ascii=False),
+            input_metrics={"model_request_ms": 10},
+        )
+
+    service._analyze_prompt = fake_analyze_prompt
+    outcome = await service.analyze_consolidated(
+        [{"source": "CFI", "telegram_message_id": 7, "published_at": "2026-07-16T10:00:00+03:00",
+          "text": "", "image_paths": [], "transcripts": []}],
+        "test", "2026-07-16",
+    )
+
+    assert outcome.correction_attempted is True
+    assert outcome.validation_warnings == []
+    assert outcome.retry_audit["status"] == "passed"
+    assert outcome.input_metrics["model_request_count"] == 2
+    assert json.loads(outcome.raw_response)["top_consolidated_recommendations"][0]["data_points"][0][
+        "recommendation_evidence"
+    ] == "COMI - توصية شراء"
 
 
 def test_past_recommendation_caption_detection_handles_arabic_and_english_markers():

@@ -1,5 +1,5 @@
 name: Publish desktop update
-run-name: ${{ github.ref_name }} - Repair legacy entry-range database schema
+run-name: ${{ github.ref_name }} - Ground recommendations and improve Results readability
 
 on:
   push:

@@ -1175,14 +1175,14 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
       <div className="consolidated-table-scroll">
         <table className={compact ? "consolidated-table is-compact" : "consolidated-table"}>
           <thead><tr>
-            <th>Source</th><th>Date</th><th>Timing</th><th>Type</th><th>Entry</th><th>TP1</th><th>TP2</th>
+            <th>Stock</th><th>Source</th><th>Date</th><th>Timing</th><th>Type</th><th>Entry</th><th>TP1</th><th>TP2</th>
             <th>Stop</th><th>Support</th><th>Resistance</th><th>Return %</th><th>Risk %</th><th>Status</th><th>Source image</th><th>Notes</th>
           </tr></thead>
           {[...grouped.entries()].map(([ticker, stockRows]) => {
             const first = stockRows[0];
             return (
               <tbody key={ticker}>
-                <tr className="consolidated-stock-group"><td colSpan={15}>
+                <tr className="consolidated-stock-group"><td colSpan={16}>
                   <span className="consolidated-rank">#{first.rank ?? "—"}</span>
                   <strong>{first.ticker}</strong>
                   <span>{first.company}</span>
@@ -1191,6 +1191,11 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
                 </td></tr>
                 {stockRows.map((row, rowIndex) => (
                   <tr key={`${row.ticker}-${row.source}-${row.latest_date ?? "unknown"}-${row.buy_price ?? "none"}`}>
+                    <td className="stock-identity-cell">
+                      <strong>{first.ticker}</strong>
+                      <span>{first.company}</span>
+                      {first.company_ar && <small lang="ar" dir="rtl">{first.company_ar}</small>}
+                    </td>
                     <td className="source-cell">{row.source}</td>
                     <td>{row.source_dates.join(", ") || "—"}</td>
                     <td>{row.effective_date_bases?.length ? row.effective_date_bases.map((basis) => <span key={basis} className="recommendation-date-basis">{dateBasisLabel(basis)}</span>) : "—"}</td>

@@ -36,8 +36,8 @@ class AnalysisOutcome:
 
 _OUTPUT_CONTRACT = """Return only one JSON object in this consolidated EGX report structure:
 - analysis_period: string describing the covered dates.
-- top_consolidated_recommendations: ranked array. Each item has stock_code, stock_name_en, stock_name_ar, mention_count, rank, status, notes_summary, analysis_summary_ar, and data_points. notes_summary is one concise, stock-specific summary generated only after grouping every occurrence of that exact stock. Merge duplicate and semantically equivalent Arabic/English recommendations (for example T+1 wording and سهم مراقبة / stock to watch), preserve genuinely different insights, and never copy full source messages or image text. analysis_summary_ar remains optional for backward compatibility.
-- data_points: array for each stock. Each item has date, effective_date_basis, source, source_message_id, recommendation_type, buy_price, buy_price_low, buy_price_high, target_1, target_2, stop_loss, support, resistance, expected_return_pct, risk_pct, and notes_ar. Extract only the first two take-profit levels. Ignore TP3, target 3, third target, مستهدف ثالث, الهدف الثالث, and every later target; never return them in any field or summary. source must exactly equal the supplied MESSAGE source label and source_message_id must exactly equal its TELEGRAM_ID. recommendation_type is buy or sell. notes_ar is a concise Arabic note for narrative/chart recommendations that do not use a table; otherwise it is null. effective_date_basis is either explicit_date or t_plus_1. For a single entry, use buy_price only. For an explicit entry range, set buy_price to null and preserve the exact left and right values in buy_price_low and buy_price_high; never average, round, infer, or swap them.
+- top_consolidated_recommendations: ranked array. Each item has stock_code, stock_name_en, stock_name_ar, mention_count, rank, status, notes_summary, analysis_summary_ar, and data_points. notes_summary must be written in concise Arabic and generated only after grouping every occurrence of that exact stock. Merge duplicate and semantically equivalent Arabic/English recommendations (for example T+1 wording and سهم مراقبة / stock to watch), preserve genuinely different insights, and never copy full source messages or image text. Keep ticker codes and standard market abbreviations such as T+1 as written. analysis_summary_ar remains optional for backward compatibility.
+- data_points: array for each stock. Each item has date, effective_date_basis, source, source_message_id, recommendation_evidence, recommendation_type, buy_price, buy_price_low, buy_price_high, target_1, target_2, stop_loss, support, resistance, expected_return_pct, risk_pct, and notes_ar. recommendation_evidence is a short exact phrase visibly present in that same source message/image which includes the stock identity and explicit recommendation context such as توصية شراء, منطقة الشراء, إشارة تداول - شراء, or a stock-to-watch heading with actionable advice. Never invent or paraphrase this evidence. Extract only the first two take-profit levels. Ignore TP3, target 3, third target, مستهدف ثالث, الهدف الثالث, and every later target; never return them in any field or summary. source must exactly equal the supplied MESSAGE source label and source_message_id must exactly equal its TELEGRAM_ID. recommendation_type is buy or sell. notes_ar is a concise Arabic note for narrative/chart recommendations that do not use a table; otherwise it is null. effective_date_basis is either explicit_date or t_plus_1. For a single entry, use buy_price only. For an explicit entry range, set buy_price to null and preserve the exact left and right values in buy_price_low and buy_price_high; never average, round, infer, or swap them.
 - achieved_targets: array with stock_code, stock_name_en, status_ar, date, and source.
 - client_inquiry_responses: array for stock-specific replies to customer/member questions. Each item has stock_code, stock_name_en, stock_name_ar, source, date, source_message_id, source_excerpt, question_summary_ar, reply_summary_ar, current_trend_ar, last_price, buy_price, buy_price_low, buy_price_high, target_1, target_2, stop_loss, support, resistance, advice_ar, and alternate_scenario_ar. Include source_message_id and source_excerpt when present in the source data. Use the same exact single-entry/range rules as data_points.
 - text_based_categories: object with most_important_stocks, trading_stocks, and watchlist_stocks arrays. Each array item has stock_code, stock_name_en, and stock_name_ar.
@@ -67,6 +67,24 @@ def _content_reference(value: str, references: dict[str, str], label: str, teleg
 
 def _image_digest(path: str) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def _image_visual_signature(path: str) -> bytes | None:
+    """Return normalized pixels for conservative near-duplicate repost detection."""
+    if PillowImage is None or ImageOps is None:
+        return None
+    try:
+        with PillowImage.open(path) as image:
+            return ImageOps.exif_transpose(image).convert("RGB").resize((64, 64)).tobytes()
+    except (OSError, ValueError):
+        return None
+
+
+def _visually_same_image(first: bytes | None, second: bytes | None) -> bool:
+    if first is None or second is None or len(first) != len(second) or not first:
+        return False
+    total_difference = sum(abs(left - right) for left, right in zip(first, second, strict=True))
+    return total_difference / len(first) <= 1.5
 
 
 def _prepared_image_data_url(path: str) -> tuple[str, int, int, bool]:
@@ -305,10 +323,14 @@ class AIAnalysisService:
             "Arabic or English (for example 24.50-25.20, 24.50–25.20, 'from 24.50 to 25.20', or 'من 24.50 إلى 25.20'), "
             "return buy_price=null, buy_price_low=the exact left value, and buy_price_high=the exact right value. Never average, "
             "round, infer, reverse, or confuse entry values with stop loss, targets, support, resistance, or current price.",
-            "Extract only explicit recommendations with a stock code and actionable price/risk levels such as buy/sell/entry zone, "
-            "TP1, TP2, stop loss, support, or resistance. Images may use different source layouts: identify headings rather than "
+            "Extract only explicit recommendations with a stock code and a visible recommendation cue such as توصية, شراء, بيع, "
+            "منطقة الشراء, إشارة تداول, سهم للمراقبة with actionable advice, recommendation, buy, sell, or entry zone. Support, "
+            "resistance, stop loss, current price, targets, liquidity ranking, sector ranking, or an important-stocks list alone NEVER "
+            "makes a recommendation and must be excluded. Images may use different source layouts: identify headings rather than "
             "assuming column positions. For example, Arabic headings may include منطقة الشراء, هدف أول, هدف ثاني, إيقاف الخسارة, "
-            "الدعم, المقاومة, or إشارة تداول - شراء. Keep each source's values separate.",
+            "الدعم, المقاومة, or إشارة تداول - شراء. For every included point, copy a short exact visible phrase containing both the "
+            "stock identity and explicit recommendation context into recommendation_evidence. Keep each source's values separate and "
+            "never copy values or evidence from one image/message into another source_message_id.",
             "A dated chart/photo with narrative stock guidance but no table is still a data point: extract every visible level and put "
             "a concise Arabic explanation of its guidance into data_points[].notes_ar. Keep each source's values separate. "
             "Strictly ignore advertisements, links, disclaimers, greetings, general market commentary, corporate/economic news, "
@@ -333,21 +355,24 @@ class AIAnalysisService:
             "in top_consolidated_recommendations, or excluded. Never use one TELEGRAM_ID in both arrays, and never place a "
             "LIST 1 TELEGRAM_ID in a recommendation data point.",
             "NOTES SUMMARY: Group all LIST 2 findings by exact stock_code before writing notes_summary. Produce exactly one concise, "
-            "factual notes_summary per stock from all of that stock's occurrences, regardless of source. Treat semantically equivalent "
+            "factual Arabic notes_summary per stock from all of that stock's occurrences, regardless of source. The prose must be Arabic; "
+            "keep only ticker codes, numbers, and standard market abbreviations such as T+1 in their normal form. Treat semantically equivalent "
             "Arabic and English wording as one insight (including T+1/next-session equivalents and سهم مراقبة/stock-to-watch wording); "
             "this semantic merge applies only after date eligibility is established and does not broaden the literal T+1 date exception. "
             "Mention each meaning once. Preserve distinct insights such as T+1, watchlist status, entry range, targets, stop loss, and "
             "risk warnings. Do not paste, enumerate, or paraphrase whole source messages, captions, tables, or image text. Keep source, "
-            "source_message_id, and per-source values only in data_points for traceability. Keep notes_summary under 60 words.",
+            "source_message_id, and per-source values only in data_points for traceability. Keep notes_summary under 60 Arabic words.",
         ]
         image_paths: list[str] = []
         image_references: dict[str, int] = {}
+        image_visual_signatures: list[tuple[bytes, int]] = []
         text_references: dict[str, str] = {}
         transcript_references: dict[str, str] = {}
         metrics = {
             "logical_message_count": len(messages),
             "logical_image_count": 0,
             "duplicate_image_count": 0,
+            "near_duplicate_image_count": 0,
             "reused_text_count": 0,
             "reused_transcript_count": 0,
         }
@@ -380,15 +405,27 @@ class AIAnalysisService:
                     parts.append(f"Image {index} is unavailable and was not sent.")
                     continue
                 reference = image_references.get(digest)
+                visually_duplicated = False
+                visual_signature = _image_visual_signature(path)
+                if reference is None and visual_signature is not None:
+                    reference = next((
+                        existing_reference for signature, existing_reference in image_visual_signatures
+                        if _visually_same_image(visual_signature, signature)
+                    ), None)
+                    visually_duplicated = reference is not None
                 if reference is not None:
                     metrics["duplicate_image_count"] += 1
+                    metrics["near_duplicate_image_count"] += int(visually_duplicated)
                     parts.append(
-                        f"Image {index} is an exact duplicate of IMAGE_REF {reference}. "
-                        "Reuse its visible content while retaining this source/date occurrence."
+                        f"Image {index} is a {'visually equivalent repost' if visually_duplicated else 'exact duplicate'} "
+                        f"of IMAGE_REF {reference}. "
+                        "Do not create another data point for this repost; the raw input trace preserves its source occurrence."
                     )
                     continue
                 reference = len(image_paths) + 1
                 image_references[digest] = reference
+                if visual_signature is not None:
+                    image_visual_signatures.append((visual_signature, reference))
                 parts.append(f"Image {index} for this message is IMAGE_REF {reference}; it follows below.")
                 image_paths.append(path)
         source_data = "\n".join(parts)
@@ -396,20 +433,50 @@ class AIAnalysisService:
         initial_metrics = dict(initial.input_metrics)
         initial_payload = json.loads(initial.raw_response)
         warnings = validate_consolidated_output(initial_payload, messages)
+        final = initial
+        final_warnings = warnings
+        correction_attempted = bool(warnings)
+        if warnings:
+            if trace_directory is not None:
+                (trace_directory / "initial-ai-response.json").write_text(initial.raw_response, encoding="utf-8")
+            correction_findings = "\n".join(f"- {warning}" for warning in warnings)
+            correction_source = (
+                f"{source_data}\n\nMANDATORY CORRECTION PASS\n"
+                "The prior draft failed the provenance checks below. Re-read every source image independently and return a complete "
+                "replacement JSON object. Exclude rows without an explicit recommendation cue, remove completed/previous trades, "
+                "do not reuse one image's values for another stock or message, and consolidate reposted/identical recommendations into "
+                "one data point. recommendation_evidence must be an exact visible source phrase containing the stock identity and "
+                f"recommendation context.\n{correction_findings}"
+            )
+            corrected = await self._analyze_prompt(
+                correction_source, image_paths, metrics, trace_directory,
+                f"{_CORE_ANALYSIS_PROTOCOL} This is a mandatory correction pass. Resolve every listed provenance finding.",
+            )
+            corrected_payload = json.loads(corrected.raw_response)
+            final_warnings = validate_consolidated_output(corrected_payload, messages)
+            final = corrected
+            if final_warnings:
+                preview = "; ".join(final_warnings[:5])
+                raise RuntimeError(
+                    "The AI response still failed recommendation provenance validation after one correction pass: " + preview
+                )
         initial_metrics["prompt_assembly_ms"] = round((perf_counter() - prompt_assembly_started) * 1000)
-        initial_metrics["model_request_count"] = 1
-        initial_metrics["model_requests_total_ms"] = initial_metrics.get("model_request_ms", 0)
+        initial_request_ms = initial_metrics.get("model_request_ms", 0)
+        final_request_ms = final.input_metrics.get("model_request_ms", 0) if correction_attempted else 0
+        initial_metrics.update(final.input_metrics)
+        initial_metrics["model_request_count"] = 2 if correction_attempted else 1
+        initial_metrics["model_requests_total_ms"] = initial_request_ms + final_request_ms
         return AnalysisOutcome(
-            result=_analysis_result_from_payload(initial_payload),
-            raw_response=initial.raw_response,
+            result=final.result,
+            raw_response=final.raw_response,
             input_metrics=initial_metrics,
-            validation_warnings=warnings,
-            correction_attempted=False,
+            validation_warnings=final_warnings,
+            correction_attempted=correction_attempted,
             retry_audit={
-                "attempted": False,
-                "status": "audit_only" if warnings else "not_required",
-                "trigger_warnings": [],
-                "final_validation_warnings": warnings,
+                "attempted": correction_attempted,
+                "status": "passed" if correction_attempted else "not_required",
+                "trigger_warnings": warnings,
+                "final_validation_warnings": final_warnings,
                 "final_response_path": "consolidated-ai-response.json",
             },
         )

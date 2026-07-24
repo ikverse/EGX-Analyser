@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.100
+- Generated concise Arabic stock Notes across new and compatible saved results while retaining ticker codes, numbers, T+1, distinct trade levels, and separate source traceability.
+- Added a sticky Stock column with ticker and English/Arabic company names so stock identity remains visible while scrolling through Results.
+- Required exact stock-specific recommendation evidence and excluded liquidity, sector, support/resistance, completed-trade, and other non-recommendation context from active results.
+- Added duplicate-image, repeated-value, and cross-stock contamination checks, including visually equivalent recompressed repost detection.
+- Added one focused Qwen correction pass for invalid provenance and prevented unresolved misleading model output from being saved.
+
 ## v0.1.99
 - Fixed analysis failures on existing desktop installations whose SQLite database predates recommendation entry-range columns.
 - Added automatic startup migration for nullable `entry_low` and `entry_high` fields while preserving existing recommendation data.

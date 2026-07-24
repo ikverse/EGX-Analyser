@@ -371,6 +371,8 @@ _WATCHLIST_RE = re.compile(
 _RISK_WARNING_RE = re.compile(
     r"(?:\brisk\b|\bcaution\b|\bwarning\b|\bvolatile\b|مخاطر|تحذير|الحذر|تذبذب)", re.IGNORECASE,
 )
+_ARABIC_LETTER_RE = re.compile(r"[\u0600-\u06ff]")
+_LATIN_LETTER_RE = re.compile(r"[A-Za-z]")
 
 
 def _compact_notes_summary(value: object) -> str:
@@ -380,7 +382,7 @@ def _compact_notes_summary(value: object) -> str:
         return ""
     unique: list[str] = []
     seen: set[str] = set()
-    for sentence in re.split(r"(?<=[.!?؟])\s+|\s*[;·]\s*", text):
+    for sentence in re.split(r"(?<=[.!?؟])\s+|\s*[;؛·]\s*", text):
         sentence = sentence.strip()
         key = re.sub(r"[^\w\u0600-\u06ff]+", "", sentence.casefold())
         if sentence and key and key not in seen:
@@ -389,10 +391,18 @@ def _compact_notes_summary(value: object) -> str:
     words = " ".join(unique).split()
     if len(words) > 60:
         words = words[:60]
-    compact = " ".join(words).strip(" -·;,")
+    compact = " ".join(words).strip(" -·;؛,")
     if len(compact) > 420:
-        compact = compact[:420].rsplit(" ", 1)[0].rstrip(" -·;,")
+        compact = compact[:420].rsplit(" ", 1)[0].rstrip(" -·;؛,")
     return compact
+
+
+def _is_arabic_summary(value: object) -> bool:
+    """Accept concise Arabic model output while rebuilding English legacy output locally."""
+    text = str(value or "")
+    arabic_letters = len(_ARABIC_LETTER_RE.findall(text))
+    latin_letters = len(_LATIN_LETTER_RE.findall(text))
+    return arabic_letters >= 3 and arabic_letters >= latin_letters
 
 
 def _display_number(value: object) -> str | None:
@@ -409,11 +419,11 @@ def _unique_values(values: list[object]) -> list[str]:
 def _stock_notes_summary(item: dict, payload: dict | None = None) -> str:
     """Return one concise semantic summary for all findings of an exact stock."""
     generated = item.get("notes_summary") or item.get("notes_summary_ar")
-    if generated:
+    if generated and _is_arabic_summary(generated):
         return _compact_notes_summary(generated)
 
     points = [point for point in item.get("data_points", []) if isinstance(point, dict)]
-    texts = [str(item.get("analysis_summary_ar") or "")]
+    texts = [str(generated or ""), str(item.get("analysis_summary_ar") or "")]
     for point in points:
         texts.extend(str(point.get(key) or "") for key in ("notes_ar", "context", "reason", "notes", "comment"))
     combined = "\n".join(texts)
@@ -424,7 +434,13 @@ def _stock_notes_summary(item: dict, payload: dict | None = None) -> str:
         isinstance(stock, dict) and str(stock.get("stock_code") or "").strip().upper() == ticker
         for stock in watchlist if isinstance(watchlist, list)
     )
-    t_plus_one = any(str(point.get("effective_date_basis") or "").casefold() == "t_plus_1" for point in points)
+    t_plus_one = any(
+        str(point.get("effective_date_basis") or "").casefold() == "t_plus_1"
+        or "t_plus_1" in {
+            str(value).casefold() for value in (point.get("effective_date_bases") or [])
+        }
+        for point in points
+    )
     t_plus_one = t_plus_one or bool(_T_PLUS_ONE_RE.search(combined))
     watched = in_watchlist or bool(_WATCHLIST_RE.search(combined))
     risk_warning = bool(_RISK_WARNING_RE.search(combined))
@@ -432,15 +448,16 @@ def _stock_notes_summary(item: dict, payload: dict | None = None) -> str:
     mention_count = int(item.get("mention_count") or len(points) or 1)
     meanings: list[str] = []
     if t_plus_one:
-        meanings.append("a short-term T+1 opportunity")
+        meanings.append("فرصة قصيرة الأجل بنظام T+1")
     if watched:
-        meanings.append("a stock to watch")
+        meanings.append("سهماً للمراقبة")
     if meanings:
-        joined = meanings[0] if len(meanings) == 1 else f"{meanings[0]} and {meanings[1]}"
-        subject = f"{ticker} is " if ticker else ""
-        lead = f"{subject}mentioned in {mention_count} findings as {joined}." if mention_count > 1 else f"{subject}identified as {joined}."
+        joined = meanings[0] if len(meanings) == 1 else f"{meanings[0]} و{meanings[1]}"
+        subject = f"السهم {ticker}" if ticker else "السهم"
+        lead = f"ذُكر {subject} في {mention_count} نتائج باعتباره {joined}." if mention_count > 1 else f"تم تحديد {subject} باعتباره {joined}."
     else:
-        lead = f"{ticker or 'The stock'} consolidates {mention_count} stock-specific findings." if mention_count > 1 else f"{ticker or 'The stock'} has one stock-specific recommendation."
+        subject = f"بالسهم {ticker}" if ticker else "بالسهم"
+        lead = f"توجد {mention_count} توصيات مجمعة خاصة {subject}." if mention_count > 1 else f"توجد توصية واحدة خاصة {subject}."
 
     entries = _unique_values([point.get("buy_price") for point in points])
     ranges = list(dict.fromkeys(
@@ -455,22 +472,27 @@ def _stock_notes_summary(item: dict, payload: dict | None = None) -> str:
     risks = _unique_values([point.get("risk_pct") for point in points])
     details: list[str] = []
     if ranges:
-        details.append(f"entry range{'s' if len(ranges) > 1 else ''} {', '.join(ranges[:3])}")
+        details.append(f"نطاق الدخول: {'، '.join(ranges[:3])}")
     if entries:
-        details.append(f"entry {', '.join(entries[:3])}")
+        details.append(f"سعر الدخول: {'، '.join(entries[:3])}")
     if targets:
-        details.append(f"targets {', '.join(targets[:4])}")
+        target_label = (
+            "المستهدف" if len(targets) == 1
+            else "المستهدفان الأول والثاني" if len(targets) == 2
+            else "قيم المستهدفين الأول والثاني"
+        )
+        details.append(f"{target_label}: {'، '.join(targets[:4])}")
     if stops:
-        details.append(f"stop loss {', '.join(stops[:3])}")
+        details.append(f"وقف الخسارة: {'، '.join(stops[:3])}")
     if supports:
-        details.append(f"support {', '.join(supports[:3])}")
+        details.append(f"الدعم: {'، '.join(supports[:3])}")
     if resistances:
-        details.append(f"resistance {', '.join(resistances[:3])}")
+        details.append(f"المقاومة: {'، '.join(resistances[:3])}")
     if risks:
-        details.append(f"reported risk {', '.join(value + '%' for value in risks[:3])}")
-    elif risk_warning:
-        details.append("risk warning noted")
-    return _compact_notes_summary(f"{lead} {'; '.join(details)}".strip())
+        details.append(f"المخاطر المعلنة: {'، '.join(value + '%' for value in risks[:3])}")
+    if risk_warning:
+        details.append("ورد تحذير من المخاطر")
+    return _compact_notes_summary(f"{lead} {'؛ '.join(details)}".strip())
 
 
 def ensure_stock_notes_summaries(rows: list[dict]) -> list[dict]:
@@ -480,9 +502,10 @@ def ensure_stock_notes_summaries(rows: list[dict]) -> list[dict]:
         grouped.setdefault(str(row.get("ticker") or "").upper(), []).append(row)
     for ticker, stock_rows in grouped.items():
         existing = next((row.get("notes_summary") for row in stock_rows if row.get("notes_summary")), None)
-        summary = _compact_notes_summary(existing) if existing else _stock_notes_summary({
+        summary = _stock_notes_summary({
             "stock_code": ticker,
             "mention_count": max((int(row.get("mention_count") or 0) for row in stock_rows), default=len(stock_rows)),
+            "notes_summary": existing,
             "analysis_summary_ar": next((row.get("analysis_summary_ar") for row in stock_rows if row.get("analysis_summary_ar")), ""),
             "data_points": stock_rows,
         })
