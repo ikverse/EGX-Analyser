@@ -1,5 +1,5 @@
 name: Publish desktop update
-run-name: ${{ github.ref_name }} - Simplify Results, widen the workspace, and stop long analyses
+run-name: ${{ github.ref_name }} - Preserve same-template stocks and refine startup and navigation
 
 on:
   push:

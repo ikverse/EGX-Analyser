@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.102
+- Preserved distinct stock recommendations that use the same visual template by sending every non-identical image to the model for stock-aware review.
+- Kept exact byte-for-byte repost consolidation while tracking visually similar images without discarding their ticker, date, or trade values.
+- Moved horizontal stock identity visibility to each colored stock-group row and allowed the regular Stock column to scroll with the table.
+- Replaced the basic engine-wait screen with a responsive branded startup experience and clearer local-service status.
+- Added the sole Light/Dark switch to the bottom of the expanded navigation and removed the redundant Appearance box from Settings.
+
 ## v0.1.101
 - Simplified Results into a five-column run history with a compact findings overview while retaining runtime diagnostics internally.
 - Added a compact-by-default, collapsible navigation sidebar that gives recommendation tables more horizontal space and remembers the selected layout.

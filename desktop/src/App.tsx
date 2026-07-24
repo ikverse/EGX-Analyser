@@ -356,10 +356,32 @@ export default function App() {
 
   if (!connected) {
     return (
-      <main className="login">
-        <h1 className="brand-title"><img src="/branding/egx-analyzer-icon.png" alt="" />EGX Analyzer</h1>
-        <p>{engineStarting ? "Starting your local intelligence workspace…" : "Restarting the local intelligence workspace…"}</p>
-        <span>Waiting for the local engine to become ready.</span>
+      <main className="startup-screen">
+        <div className="startup-card">
+          <div className="startup-brand">
+            <div className="startup-logo"><img src="/branding/egx-analyzer-icon.png" alt="" /></div>
+            <div>
+              <span>EGX market intelligence</span>
+              <h1>EGX Analyzer</h1>
+            </div>
+          </div>
+          <div className="startup-intro">
+            <h2>{engineStarting ? "Preparing your workspace" : "Restarting your workspace"}</h2>
+            <p>Loading your channels, analysis history, and locally stored settings.</p>
+          </div>
+          <div className="startup-status" role="status" aria-live="polite">
+            <span className="startup-spinner" aria-hidden="true" />
+            <div>
+              <strong>Local engine</strong>
+              <span>{engineStarting ? "Starting services…" : "Reconnecting services…"}</span>
+            </div>
+          </div>
+          <div className="startup-progress" aria-hidden="true"><span /></div>
+          <div className="startup-details">
+            <span>Cairo market workflow</span>
+            <span>Local results storage</span>
+          </div>
+        </div>
       </main>
     );
   }
@@ -381,17 +403,36 @@ export default function App() {
               <Icon name="sidebar" />
             </button>
           </div>
-          {pages.map((item) => (
+          <nav className="sidebar-nav" aria-label="Primary navigation">
+            {pages.map((item) => (
+              <button
+                className={`sidebar-nav-button ${page === item ? "active" : ""}`}
+                onClick={() => setPage(item)}
+                key={item}
+                title={sidebarExpanded ? undefined : item}
+                aria-label={item}
+              >
+                <Icon name={PAGE_ICONS[item]} /><span className="sidebar-label">{item}</span>
+              </button>
+            ))}
+          </nav>
+          <div className="sidebar-theme-control">
+            <div>
+              <strong>Appearance</strong>
+              <span>{themeMode === "dark" ? "Dark mode" : "Light mode"}</span>
+            </div>
             <button
-              className={`sidebar-nav-button ${page === item ? "active" : ""}`}
-              onClick={() => setPage(item)}
-              key={item}
-              title={sidebarExpanded ? undefined : item}
-              aria-label={item}
+              type="button"
+              className="sidebar-theme-switch"
+              role="switch"
+              aria-checked={themeMode === "light"}
+              aria-label={`Switch to ${themeMode === "dark" ? "light" : "dark"} mode`}
+              title={`Switch to ${themeMode === "dark" ? "light" : "dark"} mode`}
+              onClick={() => setThemeMode((current) => current === "dark" ? "light" : "dark")}
             >
-              <Icon name={PAGE_ICONS[item]} /><span className="sidebar-label">{item}</span>
+              <span />
             </button>
-          ))}
+          </div>
         </aside>
         <section>
           <header>
@@ -466,8 +507,6 @@ export default function App() {
               showError={showError}
               checkingUpdate={checkingUpdate}
               onCheckForUpdates={() => void checkForUpdates(true)}
-              themeMode={themeMode}
-              onThemeModeChange={setThemeMode}
               analysisResults={analysisResults}
             />
           )}
@@ -1217,11 +1256,13 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
             return (
               <tbody key={ticker}>
                 <tr className="consolidated-stock-group"><td colSpan={16}>
-                  <span className="consolidated-rank">#{first.rank ?? "—"}</span>
-                  <strong>{first.ticker}</strong>
-                  <span>{first.company}</span>
-                  {first.company_ar && <span className="consolidated-company-ar">{first.company_ar}</span>}
-                  <span className="consolidated-mentions">{first.mention_count} total mentions</span>
+                  <div className="consolidated-stock-group-content">
+                    <span className="consolidated-rank">#{first.rank ?? "—"}</span>
+                    <strong>{first.ticker}</strong>
+                    <span>{first.company}</span>
+                    {first.company_ar && <span className="consolidated-company-ar">{first.company_ar}</span>}
+                    <span className="consolidated-mentions">{first.mention_count} total mentions</span>
+                  </div>
                 </td></tr>
                 {stockRows.map((row, rowIndex) => (
                   <tr key={`${row.ticker}-${row.source}-${row.latest_date ?? "unknown"}-${row.buy_price ?? "none"}`}>
@@ -1688,11 +1729,10 @@ function SettingsSection({ title, description, open, onToggle, children }: {
   );
 }
 
-function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showError, checkingUpdate, onCheckForUpdates, themeMode, onThemeModeChange, analysisResults }: {
+function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showError, checkingUpdate, onCheckForUpdates, analysisResults }: {
   api: ApiClient; status: SettingsStatus | null; onSaved: () => Promise<boolean>;
   onRunTelegramCheck: () => Promise<boolean>;
   notify: Notify; showError: ShowError; checkingUpdate: boolean; onCheckForUpdates: () => void;
-  themeMode: ThemeMode; onThemeModeChange: (theme: ThemeMode) => void;
   analysisResults: AnalysisResultHistory[];
 }) {
   const [values, setValues] = useState<SettingsInput>({
@@ -1974,21 +2014,6 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
           }}>
             {refreshingCatalog ? "Refreshing catalog…" : "Refresh EGX catalog now"}
           </button>
-        </div>
-      </SettingsSection>
-
-      <SettingsSection title="Appearance" description={`${themeMode === "light" ? "Light" : "Dark"} charcoal and teal palette`} open={openSection === "appearance"} onToggle={() => toggleSection("appearance")}>
-        <div className="settings-subsection appearance-settings">
-          <strong>Application theme</strong>
-          <p>Choose the clear light or high-contrast dark workspace. Your preference is saved on this computer.</p>
-          <div className="theme-picker" role="radiogroup" aria-label="Application theme">
-            <button type="button" className={`theme-option theme-option-light ${themeMode === "light" ? "is-selected" : ""}`} role="radio" aria-checked={themeMode === "light"} onClick={() => onThemeModeChange("light")}>
-              <span className="theme-swatch" /><span><strong>Light</strong><small>Bright neutral workspace</small></span>
-            </button>
-            <button type="button" className={`theme-option theme-option-dark ${themeMode === "dark" ? "is-selected" : ""}`} role="radio" aria-checked={themeMode === "dark"} onClick={() => onThemeModeChange("dark")}>
-              <span className="theme-swatch" /><span><strong>Dark</strong><small>Deep charcoal workspace</small></span>
-            </button>
-          </div>
         </div>
       </SettingsSection>
 

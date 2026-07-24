@@ -405,20 +405,17 @@ class AIAnalysisService:
                     parts.append(f"Image {index} is unavailable and was not sent.")
                     continue
                 reference = image_references.get(digest)
-                visually_duplicated = False
                 visual_signature = _image_visual_signature(path)
+                similar_reference = None
                 if reference is None and visual_signature is not None:
-                    reference = next((
+                    similar_reference = next((
                         existing_reference for signature, existing_reference in image_visual_signatures
                         if _visually_same_image(visual_signature, signature)
                     ), None)
-                    visually_duplicated = reference is not None
                 if reference is not None:
                     metrics["duplicate_image_count"] += 1
-                    metrics["near_duplicate_image_count"] += int(visually_duplicated)
                     parts.append(
-                        f"Image {index} is a {'visually equivalent repost' if visually_duplicated else 'exact duplicate'} "
-                        f"of IMAGE_REF {reference}. "
+                        f"Image {index} is an exact byte-for-byte duplicate of IMAGE_REF {reference}. "
                         "Do not create another data point for this repost; the raw input trace preserves its source occurrence."
                     )
                     continue
@@ -426,7 +423,16 @@ class AIAnalysisService:
                 image_references[digest] = reference
                 if visual_signature is not None:
                     image_visual_signatures.append((visual_signature, reference))
-                parts.append(f"Image {index} for this message is IMAGE_REF {reference}; it follows below.")
+                if similar_reference is not None:
+                    metrics["near_duplicate_image_count"] += 1
+                    parts.append(
+                        f"Image {index} for this message is IMAGE_REF {reference}; it follows below. "
+                        f"It visually resembles IMAGE_REF {similar_reference} and may share the same template, but it can contain "
+                        "a different ticker, date, recommendation, or trade values. Read it independently and merge the two only "
+                        "when their visible stock identity and recommendation details actually match."
+                    )
+                else:
+                    parts.append(f"Image {index} for this message is IMAGE_REF {reference}; it follows below.")
                 image_paths.append(path)
         source_data = "\n".join(parts)
         initial = await self._analyze_prompt(source_data, image_paths, metrics, trace_directory, _CORE_ANALYSIS_PROTOCOL)

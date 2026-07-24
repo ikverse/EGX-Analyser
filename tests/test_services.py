@@ -78,6 +78,61 @@ def test_visual_duplicate_detection_handles_recompressed_reposts(tmp_path):
     assert not _visually_same_image(_image_visual_signature(str(original)), _image_visual_signature(str(different)))
 
 
+@pytest.mark.asyncio
+async def test_same_template_images_are_sent_separately_for_stock_aware_review(tmp_path):
+    from PIL import Image as PillowImage, ImageDraw
+
+    skpc = tmp_path / "skpc.jpg"
+    alcn = tmp_path / "alcn.jpg"
+    for path, ticker, values in (
+        (skpc, "SKPC", "16.000 16.500 16.900 15.700"),
+        (alcn, "ALCN", "29.850 30.500 31.150 29.300"),
+    ):
+        image = PillowImage.new("RGB", (1920, 1080), "white")
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((0, 0, 1920, 180), fill=(20, 52, 108))
+        draw.rectangle((110, 280, 1760, 420), fill=(235, 240, 249))
+        draw.text((260, 230), ticker, fill=(0, 30, 190))
+        draw.text((620, 330), values, fill=(10, 10, 10))
+        image.save(path, quality=92)
+
+    assert _visually_same_image(_image_visual_signature(str(skpc)), _image_visual_signature(str(alcn)))
+    captured: dict[str, object] = {}
+    service = object.__new__(AIAnalysisService)
+    service.settings = SimpleNamespace()
+    service.prompt = ""
+
+    async def fake_analyze_prompt(source_data, image_paths, input_metrics, *_args, **_kwargs):
+        captured.update(source_data=source_data, image_paths=image_paths, input_metrics=dict(input_metrics))
+        payload = {
+            "analysis_period": "test", "top_consolidated_recommendations": [], "achieved_targets": [],
+            "client_inquiry_responses": [],
+            "text_based_categories": {"most_important_stocks": [], "trading_stocks": [], "watchlist_stocks": []},
+            "daily_breakdown": {},
+        }
+        return AnalysisOutcome(
+            result=_analysis_result_from_payload(payload), raw_response=json.dumps(payload),
+            input_metrics=dict(input_metrics),
+        )
+
+    service._analyze_prompt = fake_analyze_prompt
+    await service.analyze_consolidated([
+        {"source": "CFI", "telegram_message_id": 3904, "published_at": "2026-07-22T07:23:35+03:00",
+         "text": "", "image_paths": [str(skpc)], "transcripts": []},
+        {"source": "CFI", "telegram_message_id": 3905, "published_at": "2026-07-22T07:25:32+03:00",
+         "text": "", "image_paths": [str(alcn)], "transcripts": []},
+        {"source": "CFI", "telegram_message_id": 3906, "published_at": "2026-07-22T07:26:00+03:00",
+         "text": "", "image_paths": [str(skpc)], "transcripts": []},
+    ], "test", "2026-07-23")
+
+    assert captured["image_paths"] == [str(skpc), str(alcn)]
+    metrics = captured["input_metrics"]
+    assert isinstance(metrics, dict)
+    assert metrics["duplicate_image_count"] == 1
+    assert metrics["near_duplicate_image_count"] == 1
+    assert "different ticker, date, recommendation, or trade values" in str(captured["source_data"])
+
+
 def test_source_table_keeps_entry_range_without_averaging():
     payload = {
         "top_consolidated_recommendations": [{
