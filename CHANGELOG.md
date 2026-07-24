@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.101
+- Simplified Results into a five-column run history with a compact findings overview while retaining runtime diagnostics internally.
+- Added a compact-by-default, collapsible navigation sidebar that gives recommendation tables more horizontal space and remembers the selected layout.
+- Aligned the Analysis model selector and action controls in Configure and analyze.
+- Added end-to-end cancellation for long-running analyses from both the page header and analysis action area, including active Qwen and Ollama requests.
+- Fixed structured logging failures so empty analysis windows return the intended explanation instead of crashing and background content-update events remain traceable.
+
 ## v0.1.100
 - Generated concise Arabic stock Notes across new and compatible saved results while retaining ticker codes, numbers, T+1, distinct trade levels, and separate source traceability.
 - Added a sticky Stock column with ticker and English/Arabic company names so stock identity remains visible while scrolling through Results.

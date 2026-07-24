@@ -14,7 +14,7 @@ import { cairoDateInputValue, formatCairoDateTime } from "./time";
 type Page = "Channels" | "Results" | "Settings";
 type ThemeMode = "light" | "dark";
 type Toast = { kind: "success" | "warning"; text: string } | null;
-type AnalysisRunState = { running: boolean; progress: string; startedAt?: number };
+type AnalysisRunState = { running: boolean; progress: string; startedAt?: number; requestId?: string; stopping?: boolean };
 type ChannelAnalysisConfig = {
   selectedHandles: string[];
   contentTypes: AnalysisContentType[];
@@ -28,7 +28,7 @@ type UpdateCandidate = {
 };
 
 const pages: Page[] = ["Channels", "Results", "Settings"];
-type IconName = "channels" | "results" | "settings" | "refresh" | "copy" | "check" | "plus" | "download" | "users" | "clear" | "play" | "eye" | "trash" | "image";
+type IconName = "channels" | "results" | "settings" | "sidebar" | "refresh" | "copy" | "check" | "plus" | "download" | "users" | "clear" | "play" | "eye" | "trash" | "image";
 
 const PAGE_ICONS: Record<Page, IconName> = {
   Channels: "channels",
@@ -43,6 +43,7 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
       case "channels": return <><path {...common} d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle {...common} cx="9" cy="7" r="4" /><path {...common} d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></>;
       case "results": return <><path {...common} d="M4 19V5M4 19h16" /><path {...common} d="m7 15 4-4 3 2 5-6" /><path {...common} d="M16 7h3v3" /></>;
       case "settings": return <><circle {...common} cx="12" cy="12" r="3" /><path {...common} d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.1 2.1-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V20.3h-3v-.1A1.7 1.7 0 0 0 10.7 18.64a1.7 1.7 0 0 0-1.88.34l-.06.06-2.1-2.1.06-.06A1.7 1.7 0 0 0 7.06 15a1.7 1.7 0 0 0-1.56-1.03h-.1v-3h.1A1.7 1.7 0 0 0 7.06 9.94a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.1-2.1.06.06a1.7 1.7 0 0 0 1.88.34 1.7 1.7 0 0 0 1.03-1.56v-.1h3v.1a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.1 2.1-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.56 1.03h.1v3H21a1.7 1.7 0 0 0-1.6 1.03Z" /></>;
+      case "sidebar": return <><rect {...common} x="3" y="4" width="18" height="16" rx="2" /><path {...common} d="M9 4v16" /><path {...common} d="m14 9 3 3-3 3" /></>;
       case "refresh": return <><path {...common} d="M20 11a8.2 8.2 0 0 0-15.5-2L3 11" /><path {...common} d="M3 5v6h6" /><path {...common} d="M4 13a8.2 8.2 0 0 0 15.5 2L21 13" /><path {...common} d="M21 19v-6h-6" /></>;
       case "copy": return <><rect {...common} x="9" y="9" width="11" height="11" rx="2" /><path {...common} d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3" /></>;
       case "check": return <path {...common} d="m5 12 4 4L19 6" />;
@@ -100,6 +101,10 @@ function loadChannelAnalysisConfig(): ChannelAnalysisConfig {
   }
 }
 
+function loadSidebarExpanded(): boolean {
+  return localStorage.getItem("egx.sidebarExpanded") === "true";
+}
+
 // ── Error Modal ───────────────────────────────────────────────────────────────
 
 function ErrorModal({ message, onClose }: { message: string; onClose: () => void }) {
@@ -130,6 +135,7 @@ function ErrorModal({ message, onClose }: { message: string; onClose: () => void
 
 export default function App() {
   const [themeMode, setThemeMode] = useState<ThemeMode>(loadThemeMode);
+  const [sidebarExpanded, setSidebarExpanded] = useState(loadSidebarExpanded);
   const [connected, setConnected] = useState(false);
   const [page, setPage] = useState<Page>("Channels");
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -147,11 +153,17 @@ export default function App() {
   const [downloadingUpdate, setDownloadingUpdate] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
   const api = useMemo(() => new ApiClient(), []);
+  const analysisAbortRef = useRef<AbortController | null>(null);
+  const analysisStopRequestedRef = useRef(false);
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeMode;
     localStorage.setItem("egx.theme", themeMode);
   }, [themeMode]);
+
+  useEffect(() => {
+    localStorage.setItem("egx.sidebarExpanded", String(sidebarExpanded));
+  }, [sidebarExpanded]);
 
   const notify = (kind: "success" | "warning", text: string) => setToast({ kind, text });
 
@@ -210,21 +222,31 @@ export default function App() {
 
   const runAnalysis = useCallback((channelIds: number[]) => {
     if (analysisRun.running) return;
-    setAnalysisRun({ running: true, progress: "Collecting selected chat data...", startedAt: Date.now() });
+    const requestId = crypto.randomUUID();
+    const abortController = new AbortController();
+    analysisAbortRef.current = abortController;
+    analysisStopRequestedRef.current = false;
+    setAnalysisRun({ running: true, progress: "Collecting selected chat data...", startedAt: Date.now(), requestId });
     const progressTimers = [
-      window.setTimeout(() => setAnalysisRun((current) => ({ ...current, progress: "Preparing selected text, images, and audio..." })), 1_500),
-      window.setTimeout(() => setAnalysisRun((current) => ({ ...current, progress: "Analyzing selected content with the AI model..." })), 5_000),
-      window.setTimeout(() => setAnalysisRun((current) => ({ ...current, progress: "Saving the analysis result..." })), 20_000),
+      window.setTimeout(() => setAnalysisRun((current) => current.stopping ? current : ({ ...current, progress: "Preparing selected text, images, and audio..." })), 1_500),
+      window.setTimeout(() => setAnalysisRun((current) => current.stopping ? current : ({ ...current, progress: "Analyzing selected content with the AI model..." })), 5_000),
+      window.setTimeout(() => setAnalysisRun((current) => current.stopping ? current : ({ ...current, progress: "Saving the analysis result..." })), 20_000),
     ];
     void api.analyzeSelected(
       channelIds,
       analysisConfig.contentTypes,
       analysisConfig.mode,
       analysisConfig.mode === "specific_date" ? analysisConfig.targetDate : undefined,
+      requestId,
+      abortController.signal,
     )
       .then(async (result) => {
         await refresh(false);
         setAnalysisResults(await api.analysisResults());
+        if (analysisStopRequestedRef.current) {
+          notify("warning", "The analysis finished before it could be stopped, so its result was saved.");
+          return;
+        }
         const noStockContext = result.not_stock_related.length
           ? ` No stock-related context: ${result.not_stock_related.join(", ")}.`
           : "";
@@ -235,12 +257,36 @@ export default function App() {
           result.report.id,
         );
       })
-      .catch((reason) => showError(fullError(reason)))
+      .catch((reason) => {
+        if (analysisStopRequestedRef.current || (reason instanceof Error && reason.name === "AbortError")) {
+          notify("warning", "Analysis stopped. No incomplete result was saved.");
+          return;
+        }
+        showError(fullError(reason));
+      })
       .finally(() => {
         progressTimers.forEach((timer) => window.clearTimeout(timer));
+        analysisAbortRef.current = null;
+        analysisStopRequestedRef.current = false;
         setAnalysisRun({ running: false, progress: "" });
       });
-  }, [analysisConfig, analysisRun.running, api, refresh, showError, showSuccess]);
+  }, [analysisConfig, analysisRun.running, api, notify, refresh, showError, showSuccess]);
+
+  const stopAnalysis = useCallback(() => {
+    if (!analysisRun.running || !analysisRun.requestId || analysisRun.stopping) return;
+    analysisStopRequestedRef.current = true;
+    setAnalysisRun((current) => ({ ...current, stopping: true, progress: "Stopping the analysis request..." }));
+    void api.cancelAnalysis(analysisRun.requestId)
+      .then(({ cancelled }) => {
+        analysisAbortRef.current?.abort();
+        if (!cancelled) notify("warning", "The analysis was already finishing when the stop request arrived.");
+      })
+      .catch((reason) => {
+        analysisStopRequestedRef.current = false;
+        setAnalysisRun((current) => ({ ...current, stopping: false, progress: "Analysis is still running. Stop could not be confirmed." }));
+        showError(`Could not stop the analysis: ${fullError(reason)}`);
+      });
+  }, [analysisRun.requestId, analysisRun.running, analysisRun.stopping, api, notify, showError]);
 
   const installUpdate = async () => {
     if (!availableUpdate) return;
@@ -320,12 +366,30 @@ export default function App() {
 
   return (
     <>
-      <main className="shell">
-        <aside>
-          <h1 className="brand-title"><img src="/branding/egx-analyzer-icon.png" alt="" />EGX Analyzer</h1>
+      <main className={`shell ${sidebarExpanded ? "sidebar-expanded" : "sidebar-collapsed"}`}>
+        <aside className="app-sidebar">
+          <div className="sidebar-header">
+            <h1 className="brand-title" title="EGX Analyzer"><img src="/branding/egx-analyzer-icon.png" alt="" /><span>EGX Analyzer</span></h1>
+            <button
+              type="button"
+              className="sidebar-toggle"
+              onClick={() => setSidebarExpanded((current) => !current)}
+              aria-label={sidebarExpanded ? "Collapse navigation" : "Expand navigation"}
+              aria-expanded={sidebarExpanded}
+              title={sidebarExpanded ? "Collapse navigation" : "Expand navigation"}
+            >
+              <Icon name="sidebar" />
+            </button>
+          </div>
           {pages.map((item) => (
-            <button className={page === item ? "active" : ""} onClick={() => setPage(item)} key={item}>
-              <Icon name={PAGE_ICONS[item]} /><span>{item}</span>
+            <button
+              className={`sidebar-nav-button ${page === item ? "active" : ""}`}
+              onClick={() => setPage(item)}
+              key={item}
+              title={sidebarExpanded ? undefined : item}
+              aria-label={item}
+            >
+              <Icon name={PAGE_ICONS[item]} /><span className="sidebar-label">{item}</span>
             </button>
           ))}
         </aside>
@@ -340,6 +404,9 @@ export default function App() {
             </div>
             <div className="header-actions">
               {analysisRun.running && <AnalysisRunningStatus progress={analysisRun.progress} startedAt={analysisRun.startedAt} />}
+              {analysisRun.running && <button className="danger compact" onClick={stopAnalysis} disabled={analysisRun.stopping}>
+                <Icon name="clear" /> {analysisRun.stopping ? "Stopping..." : "Stop analysis"}
+              </button>}
               <button className="secondary" onClick={() => void refresh()}><Icon name="refresh" /> Refresh</button>
             </div>
           </header>
@@ -366,6 +433,7 @@ export default function App() {
               analysisConfig={analysisConfig}
               updateAnalysisConfig={updateAnalysisConfig}
               onAnalyze={runAnalysis}
+              onStopAnalysis={stopAnalysis}
               onModelChange={async (model) => {
                 if (!settings) throw new Error("Settings are still loading.");
                 const saved = await api.saveSettings(settings.ai_provider === "ollama"
@@ -529,12 +597,13 @@ function Reports({ api, rows, setRows, notify, showError }: {
 
 // ── Channels ──────────────────────────────────────────────────────────────────
 
-function Channels({ channels, settings, api, refresh, notify, showError, analysisRun, analysisConfig, updateAnalysisConfig, onAnalyze, onModelChange }: {
+function Channels({ channels, settings, api, refresh, notify, showError, analysisRun, analysisConfig, updateAnalysisConfig, onAnalyze, onStopAnalysis, onModelChange }: {
   channels: Channel[]; settings: SettingsStatus | null; api: ApiClient;
   refresh: () => Promise<boolean>; notify: Notify; showError: ShowError;
   analysisRun: AnalysisRunState; analysisConfig: ChannelAnalysisConfig;
   updateAnalysisConfig: (updater: (current: ChannelAnalysisConfig) => ChannelAnalysisConfig) => void;
   onAnalyze: (channelIds: number[]) => void;
+  onStopAnalysis: () => void;
   onModelChange: (model: string) => Promise<void>;
 }) {
   const [chatQuery, setChatQuery] = useState("");
@@ -744,8 +813,8 @@ function Channels({ channels, settings, api, refresh, notify, showError, analysi
             showError={showError}
             compact
           />
-          <button onClick={analyze} disabled={busy}>
-            <Icon name="play" /> {analyzing ? "Analyzing selected chats…" : "Analyze selected chats"}
+          <button className={analyzing ? "danger" : ""} onClick={analyzing ? onStopAnalysis : analyze} disabled={loading || analysisRun.stopping}>
+            <Icon name={analyzing ? "clear" : "play"} /> {analysisRun.stopping ? "Stopping analysis..." : analyzing ? "Stop analysis" : "Analyze selected chats"}
           </button>
           {analyzing && <p className="analysis-progress" role="status">{analysisProgress}</p>}
         </div>
@@ -826,52 +895,19 @@ function loadThemeMode(): ThemeMode {
   return localStorage.getItem("egx.theme") === "light" ? "light" : "dark";
 }
 
-function formatDuration(milliseconds: number | undefined): string {
-  if (!milliseconds || milliseconds < 1_000) return `${milliseconds ?? 0} ms`;
-  const seconds = milliseconds / 1_000;
-  return seconds >= 60 ? `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s` : `${seconds.toFixed(seconds >= 10 ? 0 : 1)}s`;
-}
-
-function AnalysisRunSummaryCard({ item }: { item: AnalysisResultHistory }) {
-  const { performance } = item;
-  const modelDuration = performance.model_requests_total_ms ?? performance.model_request_ms ?? performance.model_pipeline_ms;
-  const totalDuration = performance.total_analysis_ms ?? performance.total_before_commit_ms;
-  const calls = performance.model_request_count ?? 1;
+function AnalysisRunOverview({ item }: { item: AnalysisResultHistory }) {
   const stockCount = new Set(item.stock_source_table.map((row) => row.ticker)).size;
-  const stages = [
-    ["Telegram collection", performance.telegram_collection_ms],
-    ["Model preparation", performance.image_preparation_ms],
-    ["AI provider", modelDuration],
-    ["Catalog", performance.catalog_enrichment_ms],
-    ["Save results", performance.report_generation_ms],
-  ].filter(([, duration]) => typeof duration === "number") as Array<[string, number]>;
-  const slowest = stages.reduce<[string, number] | null>((current, stage) => !current || stage[1] > current[1] ? stage : current, null);
-  const totalLabel = typeof totalDuration === "number" ? formatDuration(totalDuration) : "Not recorded";
-  const timingSummary = calls > 1
-    ? `${calls} AI requests, including a validation retry`
-    : "One AI request";
+  const sourceCount = new Set([
+    ...item.stock_source_table.map((row) => row.source),
+    ...item.client_inquiry_responses.map((row) => row.source),
+  ].filter(Boolean)).size;
 
-  return <section className="analysis-run-summary" aria-label="Analysis run and timing">
-    <div className="analysis-run-summary-header">
-      <div>
-        <span className="results-eyebrow">Analysis run</span>
-        <strong>{formatGeneratedAt(item.generated_at)}</strong>
-        <p>{item.messages_analyzed} messages analyzed · {stockCount} stocks · {item.stock_source_table.length} source rows</p>
-      </div>
-      <div className="analysis-run-total">
-        <span>Analysis timing</span>
-        <strong>{totalLabel}</strong>
-        <small>{timingSummary}</small>
-      </div>
-    </div>
-    <div className="analysis-run-summary-metrics">
-      <span>Target date <strong>{item.target_date || "—"}</strong></span>
-      <span>Inputs <strong>{contentTypeLabel(item.content_types)}</strong></span>
-      {slowest && <span>Longest stage <strong>{slowest[0]} · {formatDuration(slowest[1])}</strong></span>}
-    </div>
-    {!!stages.length && <div className="analysis-performance-stages">
-      {stages.map(([label, duration]) => <span key={label}>{label}<strong>{formatDuration(duration)}</strong></span>)}
-    </div>}
+  return <section className="analysis-run-overview" aria-label="Analysis run overview">
+    <span>{contentTypeLabel(item.content_types)} analyzed</span>
+    <span>{sourceCount} source{sourceCount === 1 ? "" : "s"}</span>
+    <span>{stockCount} stock{stockCount === 1 ? "" : "s"}</span>
+    <span>{item.stock_source_table.length} recommendation{item.stock_source_table.length === 1 ? "" : "s"}</span>
+    <span>{item.client_inquiry_responses.length} inquiry {item.client_inquiry_responses.length === 1 ? "reply" : "replies"}</span>
   </section>;
 }
 
@@ -980,15 +1016,12 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted, 
         <colgroup>
           <col className="analysis-history-output-col" />
           <col className="analysis-history-generated-col" />
-          <col className="analysis-history-date-col" />
-          <col className="analysis-history-inputs-col" />
           <col className="analysis-history-sources-col" />
-          <col className="analysis-history-scope-col" />
-          <col className="analysis-history-records-col" />
+          <col className="analysis-history-findings-col" />
           <col className="analysis-history-actions-col" />
         </colgroup>
         <thead>
-          <tr><th>Generated output</th><th>Generated at</th><th>Target date</th><th>Inputs sent</th><th>Sources</th><th>Scope</th><th>Records</th><th className="analysis-history-actions-heading">Actions</th></tr>
+          <tr><th>Generated output</th><th>Generated at</th><th>Sources</th><th>Findings</th><th className="analysis-history-actions-heading">Actions</th></tr>
         </thead>
         <tbody>
           {items.map((item) => {
@@ -1012,11 +1045,12 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted, 
                 >
                   <td><strong>Analysis Recommendations · {item.target_date || "No target date"}</strong></td>
                   <td>{formatGeneratedAt(item.generated_at)}</td>
-                  <td>{item.target_date || "—"}</td>
-                  <td>{contentTypeLabel(item.content_types)}</td>
                   <td>{sources.join(", ") || "—"}</td>
-                  <td>{item.messages_analyzed} messages</td>
-                  <td>{stockCount} stocks / {item.stock_source_table.length} source rows</td>
+                  <td className="analysis-history-findings">
+                    <strong>{stockCount} stock{stockCount === 1 ? "" : "s"}</strong>
+                    <span>{item.stock_source_table.length} recommendation{item.stock_source_table.length === 1 ? "" : "s"}</span>
+                    <span>{item.client_inquiry_responses.length} inquiry {item.client_inquiry_responses.length === 1 ? "reply" : "replies"}</span>
+                  </td>
                   <td className="analysis-history-actions">
                     <div className="analysis-history-action-buttons">
                       <button type="button" className="secondary compact" onClick={(event) => {
@@ -1032,8 +1066,8 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted, 
                 </tr>
                 {analysisOpen && (
                   <tr className="analysis-history-expanded">
-                    <td colSpan={8}>
-                      <AnalysisRunSummaryCard item={item} />
+                    <td colSpan={5}>
+                      <AnalysisRunOverview item={item} />
                       <div className="analysis-section-list">
                         <button type="button" className="analysis-section-row" onClick={() => toggleSection("recommendations")} aria-expanded={recommendationsOpen}>
                           <span><strong>Recommendations table</strong><small>One model-returned row for each dated source recommendation</small></span>

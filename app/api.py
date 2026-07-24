@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,6 +31,7 @@ from openai import APIConnectionError, APIStatusError, AsyncOpenAI, Authenticati
 from zoneinfo import ZoneInfo
 
 router = APIRouter()
+_active_analysis_tasks: dict[str, asyncio.Task[object]] = {}
 
 _QWEN_VISION_PREFERENCE = (
     "qwen3-vl-plus",
@@ -197,7 +199,7 @@ async def update_settings(payload: SettingsUpdate) -> dict[str, object]:
     try:
         update_config(values)
     except (OSError, UnicodeError, ValueError, subprocess.SubprocessError) as error:
-        logger.error("settings_update_failed", error_type=type(error).__name__)
+        logger().error("settings_update_failed", extra={"error_type": type(error).__name__})
         raise HTTPException(500, "Settings could not be encrypted and saved. Try again after restarting the app.") from error
     get_settings.cache_clear()
     if telegram_credentials_changed:
@@ -280,6 +282,12 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
     content_types = set(payload.content_types)
     analysis_started = perf_counter()
     timings_ms: dict[str, int] = {}
+    analysis_task = asyncio.current_task()
+    if payload.request_id and analysis_task is not None:
+        existing_task = _active_analysis_tasks.get(payload.request_id)
+        if existing_task is not None and not existing_task.done():
+            raise HTTPException(409, "This analysis request is already running.")
+        _active_analysis_tasks[payload.request_id] = analysis_task
     try:
         collection = await runtime.collect_once(payload.channel_ids, since=window_start, analyze_messages=False)
         timings_ms["telegram_collection_ms"] = round((perf_counter() - analysis_started) * 1000)
@@ -346,15 +354,17 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
             end_label = window_end.astimezone(cairo).strftime("%Y-%m-%d %H:%M Cairo")
             logger().warning(
                 "analysis_no_selected_input",
-                target_date=target_date.isoformat(),
-                window_start=window_start.isoformat(),
-                window_end=window_end.isoformat(),
-                selected_channel_ids=payload.channel_ids,
-                content_types=sorted(content_types),
-                collected_in_window=collection["messages_in_window"],
-                stored_messages_in_window=len(message_rows),
-                excluded_messages=len(excluded_items),
-                trace_directory=trace["directory"],
+                extra={
+                    "target_date": target_date.isoformat(),
+                    "window_start": window_start.isoformat(),
+                    "window_end": window_end.isoformat(),
+                    "selected_channel_ids": payload.channel_ids,
+                    "content_types": sorted(content_types),
+                    "collected_in_window": collection["messages_in_window"],
+                    "stored_messages_in_window": len(message_rows),
+                    "excluded_messages": len(excluded_items),
+                    "trace_directory": trace["directory"],
+                },
             )
             raise HTTPException(
                 422,
@@ -437,12 +447,30 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
                 "trace": trace,
                 "performance": timings_ms,
                 "not_stock_related": [item["channel"] for item in channel_results if item["status"] == "not_stock_related"]}
+    except asyncio.CancelledError:
+        logger().info(
+            "analysis_cancelled",
+            extra={"analysis_request_id": payload.request_id, "elapsed_ms": round((perf_counter() - analysis_started) * 1000)},
+        )
+        raise
     except RuntimeError as error:
         if "already running" in str(error).lower():
             raise HTTPException(409, "A background collection is already running. Wait a moment and try again.") from error
         raise HTTPException(500, str(error)) from error
     except BadRequestError as error:
         raise HTTPException(400, f"The selected AI provider rejected the analysis request: {error}") from error
+    finally:
+        if payload.request_id and _active_analysis_tasks.get(payload.request_id) is analysis_task:
+            _active_analysis_tasks.pop(payload.request_id, None)
+
+
+@router.post("/collection/analyze-selected/{request_id}/cancel")
+async def cancel_selected_analysis(request_id: str) -> dict[str, bool]:
+    task = _active_analysis_tasks.get(request_id)
+    if task is None or task.done():
+        return {"cancelled": False}
+    task.cancel()
+    return {"cancelled": True}
 
 
 @router.get("/messages")

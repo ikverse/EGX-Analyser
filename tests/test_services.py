@@ -1086,3 +1086,58 @@ async def test_collection_lock_returns_409(monkeypatch):
     assert exc_info.value.status_code == 409
     assert "already running" in exc_info.value.detail.lower()
     locked_runtime._collection_lock.release()
+
+
+async def test_empty_selected_analysis_returns_422_instead_of_logging_error(session, tmp_path, monkeypatch):
+    from app import api as api_module
+    import app.main as main_module
+
+    class EmptyRuntime:
+        async def collect_once(self, *_args, **_kwargs):
+            return {
+                "messages_in_window": 0,
+                "messages_analyzed": 0,
+                "messages_reanalyzed": 0,
+                "messages_already_saved": 0,
+            }
+
+    monkeypatch.setattr(main_module, "runtime", EmptyRuntime())
+    monkeypatch.setattr(api_module, "get_settings", lambda: SimpleNamespace(storage_root=tmp_path))
+
+    with pytest.raises(HTTPException) as exc_info:
+        await api_module.analyze_selected_channels(
+            CollectionRequest(channel_ids=[999], content_types={"images"}), session,
+        )
+
+    assert exc_info.value.status_code == 422
+    assert "No selected content was found" in exc_info.value.detail
+    trace = max((tmp_path / "analysis-traces").glob("*/*"), key=lambda path: path.stat().st_mtime)
+    assert json.loads((trace / "model-input.json").read_text(encoding="utf-8"))["messages"] == []
+
+
+async def test_running_selected_analysis_can_be_cancelled(session, monkeypatch):
+    from app import api as api_module
+    import app.main as main_module
+
+    collection_started = asyncio.Event()
+    keep_collecting = asyncio.Event()
+
+    class SlowRuntime:
+        async def collect_once(self, *_args, **_kwargs):
+            collection_started.set()
+            await keep_collecting.wait()
+            raise AssertionError("Cancelled collection should not complete")
+
+    monkeypatch.setattr(main_module, "runtime", SlowRuntime())
+    request_id = "cancel-test-123"
+    analysis_task = asyncio.create_task(api_module.analyze_selected_channels(
+        CollectionRequest(channel_ids=[999], content_types={"images"}, request_id=request_id), session,
+    ))
+    await asyncio.wait_for(collection_started.wait(), timeout=1)
+
+    response = await api_module.cancel_selected_analysis(request_id)
+
+    assert response == {"cancelled": True}
+    with pytest.raises(asyncio.CancelledError):
+        await analysis_task
+    assert request_id not in api_module._active_analysis_tasks

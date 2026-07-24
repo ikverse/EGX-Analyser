@@ -1,5 +1,5 @@
 name: Publish desktop update
-run-name: ${{ github.ref_name }} - Ground recommendations and improve Results readability
+run-name: ${{ github.ref_name }} - Simplify Results, widen the workspace, and stop long analyses
 
 on:
   push:

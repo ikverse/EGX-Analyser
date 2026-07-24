@@ -161,6 +161,7 @@ export class ApiClient {
     try {
       response = await fetch(`${baseUrl}${path}`, { ...init, headers: { "Content-Type": "application/json", ...init.headers } });
     } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") throw error;
       const reason = error instanceof Error && error.message ? ` (${error.message})` : "";
       throw new Error(`Could not reach the local engine while calling ${path}.${reason} It may still be starting.`);
     }
@@ -181,10 +182,13 @@ export class ApiClient {
   refreshEgxCatalog() { return this.request<EgxCatalogStatus>("/egx-catalog/refresh", { method: "POST" }); }
   selectTelegramChat(chat: TelegramChat) { return this.request<Channel>("/telegram/chats/select", { method: "POST", body: JSON.stringify(chat) }); }
   runCollection() { return this.request<{ messages_collected: number }>("/collection/run", { method: "POST" }); }
-  analyzeSelected(channel_ids: number[], content_types: AnalysisContentType[], analysis_mode: AnalysisMode = "next_day", target_date?: string) {
+  analyzeSelected(channel_ids: number[], content_types: AnalysisContentType[], analysis_mode: AnalysisMode = "next_day", target_date?: string, request_id?: string, signal?: AbortSignal) {
     return this.request<SelectedAnalysisResult>("/collection/analyze-selected", {
-      method: "POST", body: JSON.stringify({ channel_ids, content_types, analysis_mode, target_date, analyze: true }),
+      method: "POST", body: JSON.stringify({ channel_ids, content_types, analysis_mode, target_date, request_id, analyze: true }), signal,
     });
+  }
+  cancelAnalysis(requestId: string) {
+    return this.request<{ cancelled: boolean }>(`/collection/analyze-selected/${encodeURIComponent(requestId)}/cancel`, { method: "POST" });
   }
   setChannelActive(id: number, active: boolean) { return this.request<Channel>(`/channels/${id}`, { method: "PATCH", body: JSON.stringify({ active }) }); }
   consensus() { return this.request<Consensus[]>("/analytics/consensus"); }

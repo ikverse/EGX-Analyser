@@ -58,6 +58,7 @@ class ChannelUpdate(BaseModel):
 
 class CollectionRequest(BaseModel):
     channel_ids: list[int] = Field(min_length=1)
+    request_id: str | None = Field(default=None, min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
     analyze: bool = True
     analysis_mode: Literal["next_day", "specific_date"] = "next_day"
     target_date: date | None = None

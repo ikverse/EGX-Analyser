@@ -32,7 +32,7 @@ async def lifespan(app: FastAPI):
     await runtime.stop()
 
 
-app = FastAPI(title="EGX Stock Intelligence", version="0.1.100", lifespan=lifespan)
+app = FastAPI(title="EGX Stock Intelligence", version="0.1.101", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://tauri.localhost", "https://tauri.localhost"],
@@ -68,6 +68,6 @@ async def record_api_request(request, call_next):
 async def refresh_content_updates() -> None:
     try:
         result = await ContentUpdateService(get_settings()).check_and_apply()
-        logger().info("content_update_checked", **result)
+        logger().info("content_update_checked", extra=result)
     except ContentUpdateError as error:
-        logger().warning("content_update_check_failed", error=str(error))
+        logger().warning("content_update_check_failed", extra={"error": str(error)})
