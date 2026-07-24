@@ -494,7 +494,6 @@ export default function App() {
               onAnalysisDeleted={(id) => setAnalysisResults((current) => current.filter((item) => item.id !== id))}
               focusedResultId={focusedResultId}
               onFocusHandled={() => setFocusedResultId(null)}
-              onBackToAnalysis={() => setPage("Channels")}
             />
           )}
           {page === "Settings" && (
@@ -864,13 +863,12 @@ function Channels({ channels, settings, api, refresh, notify, showError, analysi
 
 // ── Results (merged Recommendations + Search) ─────────────────────────────────
 
-function Results({ api, notify, showError, analysisResults, onAnalysisDeleted, focusedResultId, onFocusHandled, onBackToAnalysis }: {
+function Results({ api, notify, showError, analysisResults, onAnalysisDeleted, focusedResultId, onFocusHandled }: {
   api: ApiClient;
   notify: Notify; showError: ShowError; analysisResults: AnalysisResultHistory[];
   onAnalysisDeleted: (id: number) => void;
   focusedResultId: number | null;
   onFocusHandled: () => void;
-  onBackToAnalysis: () => void;
 }) {
   return (
     <AnalysisResultHistoryTable
@@ -881,7 +879,6 @@ function Results({ api, notify, showError, analysisResults, onAnalysisDeleted, f
       onDeleted={onAnalysisDeleted}
       focusedResultId={focusedResultId}
       onFocusHandled={onFocusHandled}
-      onBackToAnalysis={onBackToAnalysis}
     />
   );
 }
@@ -961,11 +958,10 @@ function ModelRetryAuditPanel({ audit }: { audit: ModelRetryAudit }) {
   </div>;
 }
 
-function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted, focusedResultId, onFocusHandled, onBackToAnalysis }: {
+function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted, focusedResultId, onFocusHandled }: {
   items: AnalysisResultHistory[]; api: ApiClient; notify: Notify; showError: ShowError; onDeleted: (id: number) => void;
   focusedResultId: number | null;
   onFocusHandled: () => void;
-  onBackToAnalysis: () => void;
 }) {
   const [expandedAnalysis, setExpandedAnalysis] = useState<number | null>(null);
   const [expandedSection, setExpandedSection] = useState<"recommendations" | "inquiries" | null>(null);
@@ -1024,33 +1020,8 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted, 
     if (section === "recommendations") setStockQuery("");
   };
 
-  const totalRecommendationRows = items.reduce((total, item) => total + item.stock_source_table.length, 0);
-  const totalInquiryReplies = items.reduce((total, item) => total + item.client_inquiry_responses.length, 0);
-
   return (
     <div className="analysis-history-wrap">
-      <section className="results-overview" aria-label="Saved results overview">
-        <div>
-          <span className="results-eyebrow">Saved analysis</span>
-          <h2>Results history</h2>
-          <p>Open a run to review source-by-source recommendations or separate client inquiry replies.</p>
-        </div>
-        <div className="results-overview-stats">
-          <span><strong>{items.length}</strong> runs</span>
-          <span><strong>{totalRecommendationRows}</strong> recommendation rows</span>
-          <span><strong>{totalInquiryReplies}</strong> inquiry replies</span>
-        </div>
-        <div className="results-overview-actions">
-          <button type="button" className="secondary compact" onClick={onBackToAnalysis}><Icon name="channels" size={16} /> Back to analysis</button>
-          <button type="button" className="compact" onClick={() => {
-            const latest = items[0];
-            if (!latest) return;
-            setExpandedAnalysis(latest.id);
-            setExpandedSection("recommendations");
-            window.requestAnimationFrame(() => rowRefs.current.get(latest.id)?.scrollIntoView({ behavior: "smooth", block: "center" }));
-          }}><Icon name="eye" size={16} /> Open latest result</button>
-        </div>
-      </section>
       <table className="analysis-history-table">
         <colgroup>
           <col className="analysis-history-output-col" />

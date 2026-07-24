@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.103
+- Removed the Results history overview box, aggregate counters, and shortcut controls so the Results tab opens directly on its saved-run table.
+- Stabilized the Actions column with equal-size View/Hide and Delete controls, centered icons and labels, and non-wrapping button text.
+
 ## v0.1.102
 - Preserved distinct stock recommendations that use the same visual template by sending every non-identical image to the model for stock-aware review.
 - Kept exact byte-for-byte repost consolidation while tracking visually similar images without discarding their ticker, date, or trade values.
