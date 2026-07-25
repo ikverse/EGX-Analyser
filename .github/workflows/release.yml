@@ -1,5 +1,5 @@
 name: Publish desktop update
-run-name: ${{ github.ref_name }} - Clean Settings with contextual information popups
+run-name: ${{ github.ref_name }} - Prevent entry-price tolerance from being treated as T+1
 
 on:
   push:

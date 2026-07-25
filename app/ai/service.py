@@ -50,7 +50,7 @@ _CORE_ANALYSIS_PROTOCOL = """You are the EGX Intelligence consolidation engine. 
 
 _IMAGE_REFERENCE_CONTRACT = """IMAGE TRACEABILITY: Every image is placed directly after its immutable IMAGE_REF metadata block. For every data point whose evidence comes from an image, return source_image_ref as that exact IMAGE_REF integer. For text-only or audio-only evidence, return source_image_ref as null. Never copy an IMAGE_REF, stock identity, recommendation, date, or values from a neighboring image. A source_image_ref is supporting traceability only; an image must still satisfy every recommendation-context and date rule before it can be included."""
 
-_DATE_EVIDENCE_CONTRACT = """DATE TRACEABILITY: Every image-derived data point must also contain visible_source_date, date_evidence, and timing_evidence. visible_source_date is the date visibly written in that same image/message, normalized as YYYY-MM-DD. date_evidence is a short exact visible date phrase copied from that same source. For explicit_date, timing_evidence must be null. For t_plus_1, timing_evidence must be a short exact phrase from the same recommendation context that explicitly means T+1 or the next trading session. Never infer, manufacture, translate, or borrow date/timing evidence from the Telegram timestamp, another image, another stock, or the fact that a source date happens to precede the target date."""
+_DATE_EVIDENCE_CONTRACT = """DATE TRACEABILITY: Every image-derived data point must also contain visible_source_date, date_evidence, and timing_evidence. visible_source_date is the date visibly written in that same image/message, normalized as YYYY-MM-DD. date_evidence is a short exact visible date phrase copied from that same source. For explicit_date, timing_evidence must be null. For t_plus_1, timing_evidence must be a short exact phrase from the same recommendation context that explicitly means T+1 or the next trading session. The phrase `يسمح بالتداول على سعر الشراء المحدد` and wording that only permits trading within a percentage around the specified entry price describe entry-price execution tolerance, not T+1, tomorrow, the next trading day, or the next session. Never use such wording as timing_evidence, never label the recommendation t_plus_1 because of it, and never move its visible date to the following day. Never infer, manufacture, translate, or borrow date/timing evidence from the Telegram timestamp, another image, another stock, or the fact that a source date happens to precede the target date."""
 
 _MAX_IMAGE_EDGE = 2_048
 _OPTIMIZE_IMAGE_OVER_BYTES = 1_500_000
@@ -328,6 +328,9 @@ class AIAnalysisService:
             "or tomorrow's session. The wording must explicitly apply to that exact recommendation; a generic caption, disclaimer, "
             "neighboring image, Telegram posting date, or merely being one day earlier does not qualify. For that exception, output "
             "data_points[].date as the target date and data_points[].effective_date_basis as t_plus_1. "
+            "The phrase 'يسمح بالتداول على سعر الشراء المحدد' and any wording that merely allows a percentage deviation around the "
+            "specified entry price are execution-tolerance instructions, not timing instructions. They never qualify as T+1 or "
+            "timing_evidence and must not shift the visible recommendation date forward. "
             "Undated stock tables, watchlists, charts, and price levels MUST be excluded; never infer their effective date from "
             "the Telegram posting time alone. data_points[].date must be the effective recommendation date, not the post date. "
             "Set data_points[].effective_date_basis to explicit_date only when the visible source date equals the target date, or "
@@ -387,6 +390,7 @@ class AIAnalysisService:
             "or message. Keep explicit_date only when visible_source_date equals the target date and date_evidence exactly supports it; "
             "timing_evidence must then be null. Keep t_plus_1 only when visible_source_date equals the stated prior date and non-empty "
             "timing_evidence exactly quotes T+1 or a clear next-trading-session equivalent from that same stock recommendation context. "
+            "Explicitly reject 'يسمح بالتداول على سعر الشراء المحدد' and entry-price percentage-tolerance wording as timing_evidence. "
             "If any required evidence is absent, belongs to another image/stock, or conflicts with the selected basis, remove the data "
             "point completely before ranking, categorizing, counting mentions, or writing notes_summary.",
         ]

@@ -841,6 +841,9 @@ def test_analysis_prompt_keeps_base_prompt_and_appends_phrase_guidance(monkeypat
     assert "Return only one JSON object" in prompt
     assert "Every image-derived data point must also contain visible_source_date" in prompt
     assert "For explicit_date, timing_evidence must be null" in prompt
+    assert "يسمح بالتداول على سعر الشراء المحدد" in prompt
+    assert "entry-price execution tolerance, not T+1" in prompt
+    assert "never move its visible date to the following day" in prompt
     assert prompt.endswith("MESSAGE SOURCE DATA")
 
 

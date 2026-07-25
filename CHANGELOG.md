@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.109
+- Explicitly classified `يسمح بالتداول على سعر الشراء المحدد` as entry-price execution tolerance rather than T+1 or next-session timing.
+- Applied the same exclusion to percentage-deviation wording around a specified entry price.
+- Prevented that wording from being returned as `timing_evidence` or moving a visibly dated recommendation to the following day.
+- Repeated the rule across the base prompt, date contract, target-date instructions, and final model self-audit with regression coverage.
+
 ## v0.1.108
 - Replaced persistent Settings explanations with compact information popups beside section headings and individual controls.
 - Added accessible popup behavior with one-open-at-a-time state, outside-click and Escape dismissal, focus return, and responsive viewport positioning.
