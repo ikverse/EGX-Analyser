@@ -1984,10 +1984,24 @@ header strong {
 }
 
 .consolidated-table {
-  min-width: 1940px;
-  table-layout: auto;
-  width: max-content;
+  min-width: 2195px;
+  table-layout: fixed;
+  width: 2195px;
 }
+
+.consolidated-table .result-col-source { width: 200px; }
+.consolidated-table .result-col-target-date,
+.consolidated-table .result-col-source-date { width: 120px; }
+.consolidated-table .result-col-timing { width: 150px; }
+.consolidated-table .result-col-type,
+.consolidated-table .result-col-risk { width: 90px; }
+.consolidated-table .result-col-entry { width: 140px; }
+.consolidated-table .result-col-price { width: 95px; }
+.consolidated-table .result-col-return { width: 130px; }
+.consolidated-table .result-col-resistance { width: 105px; }
+.consolidated-table .result-col-status { width: 100px; }
+.consolidated-table .result-col-source-image { width: 140px; }
+.consolidated-table .result-col-notes { width: 300px; }
 
 .consolidated-table th,
 .consolidated-table td {
@@ -2004,41 +2018,6 @@ header strong {
   padding: .38rem .55rem;
 }
 
-.consolidated-table td:nth-child(2),
-.consolidated-table th:nth-child(2) {
-  min-width: 108px;
-}
-
-.consolidated-table td:nth-child(3),
-.consolidated-table th:nth-child(3) {
-  min-width: 108px;
-}
-
-.consolidated-table td:nth-child(4),
-.consolidated-table th:nth-child(4) {
-  min-width: 148px;
-}
-
-.consolidated-table td:nth-child(5),
-.consolidated-table th:nth-child(5),
-.consolidated-table td:nth-child(15),
-.consolidated-table th:nth-child(15) {
-  min-width: 88px;
-}
-
-.consolidated-table td:nth-child(n + 6):nth-child(-n + 14),
-.consolidated-table th:nth-child(n + 6):nth-child(-n + 14) {
-  min-width: 78px;
-}
-
-.consolidated-table .source-cell {
-  min-width: 176px;
-}
-
-.consolidated-table .source-image-cell {
-  min-width: 132px;
-}
-
 .consolidated-table .source-image-button {
   min-height: 1.85rem;
   padding: .25rem .5rem;
@@ -2051,7 +2030,6 @@ header strong {
 
 .consolidated-table td:last-child,
 .consolidated-table th:last-child {
-  min-width: 260px;
   white-space: normal;
 }
 
@@ -2059,6 +2037,11 @@ header strong {
 .recommendation-date-basis,
 .status-pill {
   white-space: nowrap;
+}
+
+.consolidated-table .entry-value {
+  direction: ltr;
+  font-variant-numeric: tabular-nums;
 }
 
 .recommendation-date-basis,

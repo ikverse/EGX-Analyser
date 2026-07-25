@@ -366,9 +366,6 @@ _SOURCE_VALUE_FIELDS = (
     "visible_source_date", "date_evidence", "timing_evidence",
 )
 
-_T_PLUS_ONE_RE = re.compile(
-    r"(?<![A-Za-z0-9])t\+1(?![A-Za-z0-9])", re.IGNORECASE,
-)
 _WATCHLIST_RE = re.compile(
     r"(?:\bwatch(?:ing|\s*list)?\b|\bstock\s+to\s+watch\b|\bunder\s+watch\b|"
     r"تحت\s+المراقب(?:ة|ه)|سهم\s+(?:تحت\s+المراقب(?:ة|ه)|ل?لمراقب(?:ة|ه)|مراقب(?:ة|ه))|للمراقب(?:ة|ه))",
@@ -496,14 +493,6 @@ def _stock_notes_summary(item: dict, payload: dict | None = None) -> str:
         isinstance(stock, dict) and str(stock.get("stock_code") or "").strip().upper() == ticker
         for stock in watchlist if isinstance(watchlist, list)
     )
-    t_plus_one = any(
-        str(point.get("effective_date_basis") or "").casefold() == "t_plus_1"
-        or "t_plus_1" in {
-            str(value).casefold() for value in (point.get("effective_date_bases") or [])
-        }
-        for point in points
-    )
-    t_plus_one = t_plus_one or bool(_T_PLUS_ONE_RE.search(combined))
     watching_values = {
         "watching", "watch", "watchlist", "watch_list", "under_watch", "stock_to_watch",
     }
@@ -521,8 +510,6 @@ def _stock_notes_summary(item: dict, payload: dict | None = None) -> str:
 
     mention_count = int(item.get("mention_count") or len(points) or 1)
     meanings: list[str] = []
-    if t_plus_one:
-        meanings.append("فرصة قصيرة الأجل بنظام T+1")
     if watched:
         meanings.append("سهماً للمراقبة")
     if meanings:

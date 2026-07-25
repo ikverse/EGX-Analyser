@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.118
+- Removed the T+1 timing category, prior-date exception, runtime validator, saved-result filtering, Notes synthesis, and legacy UI mappings.
+- Limited recommendation timing to an exact target date or an explicit Watching context.
+- Added a highest-priority model exclusion for news and urgent-news content across images, text messages, and voice-note transcripts, including Arabic and English equivalents.
+- Prevented custom Include phrases from overriding the news exclusion and kept excluded content out of all result categories and source links.
+- Fixed Results-table header and value alignment with a fixed 17-column layout, dedicated numeric alignment, and a wider Entry column for price ranges.
+- Added regression coverage for the revised prompt rules and range-safe Results-table geometry.
+
 ## v0.1.117
 - Redesigned application messages as a responsive toast stack with distinct success, warning, and error states, manual dismissal, timeout progress, pause-on-hover or focus, and reduced-motion support.
 - Required a literal `T+1` or `t+1` token in same-stock `timing_evidence` before accepting any T+1 recommendation.

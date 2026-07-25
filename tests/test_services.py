@@ -72,6 +72,20 @@ QWEN_CONSOLIDATED_OUTPUT = {
 }
 
 
+def test_results_table_keeps_fixed_columns_when_entry_is_a_range():
+    repository_root = Path(__file__).resolve().parents[1]
+    app_source = (repository_root / "desktop" / "src" / "App.tsx").read_text(encoding="utf-8")
+    styles = (repository_root / "desktop" / "src" / "styles.css").read_text(encoding="utf-8")
+
+    assert "<colgroup>" in app_source
+    assert app_source.count('<col className="result-col-') == 17
+    assert '<th className="numeric">Entry</th>' in app_source
+    assert '<td className="numeric entry-value">' in app_source
+    assert ".consolidated-table .result-col-entry { width: 140px; }" in styles
+    assert "table-layout: fixed;" in styles
+    assert "width: 2195px;" in styles
+
+
 def test_entry_point_ranges_preserve_exact_source_bounds():
     assert normalize_entry_point(24.5) == (24.5, None, None)
     assert normalize_entry_point("24.50-25.20") == (None, 24.5, 25.2)
@@ -160,15 +174,14 @@ async def test_same_template_images_are_sent_separately_for_stock_aware_review(t
     assert outcome.source_image_references[1]["path"] == str(skpc)
     assert outcome.source_image_references[2]["source_message_id"] == "3905"
     source_data = str(captured["source_data"])
-    assert "جلسة الغد" in source_data
-    assert "next trading day" in source_data
-    assert "exact contiguous literal token T+1" in source_data
-    assert "No translation, synonym, paraphrase, or inferred next-day meaning qualifies" in source_data
-    assert "merely being one day earlier does not qualify" in source_data
+    assert "There is no prior-date or next-session exception" in source_data
+    assert "differs from the target effective trading date, even by one day" in source_data
     assert "data_points[].effective_date_basis to watching" in source_data
     assert "voice-note transcripts" in source_data
     assert "visibly placed directly beneath it in the same recommendation" in source_data
-    assert "Watching never means T+1" in source_data
+    assert "NEWS EXCLUSION independently to every image/photo, ordinary text message" in source_data
+    assert "عاجل, خبر عاجل, أخبار, خبر" in source_data
+    assert "managed Include phrases" in source_data
     assert "SELL-ZONE TARGETS AND RETURNS" in source_data
     assert "entry 26.80–27.00" in source_data
     assert "return_tp1_pct=3.70" in source_data
@@ -769,11 +782,11 @@ def test_stock_notes_merge_bilingual_equivalents_and_keep_distinct_levels():
         "top_consolidated_recommendations": [{
             "stock_code": "COMI", "stock_name_en": "CIB", "mention_count": 3, "rank": 1, "status": "active",
             "data_points": [
-                {"source": "One", "source_message_id": "1", "effective_date_basis": "t_plus_1",
-                 "buy_price_low": 24.5, "buy_price_high": 25.2, "target_1": 27, "notes_ar": "T+1 recommendation"},
+                {"source": "One", "source_message_id": "1", "effective_date_basis": "watching",
+                 "buy_price_low": 24.5, "buy_price_high": 25.2, "target_1": 27, "notes_ar": "Stock to watch"},
                 {"source": "Two", "source_message_id": "2", "target_2": 28, "stop_loss": 23.8,
                  "notes_ar": "سهم للمراقبة"},
-                {"source": "Three", "source_message_id": "3", "notes_ar": "Next trading session; تحذير من المخاطر"},
+                {"source": "Three", "source_message_id": "3", "notes_ar": "تحذير من المخاطر"},
             ],
         }],
         "text_based_categories": {"watchlist_stocks": [{"stock_code": "COMI"}]},
@@ -785,55 +798,13 @@ def test_stock_notes_merge_bilingual_equivalents_and_keep_distinct_levels():
     assert len(rows) == 3
     assert len(summaries) == 1
     summary = summaries.pop()
-    assert summary.count("T+1") == 1
     assert "سهماً للمراقبة" in summary
     assert "نطاق الدخول: 24.5–25.2" in summary
     assert "المستهدفان الأول والثاني: 27، 28" in summary
     assert "وقف الخسارة: 23.8" in summary
     assert "ورد تحذير من المخاطر" in summary
-    assert "Next trading session" not in summary
+    assert "Stock to watch" not in summary
     assert "سهم للمراقبة" not in summary
-
-
-@pytest.mark.parametrize(
-    "non_literal_timing",
-    ["Next trading session", "next day", "جلسة الغد", "الجلسة القادمة", "T plus 1", "T + 1"],
-)
-def test_non_literal_timing_is_not_interpreted_as_t_plus_one(non_literal_timing):
-    payload = {
-        "top_consolidated_recommendations": [{
-            "stock_code": "COMI",
-            "mention_count": 1,
-            "data_points": [{
-                "source": "One",
-                "source_message_id": "1",
-                "notes_ar": non_literal_timing,
-            }],
-        }],
-    }
-
-    summary = _consolidated_source_table(payload)[0]["notes_summary"]
-
-    assert "T+1" not in summary
-
-
-@pytest.mark.parametrize("literal_timing", ["T+1", "t+1"])
-def test_literal_t_plus_one_is_case_insensitive(literal_timing):
-    payload = {
-        "top_consolidated_recommendations": [{
-            "stock_code": "COMI",
-            "mention_count": 1,
-            "data_points": [{
-                "source": "One",
-                "source_message_id": "1",
-                "notes_ar": literal_timing,
-            }],
-        }],
-    }
-
-    summary = _consolidated_source_table(payload)[0]["notes_summary"]
-
-    assert summary.count("T+1") == 1
 
 
 def test_watching_timing_is_preserved_and_generates_arabic_notes():
@@ -866,7 +837,6 @@ def test_watching_timing_is_preserved_and_generates_arabic_notes():
     assert row["effective_date_bases"] == ["watching"]
     assert row["timing_evidence"] == "تحت المراقبة"
     assert "سهماً للمراقبة" in row["notes_summary"]
-    assert "T+1" not in row["notes_summary"]
     assert row["target_1"] == 20.50
     assert row["target_2"] == 21.60
 
@@ -912,21 +882,19 @@ def test_watching_basis_alias_is_backward_compatible():
     summary = _consolidated_source_table(payload)[0]["notes_summary"]
 
     assert "سهماً للمراقبة" in summary
-    assert "T+1" not in summary
 
 
 def test_saved_result_rows_receive_backward_compatible_stock_notes():
     legacy_rows = [
-        {"ticker": "COMI", "mention_count": 2, "effective_date_bases": ["t_plus_1"],
-         "timing_evidence": "T+1", "notes_ar": "T+1", "source": "One", "source_dates": []},
-        {"ticker": "COMI", "mention_count": 2, "effective_date_bases": [],
+        {"ticker": "COMI", "mention_count": 2, "effective_date_bases": ["watching"],
+         "timing_evidence": "Watching", "notes_ar": "Stock to watch", "source": "One", "source_dates": []},
+        {"ticker": "COMI", "mention_count": 2, "effective_date_bases": ["under-watch"],
          "notes_ar": "سهم مراقبة", "source": "Two", "source_dates": []},
     ]
 
     rows = api._analysis_table_with_source_images(legacy_rows, [], {})
 
     assert rows[0]["notes_summary"] == rows[1]["notes_summary"]
-    assert "T+1" in rows[0]["notes_summary"]
     assert "سهماً للمراقبة" in rows[0]["notes_summary"]
     assert "stock to watch" not in rows[0]["notes_summary"]
 
@@ -1034,15 +1002,15 @@ def test_prompt_customization_persists_normalized_phrases_and_history(monkeypatc
     monkeypatch.setenv("EGX_CONFIG_FILE", str(tmp_path / ".env"))
 
     saved = save_prompt_customization(
-        "سهم تحت المراقبة، أسهم مرشحة T+1, سهم تحت المراقبة",
+        "سهم تحت المراقبة، توصية شراء قصيرة الأجل, سهم تحت المراقبة",
         "الأسهم الأكثر سيولة، سهم تحت المراقبة",
     )
 
-    assert saved["include_phrases"] == ["أسهم مرشحة T+1"]
+    assert saved["include_phrases"] == ["توصية شراء قصيرة الأجل"]
     assert saved["exclude_phrases"] == ["الأسهم الأكثر سيولة", "سهم تحت المراقبة"]
-    assert saved["history"][0]["include_added"] == ["أسهم مرشحة T+1"]
+    assert saved["history"][0]["include_added"] == ["توصية شراء قصيرة الأجل"]
     assert saved["history"][0]["exclude_added"] == ["الأسهم الأكثر سيولة", "سهم تحت المراقبة"]
-    assert load_prompt_customization()["include_phrases"] == ["أسهم مرشحة T+1"]
+    assert load_prompt_customization()["include_phrases"] == ["توصية شراء قصيرة الأجل"]
 
 
 def test_prompt_customization_extends_base_logic_and_reset_keeps_history(monkeypatch, tmp_path):
@@ -1073,29 +1041,30 @@ def test_analysis_prompt_keeps_base_prompt_and_appends_phrase_guidance(monkeypat
     assert "Exclude phrases: الأسهم الأكثر سيولة" in prompt
     assert "Return only one JSON object" in prompt
     assert "Every returned image, text, or audio data point must contain visible_source_date" in prompt
+    assert "effective_date_basis is explicit_date or watching only" in prompt
     assert "For explicit_date, timing_evidence must be null" in prompt
-    assert "For t_plus_1, timing_evidence must be the exact contiguous literal token T+1" in prompt
-    assert "T+1 text in notes_ar or notes_summary is never evidence" in prompt
     assert "visible_source_date, date_evidence, timing_evidence" in prompt
     assert "using null rather than omitting an unavailable field" in prompt
-    assert "No translation, synonym, paraphrase, or inferred next-day meaning qualifies" in prompt
+    assert "A recommendation with a missing, ambiguous, past, future, or otherwise different source date is ineligible" in prompt
     assert "For watching, timing_evidence must be the exact same-stock phrase" in prompt
+    assert "NEWS EXCLUSION HAS HIGHEST PRIORITY" in prompt
+    assert "every image/photo, ordinary text message, and voice-note transcript" in prompt
+    assert "عاجل" in prompt
+    assert "breaking news" in prompt
+    assert "Managed include phrases never override this exclusion" in prompt
     assert "منطقة البيع" in prompt
     assert "return_tp1_pct" in prompt
     assert "return_tp2_pct" in prompt
     assert "application calculates missing returns separately" in prompt
     assert "text or voice-note transcripts" in prompt
     assert "copy the supplied MESSAGE DATE timestamp into date_evidence" in prompt
-    assert "يسمح بالتداول على سعر الشراء المحدد" in prompt
-    assert "entry-price execution tolerance, not T+1" in prompt
-    assert "never move its visible date to the following day" in prompt
     assert prompt.endswith("MESSAGE SOURCE DATA")
 
 
 def test_prompt_customization_restores_a_historical_configuration(monkeypatch, tmp_path):
     monkeypatch.setenv("EGX_CONFIG_FILE", str(tmp_path / ".env"))
     save_prompt_customization("سهم تحت المراقبة", "توصية سابقة")
-    save_prompt_customization("أسهم مرشحة T+1", "الأسهم الأكثر سيولة")
+    save_prompt_customization("توصية شراء قصيرة الأجل", "الأسهم الأكثر سيولة")
 
     restored = restore_prompt_customization(0)
 
@@ -1390,110 +1359,6 @@ def test_minimal_validation_does_not_reject_duplicate_trade_values():
     warnings = validate_consolidated_output(payload, messages)
 
     assert warnings == []
-
-
-@pytest.mark.parametrize(
-    "timing_evidence",
-    [None, "T + 1", "next trading day", "\u062c\u0644\u0633\u0629 \u0627\u0644\u063a\u062f"],
-)
-def test_t_plus_one_without_literal_timing_evidence_is_excluded(timing_evidence):
-    messages = [{"source": "Ostoul", "telegram_message_id": 3888, "text": ""}]
-    payload = {"top_consolidated_recommendations": [{
-        "stock_code": "GDWA",
-        "mention_count": 1,
-        "data_points": [{
-            "source_message_id": "3888",
-            "effective_date_basis": "t_plus_1",
-            "timing_evidence": timing_evidence,
-            "recommendation_evidence": "\u0625\u0634\u0627\u0631\u0629 \u062a\u062f\u0627\u0648\u0644 - \u0634\u0631\u0627\u0621 \u0633\u0647\u0645 \u062c\u062f\u0648\u0649 \u0644\u0644\u062a\u0646\u0645\u064a\u0629 \u0627\u0644\u0635\u0646\u0627\u0639\u064a\u0629 GDWA",
-            "notes_ar": "T+1",
-        }],
-    }]}
-
-    warnings = validate_consolidated_output(payload, messages)
-
-    assert payload["top_consolidated_recommendations"] == []
-    assert warnings == [
-        "Excluded unsupported T+1 recommendation GDWA Telegram message 3888: "
-        "timing_evidence does not contain the literal T+1 token."
-    ]
-
-
-@pytest.mark.parametrize("timing_evidence", ["T+1", "t+1", "\u062a\u0648\u0635\u064a\u0629 T+1"])
-def test_t_plus_one_with_literal_timing_evidence_is_retained(timing_evidence):
-    messages = [{"source": "Ostoul", "telegram_message_id": 3888, "text": ""}]
-    payload = {"top_consolidated_recommendations": [{
-        "stock_code": "GDWA",
-        "mention_count": 1,
-        "data_points": [{
-            "source_message_id": "3888",
-            "effective_date_basis": "t_plus_1",
-            "timing_evidence": timing_evidence,
-        }],
-    }]}
-
-    warnings = validate_consolidated_output(payload, messages)
-
-    assert warnings == []
-    assert len(payload["top_consolidated_recommendations"][0]["data_points"]) == 1
-
-
-def test_t_plus_one_guard_does_not_change_watching_or_explicit_date_rows():
-    messages = [
-        {"source": "Ostoul", "telegram_message_id": 1, "text": ""},
-        {"source": "Ostoul", "telegram_message_id": 2, "text": ""},
-    ]
-    payload = {"top_consolidated_recommendations": [{
-        "stock_code": "FWRY",
-        "mention_count": 2,
-        "data_points": [
-            {
-                "source_message_id": "1",
-                "effective_date_basis": "watching",
-                "timing_evidence": "\u062a\u062d\u062a \u0627\u0644\u0645\u0631\u0627\u0642\u0628\u0629",
-            },
-            {
-                "source_message_id": "2",
-                "effective_date_basis": "explicit_date",
-                "timing_evidence": None,
-            },
-        ],
-    }]}
-
-    warnings = validate_consolidated_output(payload, messages)
-
-    assert warnings == []
-    assert len(payload["top_consolidated_recommendations"][0]["data_points"]) == 2
-
-
-def test_saved_results_hide_unsupported_t_plus_one_rows_and_report_warning():
-    rows = [
-        {
-            "ticker": "GDWA",
-            "source_message_id": "3888",
-            "effective_date_bases": ["t_plus_1"],
-            "notes_ar": "T+1",
-        },
-        {
-            "ticker": "VALU",
-            "source_message_id": "3889",
-            "effective_date_bases": ["t_plus_1"],
-            "timing_evidence": "t+1",
-        },
-        {
-            "ticker": "COMI",
-            "source_message_id": "3890",
-            "effective_date_bases": ["explicit_date"],
-        },
-    ]
-
-    visible = api._analysis_table_with_source_images(rows, [], {})
-
-    assert [row["ticker"] for row in visible] == ["VALU", "COMI"]
-    assert api._saved_t_plus_one_warnings(rows) == [
-        "Excluded unsupported T+1 recommendation GDWA Telegram message 3888: "
-        "timing_evidence does not contain the literal T+1 token."
-    ]
 
 
 def test_consolidated_validation_does_not_judge_recommendation_meaning():

@@ -1245,17 +1245,14 @@ function dateBasisLabel(basis: string): string {
   const normalized = basis.trim().toLowerCase().replace(/[\s-]+/g, "_");
   const labels: Record<string, string> = {
     explicit_date: "Explicit date",
-    t_plus_1: "T+1",
     watching: "Watching",
     watch: "Watching",
     watchlist: "Watching",
     watch_list: "Watching",
     under_watch: "Watching",
     stock_to_watch: "Watching",
-    next_session: "Next session",
-    tomorrow: "Tomorrow",
   };
-  return labels[normalized] ?? basis;
+  return labels[normalized] ?? "Unavailable";
 }
 
 function SuccessModal({ message, onClose, onOpenResult }: { message: string; onClose: () => void; onOpenResult?: () => void }) {
@@ -1296,10 +1293,29 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
       </div>
       <div className="consolidated-table-scroll">
         <table className="consolidated-table">
+          <colgroup>
+            <col className="result-col-source" />
+            <col className="result-col-target-date" />
+            <col className="result-col-source-date" />
+            <col className="result-col-timing" />
+            <col className="result-col-type" />
+            <col className="result-col-entry" />
+            <col className="result-col-price" />
+            <col className="result-col-return" />
+            <col className="result-col-price" />
+            <col className="result-col-return" />
+            <col className="result-col-price" />
+            <col className="result-col-price" />
+            <col className="result-col-resistance" />
+            <col className="result-col-risk" />
+            <col className="result-col-status" />
+            <col className="result-col-source-image" />
+            <col className="result-col-notes" />
+          </colgroup>
           <thead><tr>
-            <th>Source</th><th>Target date</th><th>Source date</th><th>Timing</th><th>Type</th><th>Entry</th>
-            <th>TP1</th><th>TP1 Return %</th><th>TP2</th><th>TP2 Return %</th>
-            <th>Stop</th><th>Support</th><th>Resistance</th><th>Risk %</th><th>Status</th><th>Source image</th><th>Notes</th>
+            <th>Source</th><th>Target date</th><th>Source date</th><th>Timing</th><th>Type</th><th className="numeric">Entry</th>
+            <th className="numeric">TP1</th><th className="numeric">TP1 Return %</th><th className="numeric">TP2</th><th className="numeric">TP2 Return %</th>
+            <th className="numeric">Stop</th><th className="numeric">Support</th><th className="numeric">Resistance</th><th className="numeric">Risk %</th><th>Status</th><th>Source image</th><th>Notes</th>
           </tr></thead>
           {[...grouped.entries()].map(([ticker, stockRows]) => {
             const first = stockRows[0];
@@ -1321,7 +1337,7 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
                     <td>{row.source_dates.join(", ") || "—"}</td>
                     <td>{row.effective_date_bases?.length ? row.effective_date_bases.map((basis) => <span key={basis} className="recommendation-date-basis">{dateBasisLabel(basis)}</span>) : "—"}</td>
                     <td><span className={`status-pill ${row.recommendation_type === "sell" ? "neutral" : "active"}`}>{row.recommendation_type || "buy"}</span></td>
-                    <td className="numeric">{entryDisplay(row.buy_price, row.buy_price_low, row.buy_price_high)}</td>
+                    <td className="numeric entry-value">{entryDisplay(row.buy_price, row.buy_price_low, row.buy_price_high)}</td>
                     <td className="numeric positive">{num(row.target_1)}</td>
                     <td className="numeric positive">{num(row.return_tp1_pct)}</td>
                     <td className="numeric positive">{num(row.target_2)}</td>
@@ -2162,7 +2178,7 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
             <textarea
               value={values.analysis_include_phrases || ""}
               onChange={(e) => setValues((cur) => ({ ...cur, analysis_include_phrases: e.target.value }))}
-              placeholder="سهم تحت المراقبة، أسهم مرشحة T+1، الشراء باختراق"
+              placeholder="سهم تحت المراقبة، توصية شراء قصيرة الأجل، الشراء باختراق"
               rows={4}
             />
           </label>
