@@ -14,6 +14,12 @@ from app.analysis_filter import is_non_actionable_stock_update
 from app.analysis_trace import create_selected_input_trace, save_analysis_performance, save_consolidated_response, save_model_validation
 from app.config import get_settings
 from app.config_store import update_config
+from app.prompt_customization import (
+    load_prompt_customization,
+    reset_prompt_customization,
+    restore_prompt_customization,
+    save_prompt_customization,
+)
 from app.content_updates import ContentUpdateError, ContentUpdateService
 from app.database import get_session
 from app.diagnostics import diagnostics_path, logger, recent_entries
@@ -114,6 +120,19 @@ async def check_content_updates() -> dict[str, object]:
 @router.get("/settings")
 async def settings_status() -> dict[str, object]:
     settings = get_settings()
+    prompt_customization_error: str | None = None
+    try:
+        prompt_customization = load_prompt_customization()
+    except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+        prompt_customization = {"include_phrases": [], "exclude_phrases": [], "history": []}
+        prompt_customization_error = (
+            "The prompt customization file is damaged or unreadable. Reset to the default prompt to recover it."
+        )
+    indexed_history = [
+        {**entry, "history_index": index}
+        for index, entry in enumerate(prompt_customization["history"])
+        if isinstance(entry, dict)
+    ]
     session_path = f"{settings.telegram_session}.session"
     return {"openai_configured": bool(settings.openai_api_key),
             "ai_configured": bool(settings.ai_api_key),
@@ -122,7 +141,11 @@ async def settings_status() -> dict[str, object]:
             "telegram_authorized": Path(session_path).exists(),
             "openai_model": settings.openai_model, "ollama_model": settings.ollama_model,
             "ollama_base_url": settings.ollama_base_url, "telegram_session": settings.telegram_session,
-            "analysis_instructions": settings.analysis_instructions}
+            "analysis_include_phrases": ", ".join(prompt_customization["include_phrases"]),
+            "analysis_exclude_phrases": ", ".join(prompt_customization["exclude_phrases"]),
+            "prompt_customization_history": indexed_history[-50:],
+            "prompt_customization_history_total": len(indexed_history),
+            "prompt_customization_error": prompt_customization_error}
 
 
 @router.get("/models")
@@ -195,15 +218,51 @@ async def update_settings(payload: SettingsUpdate) -> dict[str, object]:
         (payload.telegram_api_id is not None and payload.telegram_api_id != current.telegram_api_id)
         or (payload.telegram_api_hash is not None and payload.telegram_api_hash != current.telegram_api_hash)
     )
-    values = {key.upper(): str(value) for key, value in payload.model_dump(exclude_none=True).items()}
+    payload_values = payload.model_dump(exclude_none=True)
+    include_phrases = payload_values.pop("analysis_include_phrases", None)
+    exclude_phrases = payload_values.pop("analysis_exclude_phrases", None)
+    values = {key.upper(): str(value) for key, value in payload_values.items()}
+    values["ANALYSIS_INSTRUCTIONS"] = ""
     try:
         update_config(values)
+        if include_phrases is not None or exclude_phrases is not None:
+            existing = load_prompt_customization()
+            save_prompt_customization(
+                include_phrases if include_phrases is not None else existing["include_phrases"],
+                exclude_phrases if exclude_phrases is not None else existing["exclude_phrases"],
+            )
     except (OSError, UnicodeError, ValueError, subprocess.SubprocessError) as error:
         logger().error("settings_update_failed", extra={"error_type": type(error).__name__})
         raise HTTPException(500, "Settings could not be encrypted and saved. Try again after restarting the app.") from error
     get_settings.cache_clear()
     if telegram_credentials_changed:
         await telegram_authenticator.reset_session(current.telegram_session)
+    return await settings_status()
+
+
+@router.post("/settings/prompt/reset")
+async def reset_analysis_prompt_customization() -> dict[str, object]:
+    try:
+        reset_prompt_customization()
+        update_config({"ANALYSIS_INSTRUCTIONS": ""})
+    except (OSError, UnicodeError, ValueError, json.JSONDecodeError, subprocess.SubprocessError) as error:
+        logger().error("prompt_customization_reset_failed", extra={"error_type": type(error).__name__})
+        raise HTTPException(500, "The default analysis prompt could not be restored.") from error
+    get_settings.cache_clear()
+    return await settings_status()
+
+
+@router.post("/settings/prompt/restore/{history_index}")
+async def restore_analysis_prompt_customization(history_index: int) -> dict[str, object]:
+    try:
+        restore_prompt_customization(history_index)
+        update_config({"ANALYSIS_INSTRUCTIONS": ""})
+    except IndexError as error:
+        raise HTTPException(404, "That prompt history entry no longer exists.") from error
+    except (OSError, UnicodeError, ValueError, json.JSONDecodeError, subprocess.SubprocessError) as error:
+        logger().error("prompt_customization_restore_failed", extra={"error_type": type(error).__name__})
+        raise HTTPException(500, "The selected prompt configuration could not be restored.") from error
+    get_settings.cache_clear()
     return await settings_status()
 
 

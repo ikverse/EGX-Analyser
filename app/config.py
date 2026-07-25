@@ -22,7 +22,6 @@ class Settings(BaseSettings):
     content_pack_manifest_url: str = "https://raw.githubusercontent.com/ikverse/EGX-Analyser/main/remote-content/content-pack.json"
     ai_provider: str = ""
     openai_model: str = "qwen3-vl-plus"
-    analysis_instructions: str = ""
     telegram_api_id: int | None = None
     telegram_api_hash: str | None = None
     telegram_session: str = "egx_collector"

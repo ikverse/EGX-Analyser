@@ -1,5 +1,5 @@
 name: Publish desktop update
-run-name: ${{ github.ref_name }} - Auto-load Telegram, streamline Results sources, and trust model recommendations
+run-name: ${{ github.ref_name }} - Add persistent prompt phrases, history restore, and recovery
 
 on:
   push:

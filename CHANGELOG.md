@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.105
+- Replaced Supplementary extraction guidance with permanent Include and Exclude phrase controls that extend the unchanged base analysis prompt.
+- Added phrase normalization, exclusion priority, conflict warnings, unsaved-change feedback, active counts, and an effective prompt-section preview.
+- Added a permanent Cairo-timestamped phrase history with reset, historical restore, recent-entry loading, and damaged-file backup recovery.
+- Removed legacy supplementary guidance while preserving provider credentials, stock/date/source rules, TP1/TP2 handling, and existing result behavior.
+- Hid the redundant Local engine online label from the main header while retaining engine health checks and startup recovery.
+
 ## v0.1.104
 - Loaded authorized Telegram chats automatically once per app session and changed the manual action to Refresh Telegram chats.
 - Removed the repeated Stock column from recommendation rows, made Source the first column, and kept it visible during horizontal scrolling while stock identity remains in each colored group row.

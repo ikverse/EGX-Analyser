@@ -87,7 +87,8 @@ class SettingsUpdate(BaseModel):
     ollama_model: str | None = Field(default=None, min_length=1, max_length=255)
     ai_provider: str | None = Field(default=None, pattern="^(qwen|openrouter|huggingface|openai|ollama)$")
     openai_model: str | None = None
-    analysis_instructions: str | None = Field(default=None, max_length=8000)
+    analysis_include_phrases: str | None = Field(default=None, max_length=8000)
+    analysis_exclude_phrases: str | None = Field(default=None, max_length=8000)
     telegram_api_id: int | None = None
     telegram_api_hash: str | None = None
     telegram_session: str | None = None

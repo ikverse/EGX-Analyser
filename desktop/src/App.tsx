@@ -28,7 +28,7 @@ type UpdateCandidate = {
 };
 
 const pages: Page[] = ["Channels", "Results", "Settings"];
-type IconName = "channels" | "results" | "settings" | "sidebar" | "refresh" | "copy" | "check" | "plus" | "download" | "users" | "clear" | "play" | "eye" | "trash" | "image";
+type IconName = "channels" | "results" | "settings" | "sidebar" | "refresh" | "copy" | "check" | "plus" | "download" | "users" | "clear" | "play" | "eye" | "trash" | "image" | "warning" | "info" | "history";
 
 const PAGE_ICONS: Record<Page, IconName> = {
   Channels: "channels",
@@ -55,6 +55,9 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
       case "eye": return <><path {...common} d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" /><circle {...common} cx="12" cy="12" r="2.5" /></>;
       case "trash": return <><path {...common} d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V4h6v3" /></>;
       case "image": return <><rect {...common} x="3" y="4" width="18" height="16" rx="2" /><circle {...common} cx="8.5" cy="9" r="1.5" /><path {...common} d="m21 15-5-5L5 20" /></>;
+      case "warning": return <><path {...common} d="M10.3 4.2 2.5 18a2 2 0 0 0 1.8 3h15.4a2 2 0 0 0 1.8-3L13.7 4.2a2 2 0 0 0-3.4 0Z" /><path {...common} d="M12 9v4M12 17h.01" /></>;
+      case "info": return <><circle {...common} cx="12" cy="12" r="9" /><path {...common} d="M12 11v5M12 8h.01" /></>;
+      case "history": return <><path {...common} d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path {...common} d="M3 3v5h5M12 7v5l3 2" /></>;
     }
   })();
   return <svg className="icon" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">{paths}</svg>;
@@ -438,10 +441,6 @@ export default function App() {
           <header>
             <div>
               <strong>{page}</strong>
-              <span className="online">
-                <span className="online-dot" />
-                Local engine online
-              </span>
             </div>
             <div className="header-actions">
               {analysisRun.running && <AnalysisRunningStatus progress={analysisRun.progress} startedAt={analysisRun.startedAt} />}
@@ -1706,6 +1705,21 @@ function SettingsSection({ title, description, open, onToggle, children }: {
   );
 }
 
+function normalizePromptPhraseInput(value?: string): string[] {
+  const seen = new Set<string>();
+  return (value || "").split(/[,،]/).map((phrase) => phrase.trim().replace(/\s+/g, " ")).filter((phrase) => {
+    const key = phrase.toLocaleLowerCase();
+    if (!phrase || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function samePromptPhrases(first: string[], second: string[]): boolean {
+  return first.length === second.length
+    && first.every((phrase, index) => phrase.toLocaleLowerCase() === second[index]?.toLocaleLowerCase());
+}
+
 function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showError, checkingUpdate, onCheckForUpdates, analysisResults }: {
   api: ApiClient; status: SettingsStatus | null; onSaved: () => Promise<boolean>;
   onRunTelegramCheck: () => Promise<boolean>;
@@ -1717,11 +1731,14 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
     openai_model: status?.openai_model || "qwen3-vl-plus",
     ollama_model: status?.ollama_model || "qwen3-vl:4b",
     ollama_base_url: status?.ollama_base_url || "http://127.0.0.1:11434",
-    analysis_instructions: status?.analysis_instructions || "",
+    analysis_include_phrases: status?.analysis_include_phrases || "",
+    analysis_exclude_phrases: status?.analysis_exclude_phrases || "",
   });
   const [editingProviderKey, setEditingProviderKey] = useState(false);
   const [editingTelegram, setEditingTelegram] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [resettingPrompt, setResettingPrompt] = useState(false);
+  const [restoringPromptIndex, setRestoringPromptIndex] = useState<number | null>(null);
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
@@ -1751,6 +1768,21 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
   const localProvider = provider === "ollama";
   const configuredModel = status?.ai_provider === "ollama" ? status.ollama_model : status?.openai_model;
   const outputAudits = analysisResults.filter((item) => item.model_validation_warnings.length > 0);
+  const includePhrases = normalizePromptPhraseInput(values.analysis_include_phrases);
+  const excludePhrases = normalizePromptPhraseInput(values.analysis_exclude_phrases);
+  const excludeKeys = new Set(excludePhrases.map((phrase) => phrase.toLocaleLowerCase()));
+  const conflictingPhrases = includePhrases.filter((phrase) => excludeKeys.has(phrase.toLocaleLowerCase()));
+  const effectiveIncludePhrases = includePhrases.filter((phrase) => !excludeKeys.has(phrase.toLocaleLowerCase()));
+  const savedIncludePhrases = normalizePromptPhraseInput(status?.analysis_include_phrases);
+  const savedExcludePhrases = normalizePromptPhraseInput(status?.analysis_exclude_phrases);
+  const promptPhrasesDirty = !samePromptPhrases(effectiveIncludePhrases, savedIncludePhrases)
+    || !samePromptPhrases(excludePhrases, savedExcludePhrases);
+  const promptPreview = [
+    "MANAGED RECOMMENDATION PHRASE GUIDANCE",
+    `Include phrases: ${effectiveIncludePhrases.join(", ") || "(none)"}`,
+    `Exclude phrases: ${excludePhrases.join(", ") || "(none)"}`,
+    "Exclude phrases take priority. Existing stock identity, date eligibility, source, and output rules remain active.",
+  ].join("\n");
 
   useEffect(() => { void getVersion().then(setAppVersion).catch(() => setAppVersion("Unknown")); }, []);
   useEffect(() => { void api.egxCatalog().then(setCatalogStatus).catch(() => setCatalogStatus(null)); }, [api]);
@@ -1761,7 +1793,8 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
       openai_model: status.openai_model,
       ollama_model: status.ollama_model,
       ollama_base_url: status.ollama_base_url,
-      analysis_instructions: status.analysis_instructions,
+      analysis_include_phrases: status.analysis_include_phrases,
+      analysis_exclude_phrases: status.analysis_exclude_phrases,
     }));
   }, [status]);
 
@@ -1769,12 +1802,15 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
     event.preventDefault();
     setSaving(true);
     void api.saveSettings(values)
-      .then(onSaved)
-      .then(() => {
+      .then((saved) => {
         setValues((cur) => ({
           ai_provider: cur.ai_provider, openai_model: cur.openai_model, ollama_model: cur.ollama_model,
-          ollama_base_url: cur.ollama_base_url, analysis_instructions: cur.analysis_instructions,
+          ollama_base_url: cur.ollama_base_url, analysis_include_phrases: saved.analysis_include_phrases,
+          analysis_exclude_phrases: saved.analysis_exclude_phrases,
         }));
+        return onSaved();
+      })
+      .then(() => {
         setEditingProviderKey(false);
         setEditingTelegram(false);
         notify("success", "Settings saved securely on this computer.");
@@ -1795,6 +1831,40 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
     if (!currentProvider.key) return;
     if (editingProviderKey) setValues((cur) => ({ ...cur, [currentProvider.key as keyof SettingsInput]: undefined }));
     setEditingProviderKey((cur) => !cur);
+  };
+
+  const resetPrompt = () => {
+    if (!window.confirm("Reset the analysis prompt to its built-in defaults and remove all custom include/exclude phrases? The change log will be retained.")) return;
+    setResettingPrompt(true);
+    void api.resetPromptCustomization()
+      .then((saved) => {
+        setValues((cur) => ({
+          ...cur,
+          analysis_include_phrases: saved.analysis_include_phrases,
+          analysis_exclude_phrases: saved.analysis_exclude_phrases,
+        }));
+        return onSaved();
+      })
+      .then(() => notify("success", "The default analysis prompt was restored."))
+      .catch((reason) => showError(`Could not reset the analysis prompt: ${fullError(reason)}`))
+      .finally(() => setResettingPrompt(false));
+  };
+
+  const restorePrompt = (historyIndex: number, timestamp: string) => {
+    if (!window.confirm(`Restore the phrase configuration saved at ${formatCairoDateTime(timestamp)}? This restore will be added to the change log.`)) return;
+    setRestoringPromptIndex(historyIndex);
+    void api.restorePromptCustomization(historyIndex)
+      .then((saved) => {
+        setValues((cur) => ({
+          ...cur,
+          analysis_include_phrases: saved.analysis_include_phrases,
+          analysis_exclude_phrases: saved.analysis_exclude_phrases,
+        }));
+        return onSaved();
+      })
+      .then(() => notify("success", "The selected phrase configuration was restored."))
+      .catch((reason) => showError(`Could not restore the phrase configuration: ${fullError(reason)}`))
+      .finally(() => setRestoringPromptIndex(null));
   };
 
   return (
@@ -1862,18 +1932,101 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
             </label>
           )}
           <p className="credential-note">Choose the saved analysis model from the Channels page after configuring this provider.</p>
-          <label className="analysis-guidance-field">
-            Supplementary extraction guidance
+          <label className="prompt-phrase-field">
+            <span className="prompt-phrase-label">
+              <span>Include recommendation phrases</span>
+              <small>{effectiveIncludePhrases.length} active</small>
+            </span>
             <textarea
-              value={values.analysis_instructions || ""}
-              onChange={(e) => setValues((cur) => ({ ...cur, analysis_instructions: e.target.value }))}
-              placeholder="For example: prioritize EGX table rows, preserve entries and targets exactly as posted, and flag conflicting channel details."
+              value={values.analysis_include_phrases || ""}
+              onChange={(e) => setValues((cur) => ({ ...cur, analysis_include_phrases: e.target.value }))}
+              placeholder="سهم تحت المراقبة، أسهم مرشحة T+1، الشراء باختراق"
               rows={4}
             />
             <span className="credential-note">
-              Optional source-specific guidance sent with each analysis. Fixed EGX eligibility, inquiry separation, and JSON output rules remain enforced.
+              Arabic or English phrases separated by commas. These extend recommendation recognition without replacing the existing prompt.
             </span>
           </label>
+          <label className="prompt-phrase-field">
+            <span className="prompt-phrase-label">
+              <span>Exclude recommendation phrases</span>
+              <small>{excludePhrases.length} active</small>
+            </span>
+            <textarea
+              value={values.analysis_exclude_phrases || ""}
+              onChange={(e) => setValues((cur) => ({ ...cur, analysis_exclude_phrases: e.target.value }))}
+              placeholder="الأسهم الأكثر سيولة، توصية سابقة، تم تحقيق المستهدف"
+              rows={4}
+            />
+            <span className="credential-note">
+              Matching content is excluded from recommendations. Exclude phrases take priority over Include phrases.
+            </span>
+          </label>
+          {conflictingPhrases.length > 0 && (
+            <div className="prompt-guidance-alert warning">
+              <Icon name="warning" />
+              <span>These phrases appear in both boxes and will be excluded: <strong>{conflictingPhrases.join("، ")}</strong></span>
+            </div>
+          )}
+          {promptPhrasesDirty && (
+            <div className="prompt-guidance-alert unsaved">
+              <Icon name="info" />
+              <span>Phrase changes are not active yet. Press Save settings to apply them permanently.</span>
+            </div>
+          )}
+          <div className="prompt-guidance-preview">
+            <div>
+              <strong>Active phrase section preview</strong>
+              <span>This section is appended to the existing prompt; it does not replace it.</span>
+            </div>
+            <pre>{promptPreview}</pre>
+            <p>Phrase guidance influences the model. A recommendation still needs identifiable stock-specific content and an applicable date under the existing prompt rules.</p>
+          </div>
+          <div className="prompt-customization-history">
+            <div className="prompt-customization-heading">
+              <div>
+                <strong>Prompt change log</strong>
+                <span>
+                  Permanent local history of phrase additions, removals, resets, and restores.
+                  {(status?.prompt_customization_history_total ?? 0) > (status?.prompt_customization_history.length ?? 0)
+                    ? ` Showing the latest ${status?.prompt_customization_history.length} of ${status?.prompt_customization_history_total} entries.`
+                    : ""}
+                </span>
+              </div>
+              <button type="button" className="secondary" onClick={resetPrompt} disabled={saving || resettingPrompt}>
+                <Icon name="refresh" /> {resettingPrompt ? "Resetting…" : "Reset to default prompt"}
+              </button>
+            </div>
+            {status?.prompt_customization_error && (
+              <div className="prompt-guidance-alert error">
+                <Icon name="warning" />
+                <span>{status.prompt_customization_error} The Reset button will preserve the damaged file as a local backup before recovery.</span>
+              </div>
+            )}
+            {status?.prompt_customization_history?.length ? (
+              <div className="prompt-history-list">
+                {[...status.prompt_customization_history].reverse().map((entry) => (
+                  <div className="prompt-history-entry" key={`${entry.history_index}-${entry.timestamp}`}>
+                    <div className="prompt-history-entry-heading">
+                      <div>
+                        <strong>{entry.action === "reset" ? "Reset to default" : entry.action === "restored" ? "Configuration restored" : "Phrase guidance updated"}</strong>
+                        <span>{formatCairoDateTime(entry.timestamp)}</span>
+                      </div>
+                      <button type="button" className="secondary compact" onClick={() => restorePrompt(entry.history_index, entry.timestamp)}
+                        disabled={saving || resettingPrompt || restoringPromptIndex !== null}>
+                        <Icon name="history" size={14} /> {restoringPromptIndex === entry.history_index ? "Restoring…" : "Restore"}
+                      </button>
+                    </div>
+                    {entry.include_added.length > 0 && <small>Include added: {entry.include_added.join("، ")}</small>}
+                    {entry.include_removed.length > 0 && <small>Include removed: {entry.include_removed.join("، ")}</small>}
+                    {entry.exclude_added.length > 0 && <small>Exclude added: {entry.exclude_added.join("، ")}</small>}
+                    {entry.exclude_removed.length > 0 && <small>Exclude removed: {entry.exclude_removed.join("، ")}</small>}
+                    {entry.recovered_corrupt_file && <small>Recovered damaged file: {entry.recovered_corrupt_file}</small>}
+                  </div>
+                ))}
+              </div>
+            ) : <p className="empty">No prompt customizations have been recorded.</p>}
+          </div>
           <div className="settings-save-bar">
             <button disabled={saving}>{saving ? "Saving…" : "Save settings"}</button>
           </div>

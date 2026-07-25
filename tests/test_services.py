@@ -19,6 +19,7 @@ from app.ai.service import (
     AIAnalysisService,
     AnalysisOutcome,
     _analysis_result_from_payload,
+    _build_analysis_prompt,
     _image_visual_signature,
     _prepared_image_data_url,
     _visually_same_image,
@@ -36,6 +37,14 @@ from app.reports import ReportService
 from app.analysis_trace import create_selected_input_trace, export_analysis_trace, save_analysis_performance, save_consolidated_response, save_model_validation
 from app.analysis_filter import has_past_recommendation_context, is_non_actionable_stock_update
 from app.analysis_validation import validate_consolidated_output
+from app.prompt_customization import (
+    load_prompt_customization,
+    prompt_customization_block,
+    prompt_customization_path,
+    reset_prompt_customization,
+    restore_prompt_customization,
+    save_prompt_customization,
+)
 from app.repositories import StockRepository
 from app.stock_catalog import EGXStockCatalog, normalize_stock_name
 from app.entry_points import normalize_entry_point
@@ -643,6 +652,113 @@ def test_local_settings_encrypt_secrets(monkeypatch, tmp_path):
     load_secrets_into_environment()
     assert os.environ["OPENAI_API_KEY"] == "test-secret"
     assert os.environ["ANALYSIS_INSTRUCTIONS"] == "Prioritize EGX tables.\nحلل أسهم EGX مع سياق القناة."
+
+
+def test_legacy_supplementary_guidance_is_removed_from_local_secrets(monkeypatch, tmp_path):
+    monkeypatch.setenv("EGX_CONFIG_FILE", str(tmp_path / ".env"))
+    update_config({"ANALYSIS_INSTRUCTIONS": "legacy supplementary guidance"})
+
+    update_config({"ANALYSIS_INSTRUCTIONS": ""})
+
+    assert "ANALYSIS_INSTRUCTIONS" not in os.environ
+    assert "ANALYSIS_INSTRUCTIONS" not in json.loads((tmp_path / "secrets.json").read_text(encoding="utf-8"))
+
+
+def test_prompt_customization_persists_normalized_phrases_and_history(monkeypatch, tmp_path):
+    monkeypatch.setenv("EGX_CONFIG_FILE", str(tmp_path / ".env"))
+
+    saved = save_prompt_customization(
+        "سهم تحت المراقبة، أسهم مرشحة T+1, سهم تحت المراقبة",
+        "الأسهم الأكثر سيولة، سهم تحت المراقبة",
+    )
+
+    assert saved["include_phrases"] == ["أسهم مرشحة T+1"]
+    assert saved["exclude_phrases"] == ["الأسهم الأكثر سيولة", "سهم تحت المراقبة"]
+    assert saved["history"][0]["include_added"] == ["أسهم مرشحة T+1"]
+    assert saved["history"][0]["exclude_added"] == ["الأسهم الأكثر سيولة", "سهم تحت المراقبة"]
+    assert load_prompt_customization()["include_phrases"] == ["أسهم مرشحة T+1"]
+
+
+def test_prompt_customization_extends_base_logic_and_reset_keeps_history(monkeypatch, tmp_path):
+    monkeypatch.setenv("EGX_CONFIG_FILE", str(tmp_path / ".env"))
+    saved = save_prompt_customization("الشراء باختراق", "توصية سابقة")
+    block = prompt_customization_block(saved)
+
+    assert "extends the existing extraction logic without replacing" in block
+    assert "الشراء باختراق" in block
+    assert "توصية سابقة" in block
+    assert "Exclude phrases take priority" in block
+
+    reset = reset_prompt_customization()
+
+    assert reset["include_phrases"] == []
+    assert reset["exclude_phrases"] == []
+    assert [entry["action"] for entry in reset["history"]] == ["updated", "reset"]
+
+
+def test_analysis_prompt_keeps_base_prompt_and_appends_phrase_guidance(monkeypatch, tmp_path):
+    monkeypatch.setenv("EGX_CONFIG_FILE", str(tmp_path / ".env"))
+    save_prompt_customization("سهم تحت المراقبة", "الأسهم الأكثر سيولة")
+
+    prompt = _build_analysis_prompt("UNCHANGED BASE PROMPT", "MESSAGE SOURCE DATA")
+
+    assert prompt.startswith("UNCHANGED BASE PROMPT\n\nMANAGED RECOMMENDATION PHRASE GUIDANCE")
+    assert "Include phrases: سهم تحت المراقبة" in prompt
+    assert "Exclude phrases: الأسهم الأكثر سيولة" in prompt
+    assert "Return only one JSON object" in prompt
+    assert prompt.endswith("MESSAGE SOURCE DATA")
+
+
+def test_prompt_customization_restores_a_historical_configuration(monkeypatch, tmp_path):
+    monkeypatch.setenv("EGX_CONFIG_FILE", str(tmp_path / ".env"))
+    save_prompt_customization("سهم تحت المراقبة", "توصية سابقة")
+    save_prompt_customization("أسهم مرشحة T+1", "الأسهم الأكثر سيولة")
+
+    restored = restore_prompt_customization(0)
+
+    assert restored["include_phrases"] == ["سهم تحت المراقبة"]
+    assert restored["exclude_phrases"] == ["توصية سابقة"]
+    assert restored["history"][-1]["action"] == "restored"
+    assert restored["history"][-1]["restored_from_index"] == 0
+
+
+def test_prompt_customization_reset_recovers_a_damaged_file(monkeypatch, tmp_path):
+    monkeypatch.setenv("EGX_CONFIG_FILE", str(tmp_path / ".env"))
+    prompt_customization_path().write_text("{damaged", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="Reset to default prompt"):
+        prompt_customization_block()
+
+    recovered = reset_prompt_customization()
+
+    assert recovered["include_phrases"] == []
+    assert recovered["history"][-1]["action"] == "reset"
+    assert recovered["history"][-1]["recovered_corrupt_file"]
+    assert list(tmp_path.glob("prompt-customization.corrupt-*.json"))
+
+
+@pytest.mark.asyncio
+async def test_settings_returns_only_recent_prompt_history_with_total(monkeypatch, tmp_path):
+    monkeypatch.setenv("EGX_CONFIG_FILE", str(tmp_path / ".env"))
+    for index in range(55):
+        save_prompt_customization(f"include phrase {index}", "")
+    monkeypatch.setattr(api, "get_settings", lambda: SimpleNamespace(
+        openai_api_key=None,
+        ai_api_key="configured",
+        ai_provider="qwen",
+        telegram_api_id=None,
+        telegram_api_hash=None,
+        telegram_session=str(tmp_path / "telegram"),
+        openai_model="qwen3-vl-plus",
+        ollama_model="qwen3-vl:4b",
+        ollama_base_url="http://127.0.0.1:11434",
+    ))
+
+    status = await api.settings_status()
+
+    assert status["prompt_customization_history_total"] == 55
+    assert len(status["prompt_customization_history"]) == 50
+    assert status["prompt_customization_history"][0]["history_index"] == 5
 
 
 @pytest.mark.asyncio

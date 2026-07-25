@@ -3,8 +3,20 @@ const baseUrl = "http://127.0.0.1:8000";
 export type Channel = { id: number; handle: string; title?: string; active: boolean; analyst_score?: number };
 export type Consensus = { company: string; sentiment: string; confidence: number; buy_count: number; sell_count: number; hold_count: number };
 export type AiProvider = "qwen" | "openrouter" | "huggingface" | "openai" | "ollama";
-export type SettingsStatus = { openai_configured: boolean; ai_configured: boolean; ai_provider: AiProvider; telegram_configured: boolean; telegram_authorized: boolean; openai_model: string; ollama_model: string; ollama_base_url: string; telegram_session: string; analysis_instructions: string };
-export type SettingsInput = { ai_provider?: AiProvider; openai_api_key?: string; openrouter_api_key?: string; huggingface_api_key?: string; qwen_api_key?: string; qwen_base_url?: string; ollama_base_url?: string; ollama_model?: string; openai_model?: string; analysis_instructions?: string; telegram_api_id?: number; telegram_api_hash?: string; telegram_session?: string };
+export type PromptCustomizationHistoryEntry = {
+  history_index: number;
+  timestamp: string;
+  action: "updated" | "reset" | "restored";
+  include_added: string[];
+  include_removed: string[];
+  exclude_added: string[];
+  exclude_removed: string[];
+  restored_from_index?: number;
+  restored_from_timestamp?: string;
+  recovered_corrupt_file?: string;
+};
+export type SettingsStatus = { openai_configured: boolean; ai_configured: boolean; ai_provider: AiProvider; telegram_configured: boolean; telegram_authorized: boolean; openai_model: string; ollama_model: string; ollama_base_url: string; telegram_session: string; analysis_include_phrases: string; analysis_exclude_phrases: string; prompt_customization_history: PromptCustomizationHistoryEntry[]; prompt_customization_history_total: number; prompt_customization_error?: string | null };
+export type SettingsInput = { ai_provider?: AiProvider; openai_api_key?: string; openrouter_api_key?: string; huggingface_api_key?: string; qwen_api_key?: string; qwen_base_url?: string; ollama_base_url?: string; ollama_model?: string; openai_model?: string; analysis_include_phrases?: string; analysis_exclude_phrases?: string; telegram_api_id?: number; telegram_api_hash?: string; telegram_session?: string };
 export type TelegramChat = { id: string; title: string; username: string; kind: string };
 export type DiagnosticEntry = { timestamp?: string; level: string; event: string; request_id?: string; method?: string; path?: string; status_code?: number; duration_ms?: number; error_type?: string };
 export type ContentUpdateStatus = { enabled: boolean; version: string | null; source: string };
@@ -172,6 +184,8 @@ export class ApiClient {
   settings() { return this.request<SettingsStatus>("/settings"); }
   models() { return this.request<string[]>("/models"); }
   saveSettings(values: SettingsInput) { return this.request<SettingsStatus>("/settings", { method: "PUT", body: JSON.stringify(values) }); }
+  resetPromptCustomization() { return this.request<SettingsStatus>("/settings/prompt/reset", { method: "POST" }); }
+  restorePromptCustomization(historyIndex: number) { return this.request<SettingsStatus>(`/settings/prompt/restore/${historyIndex}`, { method: "POST" }); }
   requestTelegramCode(phone: string) { return this.request<{ status: string }>("/telegram/request-code", { method: "POST", body: JSON.stringify({ phone }) }); }
   verifyTelegramCode(code: string, password?: string) { return this.request<{ authorized: boolean }>("/telegram/verify-code", { method: "POST", body: JSON.stringify({ code, password }) }); }
   telegramChats() { return this.request<TelegramChat[]>("/telegram/chats"); }

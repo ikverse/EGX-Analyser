@@ -92,3 +92,5 @@ def update_config(values: dict[str, str]) -> None:
     _write_public(public)
     if encrypted:
         secret_file.write_text(json.dumps(encrypted), encoding="utf-8")
+    elif secret_file.exists():
+        secret_file.write_text("{}", encoding="utf-8")

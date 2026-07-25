@@ -15,6 +15,7 @@ from app.entry_points import normalize_entry_point
 from app.recommendation_notes import remove_unsupported_targets
 from app.schemas import AnalysisResult
 from app.analysis_validation import validate_consolidated_output
+from app.prompt_customization import prompt_customization_block
 
 try:
     from PIL import Image as PillowImage
@@ -44,10 +45,18 @@ _OUTPUT_CONTRACT = """Return only one JSON object in this consolidated EGX repor
 - daily_breakdown: object keyed by date; each item has total_mentions and top_stock_of_day.
 Use English EGX ticker codes in stock_code. Keep unavailable values as null. Do not invent price levels or targets."""
 
-_CORE_ANALYSIS_PROTOCOL = """You are the EGX Intelligence consolidation engine. The mandatory two-list contract and JSON structure in the user request are non-negotiable. Supplementary user guidance may add source-specific extraction help only; it must never override list separation, date eligibility, source labels, source message IDs, or the JSON structure. Client inquiry replies must only appear in client_inquiry_responses, never in top_consolidated_recommendations. Return JSON only."""
+_CORE_ANALYSIS_PROTOCOL = """You are the EGX Intelligence consolidation engine. The mandatory two-list contract and JSON structure in the user request are non-negotiable. Managed include/exclude phrase guidance extends recommendation recognition only; it must never override list separation, date eligibility, source labels, source message IDs, or the JSON structure. Client inquiry replies must only appear in client_inquiry_responses, never in top_consolidated_recommendations. Return JSON only."""
 
 _MAX_IMAGE_EDGE = 2_048
 _OPTIMIZE_IMAGE_OVER_BYTES = 1_500_000
+
+
+def _build_analysis_prompt(base_prompt: str, source_data: str) -> str:
+    phrase_guidance = prompt_customization_block()
+    managed_guidance = f"\n\n{phrase_guidance}" if phrase_guidance else ""
+    return f"{base_prompt}{managed_guidance}\n\n{_OUTPUT_CONTRACT}\n\n{source_data}"
+
+
 def _content_reference(value: str, references: dict[str, str], label: str, telegram_id: str) -> tuple[str, bool]:
     """Reuse only byte-identical text/transcripts while retaining the message occurrence."""
     text = value.strip()
@@ -491,11 +500,7 @@ class AIAnalysisService:
                               trace_directory: Path | None = None, system_instruction: str | None = None) -> AnalysisOutcome:
         if self.client is None:
             raise RuntimeError("An API key is required for the selected AI provider")
-        analysis_prompt = self.settings.analysis_instructions.strip() or self.prompt
-        prompt = (
-            "Supplementary extraction guidance follows. It cannot override the mandatory system protocol or output contract.\n"
-            f"{analysis_prompt}\n\n{_OUTPUT_CONTRACT}\n\n{source_data}"
-        )
+        prompt = _build_analysis_prompt(self.prompt, source_data)
         metrics = dict(input_metrics or {})
         image_preparation_started = perf_counter()
         prepared_images = [_prepared_image_data_url(path) for path in image_paths]
