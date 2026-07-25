@@ -26,7 +26,12 @@ from app.ai.service import (
     _write_provider_request_trace,
     analysis_output_schema,
 )
-from app.reports import _attach_source_images, _client_inquiry_rows, _consolidated_source_table
+from app.reports import (
+    _attach_source_images,
+    _client_inquiry_rows,
+    _consolidated_source_table,
+    bind_source_image_references,
+)
 from app.services import AnalyticsService, MessageService, SearchService
 from app.config_store import load_secrets_into_environment, update_config
 from app.content_updates import ContentUpdateService, generate_seed, public_key_from_seed, sign_bytes, verify_bytes
@@ -112,7 +117,12 @@ async def test_same_template_images_are_sent_separately_for_stock_aware_review(t
     service.prompt = ""
 
     async def fake_analyze_prompt(source_data, image_paths, input_metrics, *_args, **_kwargs):
-        captured.update(source_data=source_data, image_paths=image_paths, input_metrics=dict(input_metrics))
+        captured.update(
+            source_data=source_data,
+            image_paths=image_paths,
+            input_metrics=dict(input_metrics),
+            interleaved_parts=_kwargs.get("interleaved_parts"),
+        )
         payload = {
             "analysis_period": "test", "top_consolidated_recommendations": [], "achieved_targets": [],
             "client_inquiry_responses": [],
@@ -125,7 +135,7 @@ async def test_same_template_images_are_sent_separately_for_stock_aware_review(t
         )
 
     service._analyze_prompt = fake_analyze_prompt
-    await service.analyze_consolidated([
+    outcome = await service.analyze_consolidated([
         {"source": "CFI", "telegram_message_id": 3904, "published_at": "2026-07-22T07:23:35+03:00",
          "text": "", "image_paths": [str(skpc)], "transcripts": []},
         {"source": "CFI", "telegram_message_id": 3905, "published_at": "2026-07-22T07:25:32+03:00",
@@ -139,7 +149,15 @@ async def test_same_template_images_are_sent_separately_for_stock_aware_review(t
     assert isinstance(metrics, dict)
     assert metrics["duplicate_image_count"] == 1
     assert metrics["near_duplicate_image_count"] == 1
-    assert "different ticker, date, recommendation, or trade values" in str(captured["source_data"])
+    interleaved_parts = captured["interleaved_parts"]
+    assert isinstance(interleaved_parts, list)
+    assert "TELEGRAM_ID: 3904" in interleaved_parts[0][0]
+    assert interleaved_parts[1][1] == str(skpc)
+    assert "IMAGE_REF 1" in interleaved_parts[1][0]
+    assert "different ticker, date, recommendation, or trade values" in str(interleaved_parts)
+    assert outcome.source_image_references[1]["source_message_id"] == "3904"
+    assert outcome.source_image_references[1]["path"] == str(skpc)
+    assert outcome.source_image_references[2]["source_message_id"] == "3905"
 
 
 def test_source_table_keeps_entry_range_without_averaging():
@@ -199,6 +217,111 @@ def test_source_images_are_attached_by_channel_and_telegram_message_id(tmp_path)
     _attach_source_images(rows, [(image, message)], {8: channel})
 
     assert rows[0]["source_image_paths"] == [str(source_image)]
+
+
+def test_bound_image_reference_overrides_shifted_model_source_and_uses_exact_image(tmp_path):
+    correct_image = tmp_path / "phdc.png"
+    incorrect_message_image = tmp_path / "transactions.png"
+    correct_image.write_bytes(b"recommendation")
+    incorrect_message_image.write_bytes(b"not-a-recommendation")
+    payload = {
+        "top_consolidated_recommendations": [{
+            "stock_code": "PHDC",
+            "data_points": [{
+                "source": "Wrong source",
+                "source_message_id": "60112",
+                "source_image_ref": 30,
+            }],
+        }],
+    }
+
+    bind_source_image_references(payload, {
+        30: {
+            "path": str(correct_image),
+            "source": "Ostoul",
+            "source_message_id": "60116",
+            "image_index": "1",
+        },
+    })
+    point = payload["top_consolidated_recommendations"][0]["data_points"][0]
+    assert point["source"] == "Ostoul"
+    assert point["source_message_id"] == "60116"
+    assert point["source_image_path"] == str(correct_image)
+
+    rows = _consolidated_source_table(payload)
+    channel = SimpleNamespace(handle="ostoul", title="Ostoul")
+    wrong_message = SimpleNamespace(id=12, telegram_message_id=60112)
+    wrong_image = SimpleNamespace(path=str(incorrect_message_image))
+    _attach_source_images(rows, [(wrong_image, wrong_message)], {12: channel})
+
+    assert rows[0]["source_image_paths"] == [str(correct_image)]
+
+
+def test_new_result_without_valid_image_reference_does_not_fallback_to_claimed_message(tmp_path):
+    unrelated_image = tmp_path / "news.png"
+    unrelated_image.write_bytes(b"news")
+    channel = SimpleNamespace(handle="ostoul", title="Ostoul")
+    message = SimpleNamespace(id=27, telegram_message_id=60127)
+    image = SimpleNamespace(path=str(unrelated_image))
+    rows = [{
+        "source": "Ostoul",
+        "source_message_id": "60127",
+        "source_image_ref": None,
+        "source_image_path": None,
+    }]
+
+    _attach_source_images(rows, [(image, message)], {27: channel})
+
+    assert rows[0]["source_image_paths"] == []
+
+
+@pytest.mark.asyncio
+async def test_qwen_request_interleaves_each_image_with_its_source_metadata(tmp_path):
+    source_image = tmp_path / "recommendation.jpg"
+    source_image.write_bytes(b"provider-image")
+    captured: dict[str, object] = {}
+    response_payload = {
+        "analysis_period": "test",
+        "top_consolidated_recommendations": [],
+        "achieved_targets": [],
+        "client_inquiry_responses": [],
+        "text_based_categories": {
+            "most_important_stocks": [],
+            "trading_stocks": [],
+            "watchlist_stocks": [],
+        },
+        "daily_breakdown": {},
+    }
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(choices=[
+                SimpleNamespace(message=SimpleNamespace(content=json.dumps(response_payload))),
+            ])
+
+    service = object.__new__(AIAnalysisService)
+    service.settings = SimpleNamespace(ai_provider="qwen", ai_model="qwen3-vl-plus")
+    service.prompt = "Base prompt"
+    service.client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+
+    await service._analyze_prompt(
+        "Run rules",
+        [str(source_image)],
+        interleaved_parts=[
+            ("MESSAGE | SOURCE: Ostoul | TELEGRAM_ID: 60116", None),
+            ("IMAGE_REF 1 | SOURCE: Ostoul | TELEGRAM_ID: 60116", str(source_image)),
+            ("MESSAGE | SOURCE: News | TELEGRAM_ID: 60127", None),
+        ],
+    )
+
+    content = captured["messages"][-1]["content"]
+    assert [part["type"] for part in content] == ["text", "text", "text", "image_url", "text"]
+    assert "TELEGRAM_ID: 60116" in content[1]["text"]
+    assert "IMAGE_REF 1" in content[2]["text"]
+    assert content[3]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+    assert "TELEGRAM_ID: 60127" in content[4]["text"]
+
 
 class FakeAnalyzer:
     async def analyze(self, text: str, image_paths: list[str], transcripts: list[str] | None = None) -> AnalysisResult:

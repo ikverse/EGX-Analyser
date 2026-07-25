@@ -24,7 +24,7 @@ from app.content_updates import ContentUpdateError, ContentUpdateService
 from app.database import get_session
 from app.diagnostics import diagnostics_path, logger, recent_entries
 from app.models import Channel, Image, Media, Message, Recommendation, Report, Stock
-from app.reports import ReportService, _attach_source_images, ensure_stock_notes_summaries
+from app.reports import ReportService, _attach_source_images, bind_source_image_references, ensure_stock_notes_summaries
 from app.stock_catalog import EGXStockCatalog
 from app.schemas import (ChannelUpdate, CollectionRequest, DailyReportRequest, MessageCreate, SearchRequest, SettingsUpdate, TelegramChatSelect,
                          TelegramCodeRequest, TelegramCodeVerification)
@@ -443,6 +443,7 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
         consolidated_source = json.loads(outcome.raw_response)
         if not isinstance(consolidated_source, dict):
             raise RuntimeError("The AI provider returned a non-object response for the consolidated analysis")
+        bind_source_image_references(consolidated_source, outcome.source_image_references)
         catalog_started = perf_counter()
         catalog = egx_catalog(session)
         catalog_refresh = await catalog.ensure()

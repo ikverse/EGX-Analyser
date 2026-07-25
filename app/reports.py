@@ -514,6 +514,33 @@ def ensure_stock_notes_summaries(rows: list[dict]) -> list[dict]:
     return rows
 
 
+def bind_source_image_references(payload: dict, references: dict[int, dict[str, str]]) -> None:
+    """Bind model IMAGE_REF values to trusted local source metadata and paths."""
+    collections: list[object] = [
+        item.get("data_points", [])
+        for item in payload.get("top_consolidated_recommendations", [])
+        if isinstance(item, dict)
+    ]
+    collections.append(payload.get("client_inquiry_responses", []))
+    for collection in collections:
+        if not isinstance(collection, list):
+            continue
+        for point in collection:
+            if not isinstance(point, dict):
+                continue
+            try:
+                reference = int(point.get("source_image_ref"))
+            except (TypeError, ValueError):
+                continue
+            source = references.get(reference)
+            if source is None:
+                continue
+            point["source_image_ref"] = reference
+            point["source"] = source["source"]
+            point["source_message_id"] = source["source_message_id"]
+            point["source_image_path"] = source["path"]
+
+
 def _consolidated_source_table(payload: dict) -> list[dict]:
     """Create one display row for every model-returned recommendation data point.
 
@@ -537,6 +564,8 @@ def _consolidated_source_table(payload: dict) -> list[dict]:
                 "company_ar": str(item.get("stock_name_ar") or ""),
                 "source": source,
                 "source_message_id": str(point.get("source_message_id") or "") or None,
+                "source_image_ref": point.get("source_image_ref"),
+                "source_image_path": str(point.get("source_image_path") or "") or None,
                 "source_entries": 1,
                 "source_dates": [str(point["date"])[:10]] if point.get("date") else [],
                 "latest_date": str(point["date"])[:10] if point.get("date") else None,
@@ -582,6 +611,10 @@ def _attach_source_images(
         by_telegram_message.setdefault(telegram_message_id, []).append(image.path)
 
     for row in rows:
+        exact_path = str(row.get("source_image_path") or "").strip()
+        if "source_image_ref" in row:
+            row["source_image_paths"] = [exact_path] if exact_path and Path(exact_path).is_file() else []
+            continue
         source_message_id = str(row.get("source_message_id") or "").strip()
         source = str(row.get("source") or "").strip().casefold()
         paths = by_source_and_message.get((source, source_message_id), [])

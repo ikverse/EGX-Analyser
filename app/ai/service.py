@@ -33,6 +33,7 @@ class AnalysisOutcome:
     validation_warnings: list[str] = field(default_factory=list)
     correction_attempted: bool = False
     retry_audit: dict[str, Any] = field(default_factory=dict)
+    source_image_references: dict[int, dict[str, str]] = field(default_factory=dict)
 
 
 _OUTPUT_CONTRACT = """Return only one JSON object in this consolidated EGX report structure:
@@ -47,6 +48,8 @@ Use English EGX ticker codes in stock_code. Keep unavailable values as null. Do 
 
 _CORE_ANALYSIS_PROTOCOL = """You are the EGX Intelligence consolidation engine. The mandatory two-list contract and JSON structure in the user request are non-negotiable. Managed include/exclude phrase guidance extends recommendation recognition only; it must never override list separation, date eligibility, source labels, source message IDs, or the JSON structure. Client inquiry replies must only appear in client_inquiry_responses, never in top_consolidated_recommendations. Return JSON only."""
 
+_IMAGE_REFERENCE_CONTRACT = """IMAGE TRACEABILITY: Every image is placed directly after its immutable IMAGE_REF metadata block. For every data point whose evidence comes from an image, return source_image_ref as that exact IMAGE_REF integer. For text-only or audio-only evidence, return source_image_ref as null. Never copy an IMAGE_REF, stock identity, recommendation, date, or values from a neighboring image. A source_image_ref is supporting traceability only; an image must still satisfy every recommendation-context and date rule before it can be included."""
+
 _MAX_IMAGE_EDGE = 2_048
 _OPTIMIZE_IMAGE_OVER_BYTES = 1_500_000
 
@@ -54,7 +57,7 @@ _OPTIMIZE_IMAGE_OVER_BYTES = 1_500_000
 def _build_analysis_prompt(base_prompt: str, source_data: str) -> str:
     phrase_guidance = prompt_customization_block()
     managed_guidance = f"\n\n{phrase_guidance}" if phrase_guidance else ""
-    return f"{base_prompt}{managed_guidance}\n\n{_OUTPUT_CONTRACT}\n\n{source_data}"
+    return f"{base_prompt}{managed_guidance}\n\n{_OUTPUT_CONTRACT}\n\n{_IMAGE_REFERENCE_CONTRACT}\n\n{source_data}"
 
 
 def _content_reference(value: str, references: dict[str, str], label: str, telegram_id: str) -> tuple[str, bool]:
@@ -374,9 +377,12 @@ class AIAnalysisService:
         ]
         image_paths: list[str] = []
         image_references: dict[str, int] = {}
+        source_image_references: dict[int, dict[str, str]] = {}
         image_visual_signatures: list[tuple[bytes, int]] = []
         text_references: dict[str, str] = {}
         transcript_references: dict[str, str] = {}
+        interleaved_parts: list[tuple[str, str | None]] = []
+        source_prelude = "\n".join(parts)
         metrics = {
             "logical_message_count": len(messages),
             "logical_image_count": 0,
@@ -393,10 +399,10 @@ class AIAnalysisService:
             text, reused_text = _content_reference(original_text, text_references, "TEXT_REF", telegram_id)
             metrics["reused_text_count"] += int(reused_text)
             transcripts = item.get("transcripts") if isinstance(item.get("transcripts"), list) else []
-            parts.extend([
-                "", f"--- MESSAGE | SOURCE: {source} | DATE: {timestamp} | TELEGRAM_ID: {telegram_id} ---",
+            message_parts = [
+                f"--- MESSAGE | SOURCE: {source} | DATE: {timestamp} | TELEGRAM_ID: {telegram_id} ---",
                 text or "[No text]",
-            ])
+            ]
             if transcripts:
                 original_transcript = "\n".join(str(value) for value in transcripts if value).strip()
                 transcript, reused_transcript = _content_reference(
@@ -404,14 +410,15 @@ class AIAnalysisService:
                 )
                 metrics["reused_transcript_count"] += int(reused_transcript)
                 if transcript:
-                    parts.append("Audio transcript:\n" + transcript)
+                    message_parts.append("Audio transcript:\n" + transcript)
+            interleaved_parts.append(("\n".join(message_parts), None))
             for index, image_path in enumerate(item.get("image_paths") or [], start=1):
                 metrics["logical_image_count"] += 1
                 path = str(image_path)
                 try:
                     digest = _image_digest(path)
                 except OSError:
-                    parts.append(f"Image {index} is unavailable and was not sent.")
+                    interleaved_parts.append((f"Image {index} is unavailable and was not sent.", None))
                     continue
                 reference = image_references.get(digest)
                 visual_signature = _image_visual_signature(path)
@@ -423,28 +430,46 @@ class AIAnalysisService:
                     ), None)
                 if reference is not None:
                     metrics["duplicate_image_count"] += 1
-                    parts.append(
+                    interleaved_parts.append((
                         f"Image {index} is an exact byte-for-byte duplicate of IMAGE_REF {reference}. "
-                        "Do not create another data point for this repost; the raw input trace preserves its source occurrence."
-                    )
+                        "Do not create another data point for this repost; the raw input trace preserves its source occurrence.",
+                        None,
+                    ))
                     continue
                 reference = len(image_paths) + 1
                 image_references[digest] = reference
+                source_image_references[reference] = {
+                    "path": path,
+                    "source": source,
+                    "source_message_id": telegram_id,
+                    "image_index": str(index),
+                }
                 if visual_signature is not None:
                     image_visual_signatures.append((visual_signature, reference))
                 if similar_reference is not None:
                     metrics["near_duplicate_image_count"] += 1
-                    parts.append(
-                        f"Image {index} for this message is IMAGE_REF {reference}; it follows below. "
+                    image_label = (
+                        f"IMAGE_REF {reference} | SOURCE: {source} | TELEGRAM_ID: {telegram_id} | "
+                        f"MESSAGE_IMAGE_INDEX: {index}. The referenced image is immediately below. "
                         f"It visually resembles IMAGE_REF {similar_reference} and may share the same template, but it can contain "
                         "a different ticker, date, recommendation, or trade values. Read it independently and merge the two only "
                         "when their visible stock identity and recommendation details actually match."
                     )
                 else:
-                    parts.append(f"Image {index} for this message is IMAGE_REF {reference}; it follows below.")
+                    image_label = (
+                        f"IMAGE_REF {reference} | SOURCE: {source} | TELEGRAM_ID: {telegram_id} | "
+                        f"MESSAGE_IMAGE_INDEX: {index}. The referenced image is immediately below."
+                    )
+                interleaved_parts.append((image_label, path))
                 image_paths.append(path)
-        source_data = "\n".join(parts)
-        initial = await self._analyze_prompt(source_data, image_paths, metrics, trace_directory, _CORE_ANALYSIS_PROTOCOL)
+        initial = await self._analyze_prompt(
+            source_prelude,
+            image_paths,
+            metrics,
+            trace_directory,
+            _CORE_ANALYSIS_PROTOCOL,
+            interleaved_parts=interleaved_parts,
+        )
         initial_metrics = dict(initial.input_metrics)
         initial_payload = json.loads(initial.raw_response)
         warnings = validate_consolidated_output(initial_payload, messages)
@@ -456,7 +481,7 @@ class AIAnalysisService:
                 (trace_directory / "initial-ai-response.json").write_text(initial.raw_response, encoding="utf-8")
             correction_findings = "\n".join(f"- {warning}" for warning in warnings)
             correction_source = (
-                f"{source_data}\n\nMANDATORY CORRECTION PASS\n"
+                f"{source_prelude}\n\nMANDATORY CORRECTION PASS\n"
                 "The prior draft failed the provenance checks below. Re-read every source image independently and return a complete "
                 "replacement JSON object. Exclude rows without an explicit recommendation cue, remove completed/previous trades, "
                 "do not reuse one image's values for another stock or message, and consolidate reposted/identical recommendations into "
@@ -466,6 +491,7 @@ class AIAnalysisService:
             corrected = await self._analyze_prompt(
                 correction_source, image_paths, metrics, trace_directory,
                 f"{_CORE_ANALYSIS_PROTOCOL} This is a mandatory correction pass. Resolve every listed provenance finding.",
+                interleaved_parts=interleaved_parts,
             )
             corrected_payload = json.loads(corrected.raw_response)
             final_warnings = validate_consolidated_output(corrected_payload, messages)
@@ -494,16 +520,22 @@ class AIAnalysisService:
                 "final_validation_warnings": final_warnings,
                 "final_response_path": "consolidated-ai-response.json",
             },
+            source_image_references=source_image_references,
         )
 
     async def _analyze_prompt(self, source_data: str, image_paths: list[str], input_metrics: dict[str, int] | None = None,
-                              trace_directory: Path | None = None, system_instruction: str | None = None) -> AnalysisOutcome:
+                              trace_directory: Path | None = None, system_instruction: str | None = None,
+                              interleaved_parts: list[tuple[str, str | None]] | None = None) -> AnalysisOutcome:
         if self.client is None:
             raise RuntimeError("An API key is required for the selected AI provider")
         prompt = _build_analysis_prompt(self.prompt, source_data)
         metrics = dict(input_metrics or {})
         image_preparation_started = perf_counter()
         prepared_images = [_prepared_image_data_url(path) for path in image_paths]
+        prepared_by_path = dict(zip(image_paths, prepared_images, strict=True))
+        trace_prompt = prompt
+        if interleaved_parts:
+            trace_prompt = "\n\n".join([prompt, *[text for text, _ in interleaved_parts if text]])
         metrics.update({
             "unique_image_count": len(prepared_images),
             "original_image_bytes": sum(item[1] for item in prepared_images),
@@ -514,13 +546,21 @@ class AIAnalysisService:
         })
         if trace_directory is not None:
             trace_write_started = perf_counter()
-            _write_provider_request_trace(trace_directory, prompt, prepared_images)
+            _write_provider_request_trace(trace_directory, trace_prompt, prepared_images)
             metrics["provider_trace_write_ms"] = round((perf_counter() - trace_write_started) * 1000)
         request_started = perf_counter()
         if self.settings.ai_provider != "openai":
             content: list[dict[str, object]] = [{"type": "text", "text": prompt}]
-            for data_url, _, _, _ in prepared_images:
-                content.append({"type": "image_url", "image_url": {"url": data_url}})
+            if interleaved_parts:
+                for text, image_path in interleaved_parts:
+                    if text:
+                        content.append({"type": "text", "text": text})
+                    if image_path:
+                        data_url = prepared_by_path[image_path][0]
+                        content.append({"type": "image_url", "image_url": {"url": data_url}})
+            else:
+                for data_url, _, _, _ in prepared_images:
+                    content.append({"type": "image_url", "image_url": {"url": data_url}})
             response_format: dict[str, object] = {"type": "json_object"}
             request_messages: list[dict[str, object]] = []
             if system_instruction:
@@ -537,8 +577,16 @@ class AIAnalysisService:
             return AnalysisOutcome(result=_analysis_result_from_payload(json.loads(output)), raw_response=output, input_metrics=metrics)
 
         content = [{"type": "input_text", "text": prompt}]
-        for data_url, _, _, _ in prepared_images:
-            content.append({"type": "input_image", "image_url": data_url, "detail": "high"})
+        if interleaved_parts:
+            for text, image_path in interleaved_parts:
+                if text:
+                    content.append({"type": "input_text", "text": text})
+                if image_path:
+                    data_url = prepared_by_path[image_path][0]
+                    content.append({"type": "input_image", "image_url": data_url, "detail": "high"})
+        else:
+            for data_url, _, _, _ in prepared_images:
+                content.append({"type": "input_image", "image_url": data_url, "detail": "high"})
         response = await self.client.responses.create(
             model=self.settings.ai_model,
             input=[{"role": "user", "content": content}],

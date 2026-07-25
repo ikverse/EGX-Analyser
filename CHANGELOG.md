@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.106
+- Interleaved every analysis image directly with its source, timestamp, Telegram message ID, and immutable image reference in Qwen and compatible multimodal requests.
+- Added exact image-reference traceability so model-returned recommendation rows bind to trusted local source metadata instead of shifted or fabricated message IDs.
+- Prevented new results without a valid image reference from falling back to an unrelated message image while preserving legacy saved-result compatibility.
+- Added regression coverage for interleaved provider content, shifted source correction, exact image linking, and safe missing-reference behavior.
+
 ## v0.1.105
 - Replaced Supplementary extraction guidance with permanent Include and Exclude phrase controls that extend the unchanged base analysis prompt.
 - Added phrase normalization, exclusion priority, conflict warnings, unsaved-change feedback, active counts, and an effective prompt-section preview.
