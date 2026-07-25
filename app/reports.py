@@ -357,7 +357,7 @@ def _consolidated_source_counts(payload: dict) -> dict[str, dict[str, int]]:
 
 _SOURCE_VALUE_FIELDS = (
     "buy_price", "buy_price_low", "buy_price_high", "target_1", "target_2", "stop_loss", "support", "resistance",
-    "expected_return_pct", "risk_pct",
+    "expected_return_pct", "risk_pct", "visible_source_date", "date_evidence", "timing_evidence",
 )
 
 _T_PLUS_ONE_RE = re.compile(

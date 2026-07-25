@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.107
+- Required the model to distinguish explicit-date recommendations from T+1 recommendations using visible source dates and exact contextual evidence.
+- Accepted clear Arabic and English next-session equivalents only when they belong to the same stock recommendation, without inferring T+1 from a previous-day date alone.
+- Added a mandatory model date-eligibility self-audit that excludes unsupported rows before ranking, categorization, mention counting, and Notes generation.
+- Preserved visible source dates, date evidence, and timing evidence with saved result rows while keeping semantic analysis in the configured model.
+
 ## v0.1.106
 - Interleaved every analysis image directly with its source, timestamp, Telegram message ID, and immutable image reference in Qwen and compatible multimodal requests.
 - Added exact image-reference traceability so model-returned recommendation rows bind to trusted local source metadata instead of shifted or fabricated message IDs.

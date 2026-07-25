@@ -158,6 +158,11 @@ async def test_same_template_images_are_sent_separately_for_stock_aware_review(t
     assert outcome.source_image_references[1]["source_message_id"] == "3904"
     assert outcome.source_image_references[1]["path"] == str(skpc)
     assert outcome.source_image_references[2]["source_message_id"] == "3905"
+    source_data = str(captured["source_data"])
+    assert "جلسة الغد" in source_data
+    assert "next trading day" in source_data
+    assert "merely being one day earlier does not qualify" in source_data
+    assert "MANDATORY DATE ELIGIBILITY SELF-AUDIT" in source_data
 
 
 def test_source_table_keeps_entry_range_without_averaging():
@@ -167,6 +172,8 @@ def test_source_table_keeps_entry_range_without_averaging():
             "rank": 1, "mention_count": 1, "status": "active", "data_points": [{
                 "date": "2026-07-16", "source": "CFI", "buy_price": None,
                 "buy_price_low": 24.5, "buy_price_high": 25.2,
+                "visible_source_date": "2026-07-16", "date_evidence": "16-Jul-2026",
+                "timing_evidence": None,
             }],
         }],
     }
@@ -175,6 +182,9 @@ def test_source_table_keeps_entry_range_without_averaging():
     assert row["buy_price"] is None
     assert row["buy_price_low"] == 24.5
     assert row["buy_price_high"] == 25.2
+    assert row["visible_source_date"] == "2026-07-16"
+    assert row["date_evidence"] == "16-Jul-2026"
+    assert row["timing_evidence"] is None
 
 
 def test_qwen_models_return_every_accessible_model():
@@ -829,6 +839,8 @@ def test_analysis_prompt_keeps_base_prompt_and_appends_phrase_guidance(monkeypat
     assert "Include phrases: سهم تحت المراقبة" in prompt
     assert "Exclude phrases: الأسهم الأكثر سيولة" in prompt
     assert "Return only one JSON object" in prompt
+    assert "Every image-derived data point must also contain visible_source_date" in prompt
+    assert "For explicit_date, timing_evidence must be null" in prompt
     assert prompt.endswith("MESSAGE SOURCE DATA")
 
 

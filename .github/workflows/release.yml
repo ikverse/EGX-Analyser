@@ -1,5 +1,5 @@
 name: Publish desktop update
-run-name: ${{ github.ref_name }} - Fix recommendation image provenance and source linking
+run-name: ${{ github.ref_name }} - Require contextual T+1 and visible date evidence
 
 on:
   push:

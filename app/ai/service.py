@@ -50,6 +50,8 @@ _CORE_ANALYSIS_PROTOCOL = """You are the EGX Intelligence consolidation engine. 
 
 _IMAGE_REFERENCE_CONTRACT = """IMAGE TRACEABILITY: Every image is placed directly after its immutable IMAGE_REF metadata block. For every data point whose evidence comes from an image, return source_image_ref as that exact IMAGE_REF integer. For text-only or audio-only evidence, return source_image_ref as null. Never copy an IMAGE_REF, stock identity, recommendation, date, or values from a neighboring image. A source_image_ref is supporting traceability only; an image must still satisfy every recommendation-context and date rule before it can be included."""
 
+_DATE_EVIDENCE_CONTRACT = """DATE TRACEABILITY: Every image-derived data point must also contain visible_source_date, date_evidence, and timing_evidence. visible_source_date is the date visibly written in that same image/message, normalized as YYYY-MM-DD. date_evidence is a short exact visible date phrase copied from that same source. For explicit_date, timing_evidence must be null. For t_plus_1, timing_evidence must be a short exact phrase from the same recommendation context that explicitly means T+1 or the next trading session. Never infer, manufacture, translate, or borrow date/timing evidence from the Telegram timestamp, another image, another stock, or the fact that a source date happens to precede the target date."""
+
 _MAX_IMAGE_EDGE = 2_048
 _OPTIMIZE_IMAGE_OVER_BYTES = 1_500_000
 
@@ -57,7 +59,10 @@ _OPTIMIZE_IMAGE_OVER_BYTES = 1_500_000
 def _build_analysis_prompt(base_prompt: str, source_data: str) -> str:
     phrase_guidance = prompt_customization_block()
     managed_guidance = f"\n\n{phrase_guidance}" if phrase_guidance else ""
-    return f"{base_prompt}{managed_guidance}\n\n{_OUTPUT_CONTRACT}\n\n{_IMAGE_REFERENCE_CONTRACT}\n\n{source_data}"
+    return (
+        f"{base_prompt}{managed_guidance}\n\n{_OUTPUT_CONTRACT}\n\n"
+        f"{_IMAGE_REFERENCE_CONTRACT}\n\n{_DATE_EVIDENCE_CONTRACT}\n\n{source_data}"
+    )
 
 
 def _content_reference(value: str, references: dict[str, str], label: str, telegram_id: str) -> tuple[str, bool]:
@@ -317,12 +322,16 @@ class AIAnalysisService:
             "general commentary, non-EGX material, and stock discussion without an explicit actionable recommendation and an effective date. "
             "Only include active, actionable EGX BUY or SELL recommendations from LIST 2 intended for the target effective trading date. "
             "A candidate is valid only when its selected text, image, or audio has a visible/explicit effective date equal to the target date. "
-            f"The sole prior-date exception is a visible date of {previous_target_date} together with the literal token T+1. "
-            "For that exception, output data_points[].date as the target date and data_points[].effective_date_basis as t_plus_1. "
-            "Do not treat tomorrow, next session, Arabic equivalents, or any other wording as a prior-date exception. "
+            f"The sole prior-date exception is a visible date of {previous_target_date} together with explicit wording in the same "
+            "stock recommendation context that means T+1 or the next trading session. Accepted meanings include literal T+1 and "
+            "clear equivalents such as جلسة الغد, تداول الغد, الجلسة القادمة, الجلسة التالية, next session, next trading day, "
+            "or tomorrow's session. The wording must explicitly apply to that exact recommendation; a generic caption, disclaimer, "
+            "neighboring image, Telegram posting date, or merely being one day earlier does not qualify. For that exception, output "
+            "data_points[].date as the target date and data_points[].effective_date_basis as t_plus_1. "
             "Undated stock tables, watchlists, charts, and price levels MUST be excluded; never infer their effective date from "
             "the Telegram posting time alone. data_points[].date must be the effective recommendation date, not the post date. "
-            "Set data_points[].effective_date_basis to explicit_date when the target date is written, or to t_plus_1 only for the literal T+1 exception. "
+            "Set data_points[].effective_date_basis to explicit_date only when the visible source date equals the target date, or "
+            "to t_plus_1 only for the explicit same-context timing exception. "
             "Exclude recommendations whose effective date is missing, ambiguous, already past, or different from the target date.",
             "OUTPUT PRIORITY: First extract every valid dated recommendation table, chart, image, text, or audio signal from LIST 2 that is "
             "intended for the target effective date into top_consolidated_recommendations. For each source row, preserve entry, "
@@ -374,6 +383,12 @@ class AIAnalysisService:
             "Mention each meaning once. Preserve distinct insights such as T+1, watchlist status, entry range, targets, stop loss, and "
             "risk warnings. Do not paste, enumerate, or paraphrase whole source messages, captions, tables, or image text. Keep source, "
             "source_message_id, and per-source values only in data_points for traceability. Keep notes_summary under 60 Arabic words.",
+            "MANDATORY DATE ELIGIBILITY SELF-AUDIT BEFORE RETURNING JSON: Re-read every proposed data point against its own source image "
+            "or message. Keep explicit_date only when visible_source_date equals the target date and date_evidence exactly supports it; "
+            "timing_evidence must then be null. Keep t_plus_1 only when visible_source_date equals the stated prior date and non-empty "
+            "timing_evidence exactly quotes T+1 or a clear next-trading-session equivalent from that same stock recommendation context. "
+            "If any required evidence is absent, belongs to another image/stock, or conflicts with the selected basis, remove the data "
+            "point completely before ranking, categorizing, counting mentions, or writing notes_summary.",
         ]
         image_paths: list[str] = []
         image_references: dict[str, int] = {}

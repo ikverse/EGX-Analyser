@@ -52,6 +52,9 @@ export type StockSourceTableRow = {
   source_dates: string[];
   latest_date?: string | null;
   effective_date_bases?: string[];
+  visible_source_date?: string | null;
+  date_evidence?: string | null;
+  timing_evidence?: string | null;
   mention_count: number;
   status?: string;
   analysis_summary_ar?: string;
