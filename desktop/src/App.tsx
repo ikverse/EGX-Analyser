@@ -856,18 +856,25 @@ function Channels({ channels, settings, api, refresh, notify, showError, analysi
           ))}
         </fieldset>
         <div className="analysis-action-bar">
-          <ModelSelector
-            api={api}
-            configured={Boolean(settings?.ai_configured || settings?.ai_provider === "ollama")}
-            selected={settings?.ai_provider === "ollama" ? settings.ollama_model : settings?.openai_model || ""}
-            onChange={onModelChange}
-            showError={showError}
-            compact
-          />
-          <button className={analyzing ? "danger" : ""} onClick={analyzing ? onStopAnalysis : analyze} disabled={loading || analysisRun.stopping}>
-            <Icon name={analyzing ? "clear" : "play"} /> {analysisRun.stopping ? "Stopping analysis..." : analyzing ? "Stop analysis" : "Analyze selected chats"}
-          </button>
-          {analyzing && <p className="analysis-progress" role="status">{analysisProgress}</p>}
+          <div className="analysis-action-controls">
+            <ModelSelector
+              api={api}
+              configured={Boolean(settings?.ai_configured || settings?.ai_provider === "ollama")}
+              selected={settings?.ai_provider === "ollama" ? settings.ollama_model : settings?.openai_model || ""}
+              onChange={onModelChange}
+              showError={showError}
+              compact
+            />
+            <button
+              className={`analysis-submit-button${analyzing ? " danger" : ""}`}
+              onClick={analyzing ? onStopAnalysis : analyze}
+              disabled={loading || analysisRun.stopping}
+            >
+              <Icon name={analyzing ? "clear" : "play"} />
+              <span>{analysisRun.stopping ? "Stopping analysis..." : analyzing ? "Stop analysis" : "Analyze selected chats"}</span>
+            </button>
+          </div>
+          {analyzing && <p className="analysis-progress" role="status" aria-live="polite">{analysisProgress}</p>}
         </div>
       </div>
     </>
@@ -1180,13 +1187,20 @@ function entryDisplay(value: unknown, low?: unknown, high?: unknown): string {
 }
 
 function dateBasisLabel(basis: string): string {
+  const normalized = basis.trim().toLowerCase().replace(/[\s-]+/g, "_");
   const labels: Record<string, string> = {
     explicit_date: "Explicit date",
     t_plus_1: "T+1",
+    watching: "Watching",
+    watch: "Watching",
+    watchlist: "Watching",
+    watch_list: "Watching",
+    under_watch: "Watching",
+    stock_to_watch: "Watching",
     next_session: "Next session",
     tomorrow: "Tomorrow",
   };
-  return labels[basis] ?? basis;
+  return labels[normalized] ?? basis;
 }
 
 function SuccessModal({ message, onClose, onOpenResult }: { message: string; onClose: () => void; onOpenResult?: () => void }) {

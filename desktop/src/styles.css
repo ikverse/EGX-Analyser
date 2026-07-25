@@ -1979,28 +1979,68 @@ header strong {
 .channel-selection-control input:focus-visible + .channel-selection-state { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 .analysis-action-bar {
-  align-items: flex-end;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   bottom: .8rem;
-  display: flex;
-  gap: .85rem;
-  justify-content: space-between;
+  display: grid;
+  gap: .65rem;
   margin-top: .15rem;
-  padding: .65rem;
+  padding: .75rem;
   position: sticky;
   z-index: 2;
 }
 
-.analysis-action-bar .analysis-progress { margin: 0; }
-.analysis-action-bar .model-selector-compact {
-  align-self: stretch;
-  flex: 1 1 25rem;
+.analysis-action-controls {
+  align-items: end;
+  display: grid;
+  gap: .75rem;
+  grid-template-columns: minmax(0, 1fr) auto;
 }
-.analysis-action-bar .model-selector-compact .model-row { margin-top: auto; }
+
+.analysis-action-bar .model-selector-compact {
+  min-width: 0;
+}
+
+.analysis-action-bar .model-selector-compact .model-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-top: auto;
+}
+
 .analysis-action-bar .model-selector-compact select,
-.analysis-action-bar > button { min-height: 2.55rem; }
+.analysis-action-bar .model-selector-compact button,
+.analysis-submit-button {
+  height: 2.7rem;
+  min-height: 2.7rem;
+}
+
+.analysis-submit-button {
+  align-items: center;
+  display: inline-flex;
+  gap: .45rem;
+  justify-content: center;
+  min-width: 13rem;
+  padding: .55rem 1rem;
+  white-space: nowrap;
+}
+
+.analysis-submit-button span {
+  white-space: nowrap;
+}
+
+.analysis-action-bar .analysis-progress {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  line-height: 1.35;
+  margin: 0;
+  min-height: 2.55rem;
+  padding: .6rem .75rem;
+}
+
+.analysis-action-bar .analysis-progress::before {
+  flex: 0 0 auto;
+}
 
 /* ── Result-table navigation: preserve every current column and row ── */
 .consolidated-table-title {
@@ -2411,12 +2451,17 @@ summary:focus-visible {
 }
 
 @media (max-width: 760px) {
-  .analysis-action-bar { align-items: stretch; flex-direction: column; }
-  .analysis-action-bar button { width: 100%; }
+  .analysis-action-controls { grid-template-columns: 1fr; }
+  .analysis-submit-button { width: 100%; }
   .consolidated-table-title, .consolidated-table-tools { align-items: flex-start; flex-direction: column; }
   .table-scroll-hint { white-space: normal; }
   .channel-chat-table th:nth-child(2), .channel-chat-table td:nth-child(2) { width: 5.5rem; }
   .channel-chat-table th:nth-child(3), .channel-chat-table td:nth-child(3) { width: 6.8rem; }
+}
+
+@media (max-width: 520px) {
+  .analysis-action-bar .model-selector-compact .model-row { grid-template-columns: 1fr; }
+  .analysis-action-bar .model-selector-compact button { width: 100%; }
 }
 
 /* Collapsible application navigation: compact by default to maximize table space. */

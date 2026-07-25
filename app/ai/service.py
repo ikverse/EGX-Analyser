@@ -41,8 +41,8 @@ class AnalysisOutcome:
 
 _OUTPUT_CONTRACT = """Return only one JSON object in this consolidated EGX report structure:
 - analysis_period: string describing the covered dates.
-- top_consolidated_recommendations: ranked array. Each item has stock_code, stock_name_en, stock_name_ar, mention_count, rank, status, notes_summary, analysis_summary_ar, and data_points. notes_summary must be written in concise Arabic and generated only after grouping every occurrence of that exact stock. Merge duplicate and semantically equivalent Arabic/English recommendations (for example T+1 wording and سهم مراقبة / stock to watch), preserve genuinely different insights, and never copy full source messages or image text. Keep ticker codes and standard market abbreviations such as T+1 as written. analysis_summary_ar remains optional for backward compatibility.
-- data_points: array for each stock. Each item has date, effective_date_basis, source_message_id, source_image_ref, recommendation_evidence, recommendation_type, buy_price, buy_price_low, buy_price_high, target_1, target_2, stop_loss, support, resistance, expected_return_pct, risk_pct, and notes_ar. recommendation_evidence is a short exact phrase visibly present in that same source message/image which includes the stock identity and explicit recommendation context such as توصية شراء, منطقة الشراء, إشارة تداول - شراء, or a stock-to-watch heading with actionable advice. Never invent or paraphrase this evidence. Extract only the first two take-profit levels. Ignore TP3, target 3, third target, مستهدف ثالث, الهدف الثالث, and every later target; never return them in any field or summary. source_message_id must exactly equal the supporting TELEGRAM_ID. Do not return a source or channel name; the application restores it locally from source_message_id. recommendation_type is buy or sell. notes_ar is a concise Arabic note for narrative/chart recommendations that do not use a table; otherwise it is null. effective_date_basis is either explicit_date or t_plus_1. For a single entry, use buy_price only. For an explicit entry range, set buy_price to null and preserve the exact left and right values in buy_price_low and buy_price_high; never average, round, infer, or swap them.
+- top_consolidated_recommendations: ranked array. Each item has stock_code, stock_name_en, stock_name_ar, mention_count, rank, status, notes_summary, analysis_summary_ar, and data_points. notes_summary must be written in concise Arabic and generated only after grouping every occurrence of that exact stock. Merge duplicate literal T+1 occurrences and semantically equivalent سهم مراقبة / stock-to-watch wording, preserve genuinely different insights, and never copy full source messages or image text. Never treat translated, paraphrased, or inferred next-day wording as T+1. Keep ticker codes and standard market abbreviations such as T+1 as written. analysis_summary_ar remains optional for backward compatibility.
+- data_points: array for each stock. Each item has date, effective_date_basis, source_message_id, source_image_ref, recommendation_evidence, recommendation_type, buy_price, buy_price_low, buy_price_high, target_1, target_2, stop_loss, support, resistance, expected_return_pct, risk_pct, and notes_ar. recommendation_evidence is a short exact phrase visibly present in that same source message/image which includes the stock identity and explicit recommendation context such as توصية شراء, منطقة الشراء, إشارة تداول - شراء, سهم تحت المراقبة, or a stock-to-watch heading. Never invent or paraphrase this evidence. Extract only the first two take-profit levels. Ignore TP3, target 3, third target, مستهدف ثالث, الهدف الثالث, and every later target; never return them in any field or summary. source_message_id must exactly equal the supporting TELEGRAM_ID. Do not return a source or channel name; the application restores it locally from source_message_id. recommendation_type is buy or sell. notes_ar is a concise Arabic note for narrative/chart recommendations that do not use a table; otherwise it is null. effective_date_basis is explicit_date, t_plus_1, or watching. For watching, timing_evidence must quote the exact same-stock Arabic or English watch wording. For a single entry, use buy_price only. For an explicit entry range, set buy_price to null and preserve the exact left and right values in buy_price_low and buy_price_high; never average, round, infer, or swap them.
 - achieved_targets: array with stock_code, stock_name_en, status_ar, date, and source_message_id.
 - client_inquiry_responses: array for stock-specific replies to customer/member questions. Each item has stock_code, stock_name_en, stock_name_ar, date, source_message_id, source_image_ref, source_excerpt, question_summary_ar, reply_summary_ar, current_trend_ar, last_price, buy_price, buy_price_low, buy_price_high, target_1, target_2, stop_loss, support, resistance, advice_ar, and alternate_scenario_ar. Do not return a source or channel name. Include the supporting source_message_id and source_excerpt when present in the source data. Use the same exact single-entry/range rules as data_points.
 - text_based_categories: object with most_important_stocks, trading_stocks, and watchlist_stocks arrays. Each array item has stock_code, stock_name_en, and stock_name_ar.
@@ -53,7 +53,7 @@ _CORE_ANALYSIS_PROTOCOL = """You are the EGX Intelligence consolidation engine. 
 
 _IMAGE_REFERENCE_CONTRACT = """IMAGE TRACEABILITY: Every image is placed directly after its immutable IMAGE_REF metadata block. For every data point whose evidence comes from an image, return source_image_ref as that exact IMAGE_REF integer. For text-only or audio-only evidence, return source_image_ref as null. Never copy an IMAGE_REF, stock identity, recommendation, date, or values from a neighboring image. A source_image_ref is supporting traceability only; an image must still satisfy every recommendation-context and date rule before it can be included."""
 
-_DATE_EVIDENCE_CONTRACT = """DATE TRACEABILITY: Every image-derived data point must also contain visible_source_date, date_evidence, and timing_evidence. visible_source_date is the date visibly written in that same image/message, normalized as YYYY-MM-DD. date_evidence is a short exact visible date phrase copied from that same source. For explicit_date, timing_evidence must be null. For t_plus_1, timing_evidence must be a short exact phrase from the same recommendation context that explicitly means T+1 or the next trading session. The phrase `يسمح بالتداول على سعر الشراء المحدد` and wording that only permits trading within a percentage around the specified entry price describe entry-price execution tolerance, not T+1, tomorrow, the next trading day, or the next session. Never use such wording as timing_evidence, never label the recommendation t_plus_1 because of it, and never move its visible date to the following day. Never infer, manufacture, translate, or borrow date/timing evidence from the Telegram timestamp, another image, another stock, or the fact that a source date happens to precede the target date."""
+_DATE_EVIDENCE_CONTRACT = """DATE TRACEABILITY: Every returned image, text, or audio data point must contain visible_source_date, date_evidence, and timing_evidence. For image-derived data, visible_source_date is the date visibly written in that same image, normalized as YYYY-MM-DD, and date_evidence is a short exact visible date phrase copied from it. For explicit_date, timing_evidence must be null. For t_plus_1, timing_evidence must be the exact contiguous literal token T+1 copied from that same stock recommendation context; matching is case-insensitive, so t+1 also qualifies. No translation, synonym, paraphrase, or inferred next-day meaning qualifies. جلسة الغد, تداول الغد, الجلسة القادمة, الجلسة التالية, next session, next trading day, tomorrow, and similar wording are not T+1. For watching, timing_evidence must be the exact same-stock phrase meaning سهم تحت المراقبة, تحت المراقبة, سهم للمراقبة, watching, under watch, stock to watch, or a clear semantic equivalent. A watching result may use the supplied MESSAGE DATE as its source date only for text or voice-note transcripts that have explicit same-stock watch wording but no internal date; in that case normalize MESSAGE DATE into visible_source_date and copy the supplied MESSAGE DATE timestamp into date_evidence. Never use MESSAGE DATE to date an image. The phrase `يسمح بالتداول على سعر الشراء المحدد` and wording that only permits trading within a percentage around the specified entry price describe entry-price execution tolerance, not T+1, tomorrow, the next trading day, the next session, or Watching. Never use such wording as timing_evidence, never label the recommendation t_plus_1 or watching because of it, and never move its visible date to the following day. Never infer, manufacture, translate, or borrow date/timing evidence from another image, another stock, or merely from the fact that a source date precedes the target date."""
 
 _MAX_IMAGE_EDGE = 2_048
 _OPTIMIZE_IMAGE_OVER_BYTES = 1_500_000
@@ -322,22 +322,36 @@ class AIAnalysisService:
             "or 'استفسارات العملاء'. LIST 2 contains every other cleaned, valid EGX recommendation. Do not return either internal list; "
             "use LIST 1 only for client_inquiry_responses and LIST 2 only for top_consolidated_recommendations. "
             "Discard all irrelevant material before this classification: advertisements, links, disclaimers, greetings, news, memes, "
-            "general commentary, non-EGX material, and stock discussion without an explicit actionable recommendation and an effective date. "
-            "Only include active, actionable EGX BUY or SELL recommendations from LIST 2 intended for the target effective trading date. "
+            "general commentary, non-EGX material, and stock discussion without an explicit actionable recommendation or explicit "
+            "same-stock Watching classification and an eligible source date. Only include active, actionable EGX BUY or SELL "
+            "recommendations, plus explicit same-stock Watching recommendations, from LIST 2 intended for the target effective trading date. "
             "A candidate is valid only when its selected text, image, or audio has a visible/explicit effective date equal to the target date. "
-            f"The sole prior-date exception is a visible date of {previous_target_date} together with explicit wording in the same "
-            "stock recommendation context that means T+1 or the next trading session. Accepted meanings include literal T+1 and "
-            "clear equivalents such as جلسة الغد, تداول الغد, الجلسة القادمة, الجلسة التالية, next session, next trading day, "
-            "or tomorrow's session. The wording must explicitly apply to that exact recommendation; a generic caption, disclaimer, "
-            "neighboring image, Telegram posting date, or merely being one day earlier does not qualify. For that exception, output "
+            f"The T+1 prior-date exception is a visible date of {previous_target_date} together with the exact contiguous literal token "
+            "T+1 in the same stock recommendation context. Match case-insensitively, so t+1 also qualifies. No translation, synonym, "
+            "paraphrase, or inferred next-day meaning qualifies. جلسة الغد, تداول الغد, الجلسة القادمة, الجلسة التالية, next session, "
+            "next trading day, tomorrow, and similar wording are not T+1. The literal token must explicitly apply to that exact "
+            "recommendation; a generic caption, disclaimer, neighboring image, Telegram posting date, or merely being one day earlier "
+            "does not qualify. For that exception, output "
             "data_points[].date as the target date and data_points[].effective_date_basis as t_plus_1. "
+            "WATCHING TIMING CATEGORY: A source explicitly classifying the exact stock as سهم تحت المراقبة, تحت المراقبة, "
+            "سهم للمراقبة, watching, under watch, stock to watch, or a clear semantic equivalent is a valid Watching recommendation. "
+            "This applies equally to image text, ordinary text messages, and voice-note transcripts. Set data_points[].date to the target "
+            "date, data_points[].effective_date_basis to watching, and timing_evidence to the exact same-stock watch phrase. Preserve "
+            "conditional actions such as الشراء باختراق / buy on breakout and every explicit entry, TP1, TP2, stop loss, return, and risk value. "
+            "In an image, a watch heading may govern the ticker or stock name visibly placed directly beneath it in the same recommendation "
+            "card even when they are not on one text line; never transfer that heading to a neighboring image or unrelated stock. "
+            "For an image, require a visible image date inside the supplied analysis period and never substitute the Telegram timestamp. "
+            "For a text message or voice-note transcript with no internal date, the supplied MESSAGE DATE may establish the source date "
+            "only for this explicit Watching classification; normalize it into visible_source_date and copy that supplied timestamp "
+            "into date_evidence. Watching never means T+1 and must never be returned as t_plus_1. "
             "The phrase 'يسمح بالتداول على سعر الشراء المحدد' and any wording that merely allows a percentage deviation around the "
             "specified entry price are execution-tolerance instructions, not timing instructions. They never qualify as T+1 or "
-            "timing_evidence and must not shift the visible recommendation date forward. "
-            "Undated stock tables, watchlists, charts, and price levels MUST be excluded; never infer their effective date from "
-            "the Telegram posting time alone. data_points[].date must be the effective recommendation date, not the post date. "
+            "Watching or timing_evidence and must not shift the visible recommendation date forward. "
+            "Undated stock tables, generic watchlists, charts, and price levels without explicit same-stock Watching wording MUST be "
+            "excluded; never infer their effective date from the Telegram posting time alone. data_points[].date must be the effective "
+            "recommendation date, not the post date. "
             "Set data_points[].effective_date_basis to explicit_date only when the visible source date equals the target date, or "
-            "to t_plus_1 only for the explicit same-context timing exception. "
+            "to t_plus_1 only for the exact same-context literal T+1 exception, or to watching only for explicit same-stock watch wording. "
             "Exclude recommendations whose effective date is missing, ambiguous, already past, or different from the target date.",
             "OUTPUT PRIORITY: First extract every valid dated recommendation table, chart, image, text, or audio signal from LIST 2 that is "
             "intended for the target effective date into top_consolidated_recommendations. For each source row, preserve entry, "
@@ -351,7 +365,9 @@ class AIAnalysisService:
             "return buy_price=null, buy_price_low=the exact left value, and buy_price_high=the exact right value. Never average, "
             "round, infer, reverse, or confuse entry values with stop loss, targets, support, resistance, or current price.",
             "Extract only explicit recommendations with a stock code and a visible recommendation cue such as توصية, شراء, بيع, "
-            "منطقة الشراء, إشارة تداول, سهم للمراقبة with actionable advice, recommendation, buy, sell, or entry zone. Support, "
+            "منطقة الشراء, إشارة تداول, سهم تحت المراقبة, تحت المراقبة, سهم للمراقبة, recommendation, buy, sell, "
+            "watching, under watch, stock to watch, or entry zone. Explicit same-stock watch wording is sufficient context for the "
+            "Watching category even when the action is conditional rather than immediate. Support, "
             "resistance, stop loss, current price, targets, liquidity ranking, sector ranking, or an important-stocks list alone NEVER "
             "makes a recommendation and must be excluded. Images may use different source layouts: identify headings rather than "
             "assuming column positions. For example, Arabic headings may include منطقة الشراء, هدف أول, هدف ثاني, إيقاف الخسارة, "
@@ -382,16 +398,23 @@ class AIAnalysisService:
             "LIST 1 TELEGRAM_ID in a recommendation data point.",
             "NOTES SUMMARY: Group all LIST 2 findings by exact stock_code before writing notes_summary. Produce exactly one concise, "
             "factual Arabic notes_summary per stock from all of that stock's occurrences, regardless of source. The prose must be Arabic; "
-            "keep only ticker codes, numbers, and standard market abbreviations such as T+1 in their normal form. Treat semantically equivalent "
-            "Arabic and English wording as one insight (including T+1/next-session equivalents and سهم مراقبة/stock-to-watch wording); "
-            "this semantic merge applies only after date eligibility is established and does not broaden the literal T+1 date exception. "
+            "keep only ticker codes, numbers, and standard market abbreviations such as T+1 in their normal form. Merge duplicate literal "
+            "T+1 findings, but never treat next-session translations, synonyms, paraphrases, or inferred next-day meanings as T+1. Treat "
+            "سهم تحت المراقبة/سهم للمراقبة/stock-to-watch wording as one Watching insight after date eligibility is established. Watching "
+            "remains a distinct Timing category and never broadens or substitutes for the literal T+1 date exception. "
             "Mention each meaning once. Preserve distinct insights such as T+1, watchlist status, entry range, targets, stop loss, and "
             "risk warnings. Do not paste, enumerate, or paraphrase whole source messages, captions, tables, or image text. Keep "
             "source_message_id and per-message values only in data_points for traceability. Keep notes_summary under 60 Arabic words.",
             "MANDATORY DATE ELIGIBILITY SELF-AUDIT BEFORE RETURNING JSON: Re-read every proposed data point against its own source image "
             "or message. Keep explicit_date only when visible_source_date equals the target date and date_evidence exactly supports it; "
             "timing_evidence must then be null. Keep t_plus_1 only when visible_source_date equals the stated prior date and non-empty "
-            "timing_evidence exactly quotes T+1 or a clear next-trading-session equivalent from that same stock recommendation context. "
+            "timing_evidence exactly copies the contiguous literal token T+1, case-insensitively, from that same stock recommendation "
+            "context. Reject every translation, synonym, paraphrase, or inferred next-day meaning. "
+            "Keep watching only when non-empty timing_evidence exactly quotes same-stock watch wording from that image, text, or voice-note "
+            "transcript. For image-based Watching require the visible image date to fall inside the supplied analysis period. For text or "
+            "voice-note Watching with no internal date, normalize the supplied MESSAGE DATE into visible_source_date and copy its timestamp "
+            "into date_evidence. Return the effective "
+            "data point date as the target date and never relabel Watching as t_plus_1. "
             "Explicitly reject 'يسمح بالتداول على سعر الشراء المحدد' and entry-price percentage-tolerance wording as timing_evidence. "
             "If any required evidence is absent, belongs to another image/stock, or conflicts with the selected basis, remove the data "
             "point completely before ranking, categorizing, counting mentions, or writing notes_summary.",

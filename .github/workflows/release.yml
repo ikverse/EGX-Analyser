@@ -1,5 +1,5 @@
 name: Publish desktop update
-run-name: ${{ github.ref_name }} - Add Results target dates and fix Settings popup layering
+run-name: ${{ github.ref_name }} - Add Watching timing, require literal T+1, and align analysis controls
 
 on:
   push:

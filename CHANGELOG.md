@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.114
+- Added a `Watching` Timing category for explicit same-stock watch recommendations found in images, text messages, and voice-note transcripts.
+- Recognized equivalent Arabic and English watch wording while preserving entry or breakout conditions, TP1, TP2, stop loss, returns, risks, source dates, and concise Arabic Notes.
+- Restricted T+1 classification to the exact contiguous literal `T+1` or `t+1`, rejecting translations, synonyms, spaced variants, and date-based inference.
+- Kept existing saved results compatible with common legacy Watching timing values without changing explicit-date behavior.
+- Realigned the Configure and Analyze model controls, action button, and running-progress status across desktop and narrow layouts.
+
 ## v0.1.113
 - Added a Target Date column to every Results recommendation row while keeping the source date separately visible.
 - Made the shorter, fitted Results-table layout permanent and removed the Compact view control and its conditional styling.

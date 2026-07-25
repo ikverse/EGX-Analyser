@@ -162,7 +162,13 @@ async def test_same_template_images_are_sent_separately_for_stock_aware_review(t
     source_data = str(captured["source_data"])
     assert "جلسة الغد" in source_data
     assert "next trading day" in source_data
+    assert "exact contiguous literal token T+1" in source_data
+    assert "No translation, synonym, paraphrase, or inferred next-day meaning qualifies" in source_data
     assert "merely being one day earlier does not qualify" in source_data
+    assert "data_points[].effective_date_basis to watching" in source_data
+    assert "voice-note transcripts" in source_data
+    assert "visibly placed directly beneath it in the same recommendation" in source_data
+    assert "Watching never means T+1" in source_data
     assert "MANDATORY DATE ELIGIBILITY SELF-AUDIT" in source_data
 
 
@@ -684,6 +690,126 @@ def test_stock_notes_merge_bilingual_equivalents_and_keep_distinct_levels():
     assert "سهم للمراقبة" not in summary
 
 
+@pytest.mark.parametrize(
+    "non_literal_timing",
+    ["Next trading session", "next day", "جلسة الغد", "الجلسة القادمة", "T plus 1", "T + 1"],
+)
+def test_non_literal_timing_is_not_interpreted_as_t_plus_one(non_literal_timing):
+    payload = {
+        "top_consolidated_recommendations": [{
+            "stock_code": "COMI",
+            "mention_count": 1,
+            "data_points": [{
+                "source": "One",
+                "source_message_id": "1",
+                "notes_ar": non_literal_timing,
+            }],
+        }],
+    }
+
+    summary = _consolidated_source_table(payload)[0]["notes_summary"]
+
+    assert "T+1" not in summary
+
+
+@pytest.mark.parametrize("literal_timing", ["T+1", "t+1"])
+def test_literal_t_plus_one_is_case_insensitive(literal_timing):
+    payload = {
+        "top_consolidated_recommendations": [{
+            "stock_code": "COMI",
+            "mention_count": 1,
+            "data_points": [{
+                "source": "One",
+                "source_message_id": "1",
+                "notes_ar": literal_timing,
+            }],
+        }],
+    }
+
+    summary = _consolidated_source_table(payload)[0]["notes_summary"]
+
+    assert summary.count("T+1") == 1
+
+
+def test_watching_timing_is_preserved_and_generates_arabic_notes():
+    payload = {
+        "top_consolidated_recommendations": [{
+            "stock_code": "FWRY",
+            "stock_name_en": "Fawry",
+            "mention_count": 1,
+            "rank": 1,
+            "status": "active",
+            "data_points": [{
+                "date": "2026-07-22",
+                "source": "Ostoul",
+                "source_message_id": "19246",
+                "effective_date_basis": "watching",
+                "visible_source_date": "2026-07-21",
+                "date_evidence": "21-Jul-2026",
+                "timing_evidence": "تحت المراقبة",
+                "buy_price": 19.70,
+                "target_1": 20.50,
+                "target_2": 21.60,
+                "stop_loss": 19.00,
+            }],
+        }],
+        "text_based_categories": {},
+    }
+
+    row = _consolidated_source_table(payload)[0]
+
+    assert row["effective_date_bases"] == ["watching"]
+    assert row["timing_evidence"] == "تحت المراقبة"
+    assert "سهماً للمراقبة" in row["notes_summary"]
+    assert "T+1" not in row["notes_summary"]
+    assert row["target_1"] == 20.50
+    assert row["target_2"] == 21.60
+
+
+@pytest.mark.parametrize(
+    "watch_phrase",
+    ["تحت المراقبة", "سهم للمراقبة", "Watching", "Under watch", "Stock to watch"],
+)
+def test_watching_phrase_equivalents_generate_one_arabic_meaning(watch_phrase):
+    payload = {
+        "top_consolidated_recommendations": [{
+            "stock_code": "FWRY",
+            "mention_count": 1,
+            "data_points": [{
+                "source": "Ostoul",
+                "source_message_id": "19246",
+                "notes_ar": watch_phrase,
+            }],
+        }],
+    }
+
+    summary = _consolidated_source_table(payload)[0]["notes_summary"]
+
+    assert summary.count("سهماً للمراقبة") == 1
+    assert "Stock to watch" not in summary
+    assert "Under watch" not in summary
+    assert "Watching" not in summary
+
+
+def test_watching_basis_alias_is_backward_compatible():
+    payload = {
+        "top_consolidated_recommendations": [{
+            "stock_code": "FWRY",
+            "mention_count": 1,
+            "data_points": [{
+                "source": "Ostoul",
+                "source_message_id": "19246",
+                "effective_date_basis": "under-watch",
+            }],
+        }],
+    }
+
+    summary = _consolidated_source_table(payload)[0]["notes_summary"]
+
+    assert "سهماً للمراقبة" in summary
+    assert "T+1" not in summary
+
+
 def test_saved_result_rows_receive_backward_compatible_stock_notes():
     legacy_rows = [
         {"ticker": "COMI", "mention_count": 2, "effective_date_bases": ["t_plus_1"],
@@ -841,8 +967,13 @@ def test_analysis_prompt_keeps_base_prompt_and_appends_phrase_guidance(monkeypat
     assert "Include phrases: سهم تحت المراقبة" in prompt
     assert "Exclude phrases: الأسهم الأكثر سيولة" in prompt
     assert "Return only one JSON object" in prompt
-    assert "Every image-derived data point must also contain visible_source_date" in prompt
+    assert "Every returned image, text, or audio data point must contain visible_source_date" in prompt
     assert "For explicit_date, timing_evidence must be null" in prompt
+    assert "For t_plus_1, timing_evidence must be the exact contiguous literal token T+1" in prompt
+    assert "No translation, synonym, paraphrase, or inferred next-day meaning qualifies" in prompt
+    assert "For watching, timing_evidence must be the exact same-stock phrase" in prompt
+    assert "text or voice-note transcripts" in prompt
+    assert "copy the supplied MESSAGE DATE timestamp into date_evidence" in prompt
     assert "يسمح بالتداول على سعر الشراء المحدد" in prompt
     assert "entry-price execution tolerance, not T+1" in prompt
     assert "never move its visible date to the following day" in prompt
