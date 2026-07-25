@@ -49,6 +49,7 @@ export type StockSourceTableRow = {
   source_message_id?: string | null;
   source_image_paths?: string[];
   source_entries: number;
+  target_date?: string | null;
   source_dates: string[];
   latest_date?: string | null;
   effective_date_bases?: string[];

@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.113
+- Added a Target Date column to every Results recommendation row while keeping the source date separately visible.
+- Made the shorter, fitted Results-table layout permanent and removed the Compact view control and its conditional styling.
+- Rendered Settings information popups in a document-level overlay so later cards and accordion sections cannot cover them.
+- Improved popup placement using its actual size and available viewport space while preserving dismissal and focus behavior.
+- Kept older saved results compatible by showing an unavailable Target Date as a dash.
+
 ## v0.1.112
 - Replaced fragile model-returned source labels with trusted local channel resolution based on Telegram message IDs.
 - Removed redundant provenance, evidence, duplicate-value, and inquiry-classification validation along with the second Qwen correction request.

@@ -1,5 +1,6 @@
 import { FormEvent, Fragment, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
+import { createPortal } from "react-dom";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { check } from "@tauri-apps/plugin-updater";
@@ -1205,7 +1206,6 @@ function SuccessModal({ message, onClose, onOpenResult }: { message: string; onC
 
 function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
   const [sourceImages, setSourceImages] = useState<{ paths: string[]; title: string } | null>(null);
-  const [compact, setCompact] = useState(false);
   const grouped = new Map<string, StockSourceTableRow[]>();
   rows.forEach((row) => {
     const group = grouped.get(row.ticker) ?? [];
@@ -1223,22 +1223,19 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
         </div>
         <div className="consolidated-table-tools">
           <span className="table-scroll-hint">Scroll horizontally to view every price field</span>
-          <button type="button" className="secondary compact" onClick={() => setCompact((current) => !current)}>
-            {compact ? "Comfortable rows" : "Compact rows"}
-          </button>
         </div>
       </div>
       <div className="consolidated-table-scroll">
-        <table className={compact ? "consolidated-table is-compact" : "consolidated-table"}>
+        <table className="consolidated-table">
           <thead><tr>
-            <th>Source</th><th>Date</th><th>Timing</th><th>Type</th><th>Entry</th><th>TP1</th><th>TP2</th>
+            <th>Source</th><th>Target date</th><th>Source date</th><th>Timing</th><th>Type</th><th>Entry</th><th>TP1</th><th>TP2</th>
             <th>Stop</th><th>Support</th><th>Resistance</th><th>Return %</th><th>Risk %</th><th>Status</th><th>Source image</th><th>Notes</th>
           </tr></thead>
           {[...grouped.entries()].map(([ticker, stockRows]) => {
             const first = stockRows[0];
             return (
               <tbody key={ticker}>
-                <tr className="consolidated-stock-group"><td colSpan={15}>
+                <tr className="consolidated-stock-group"><td colSpan={16}>
                   <div className="consolidated-stock-group-content">
                     <span className="consolidated-rank">#{first.rank ?? "—"}</span>
                     <strong>{first.ticker}</strong>
@@ -1250,6 +1247,7 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
                 {stockRows.map((row, rowIndex) => (
                   <tr key={`${row.ticker}-${row.source}-${row.latest_date ?? "unknown"}-${row.buy_price ?? "none"}`}>
                     <td className="source-cell">{row.source}</td>
+                    <td className="target-date-cell">{row.target_date || "—"}</td>
                     <td>{row.source_dates.join(", ") || "—"}</td>
                     <td>{row.effective_date_bases?.length ? row.effective_date_bases.map((basis) => <span key={basis} className="recommendation-date-basis">{dateBasisLabel(basis)}</span>) : "—"}</td>
                     <td><span className={`status-pill ${row.recommendation_type === "sell" ? "neutral" : "active"}`}>{row.recommendation_type || "buy"}</span></td>
@@ -1706,9 +1704,12 @@ function SettingsInfo({ id, title, text, openInfoId, setOpenInfoId }: {
     if (!button) return;
     const rect = button.getBoundingClientRect();
     const width = Math.max(0, Math.min(336, window.innerWidth - 24));
+    const height = popupRef.current?.offsetHeight ?? 220;
     const left = Math.min(window.innerWidth - width - 12, Math.max(12, rect.left + rect.width / 2 - width / 2));
     const below = rect.bottom + 8;
-    const top = below + 220 < window.innerHeight ? below : Math.max(12, rect.top - 228);
+    const above = rect.top - height - 8;
+    const preferredTop = below + height <= window.innerHeight - 12 ? below : above;
+    const top = Math.min(window.innerHeight - height - 12, Math.max(12, preferredTop));
     setPosition({ left, top });
   }, []);
 
@@ -1756,7 +1757,7 @@ function SettingsInfo({ id, title, text, openInfoId, setOpenInfoId }: {
       >
         <Icon name="info" size={15} />
       </button>
-      {open && (
+      {open && createPortal(
         <span
           ref={popupRef}
           id={`settings-info-${id}`}
@@ -1767,7 +1768,8 @@ function SettingsInfo({ id, title, text, openInfoId, setOpenInfoId }: {
         >
           <strong>{title}</strong>
           <span>{text}</span>
-        </span>
+        </span>,
+        document.body,
       )}
     </span>
   );

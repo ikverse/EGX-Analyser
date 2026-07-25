@@ -1,5 +1,5 @@
 name: Publish desktop update
-run-name: ${{ github.ref_name }} - Trust Telegram IDs and streamline Qwen analysis provenance
+run-name: ${{ github.ref_name }} - Add Results target dates and fix Settings popup layering
 
 on:
   push:

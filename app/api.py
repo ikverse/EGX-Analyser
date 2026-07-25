@@ -650,6 +650,7 @@ async def analysis_results(session: AsyncSession = Depends(get_session)) -> list
             "content_types": item.summary.get("content_types", ["text", "images", "audio"]),
             "stock_source_table": _analysis_table_with_source_images(
                 item.summary.get("stock_source_table", []), compact_image_rows, channels_by_message_id,
+                item.summary.get("target_date"),
             ),
             "client_inquiry_responses": _rows_with_clean_sources(
                 item.summary.get("client_inquiry_responses", []),
@@ -667,10 +668,15 @@ def _analysis_table_with_source_images(
     rows: object,
     image_rows: list[tuple[Image, Message]],
     channels_by_message_id: dict[int, Channel],
+    target_date: object = None,
 ) -> list[dict]:
     table = [dict(row) for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
     for row in table:
         row["source"] = clean_channel_name(row.get("source"), "Unspecified")
+        if target_date:
+            row["target_date"] = str(target_date)[:10]
+        else:
+            row.setdefault("target_date", None)
     ensure_stock_notes_summaries(table)
     _attach_source_images(table, image_rows, channels_by_message_id)
     return table

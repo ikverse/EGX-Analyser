@@ -497,6 +497,7 @@ async def test_analysis_results_returns_only_batch_analysis_reports(session):
     assert results[0]["generated_at"] == "2026-07-16T16:01:51+03:00"
     assert results[0]["target_date"] == "2026-07-15"
     assert results[0]["stock_source_table"][0]["ticker"] == "COMI"
+    assert results[0]["stock_source_table"][0]["target_date"] == "2026-07-15"
 
 
 def test_selected_analysis_requires_valid_content_types():
