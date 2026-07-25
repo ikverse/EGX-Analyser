@@ -1690,16 +1690,119 @@ function ModelSelector({ api, configured, selected, onChange, showError, compact
 
 // ── CloudSettings ─────────────────────────────────────────────────────────────
 
-function SettingsSection({ title, description, open, onToggle, children }: {
-  title: string; description?: string; open: boolean; onToggle: () => void; children: React.ReactNode;
+function SettingsInfo({ id, title, text, openInfoId, setOpenInfoId }: {
+  id: string; title: string; text: string; openInfoId: string | null;
+  setOpenInfoId: React.Dispatch<React.SetStateAction<string | null>>;
+}) {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const popupRef = useRef<HTMLSpanElement>(null);
+  const open = openInfoId === id;
+  const [position, setPosition] = useState({ left: 12, top: 12 });
+
+  const placePopup = useCallback(() => {
+    const button = buttonRef.current;
+    if (!button) return;
+    const rect = button.getBoundingClientRect();
+    const width = Math.max(0, Math.min(336, window.innerWidth - 24));
+    const left = Math.min(window.innerWidth - width - 12, Math.max(12, rect.left + rect.width / 2 - width / 2));
+    const below = rect.bottom + 8;
+    const top = below + 220 < window.innerHeight ? below : Math.max(12, rect.top - 228);
+    setPosition({ left, top });
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    placePopup();
+    const closeOutside = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!buttonRef.current?.contains(target) && !popupRef.current?.contains(target)) setOpenInfoId(null);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpenInfoId(null);
+        buttonRef.current?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("resize", placePopup);
+    window.addEventListener("scroll", placePopup, true);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("resize", placePopup);
+      window.removeEventListener("scroll", placePopup, true);
+    };
+  }, [open, placePopup, setOpenInfoId]);
+
+  return (
+    <span className="settings-info">
+      <button
+        ref={buttonRef}
+        type="button"
+        className="settings-info-button"
+        aria-label={`Information about ${title}`}
+        aria-expanded={open}
+        aria-controls={`settings-info-${id}`}
+        title={`About ${title}`}
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setOpenInfoId((current) => current === id ? null : id);
+        }}
+      >
+        <Icon name="info" size={15} />
+      </button>
+      {open && (
+        <span
+          ref={popupRef}
+          id={`settings-info-${id}`}
+          className="settings-info-popup"
+          role="dialog"
+          aria-label={title}
+          style={{ left: position.left, top: position.top }}
+        >
+          <strong>{title}</strong>
+          <span>{text}</span>
+        </span>
+      )}
+    </span>
+  );
+}
+
+function SettingsLabel({ children, infoId, info, openInfoId, setOpenInfoId }: {
+  children: React.ReactNode; infoId: string; info: string; openInfoId: string | null;
+  setOpenInfoId: React.Dispatch<React.SetStateAction<string | null>>;
+}) {
+  return (
+    <span className="settings-label-with-info">
+      <span>{children}</span>
+      <SettingsInfo id={infoId} title={typeof children === "string" ? children : "Setting information"} text={info}
+        openInfoId={openInfoId} setOpenInfoId={setOpenInfoId} />
+    </span>
+  );
+}
+
+function SettingsSection({ id, title, description, help, open, onToggle, openInfoId, setOpenInfoId, children }: {
+  id: string; title: string; description?: string; help: string; open: boolean; onToggle: () => void;
+  openInfoId: string | null; setOpenInfoId: React.Dispatch<React.SetStateAction<string | null>>;
+  children: React.ReactNode;
 }) {
   return (
     <div className="settings-section">
-      <button type="button" className="settings-section-header" onClick={onToggle}>
-        <span>{title}</span>
-        <span className="settings-section-chevron">{open ? "▾" : "▸"}</span>
-      </button>
-      {description && !open && <p className="settings-section-desc">{description}</p>}
+      <div className="settings-section-header">
+        <button type="button" className="settings-section-toggle" onClick={onToggle} aria-expanded={open}>
+          <span className="settings-section-title">{title}</span>
+          {description && <span className="settings-section-status">{description}</span>}
+        </button>
+        <SettingsInfo id={`section-${id}`} title={title} text={help}
+          openInfoId={openInfoId} setOpenInfoId={setOpenInfoId} />
+        <button type="button" className="settings-section-chevron" onClick={onToggle}
+          aria-label={`${open ? "Collapse" : "Expand"} ${title}`} aria-expanded={open}>
+          {open ? "▾" : "▸"}
+        </button>
+      </div>
       {open && <div className="settings-section-body">{children}</div>}
     </div>
   );
@@ -1752,8 +1855,12 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
   const [refreshingCatalog, setRefreshingCatalog] = useState(false);
   const [appVersion, setAppVersion] = useState("");
   const [openSection, setOpenSection] = useState<string>("ai");
+  const [openInfoId, setOpenInfoId] = useState<string | null>(null);
 
-  const toggleSection = (key: string) => setOpenSection((cur) => cur === key ? "" : key);
+  const toggleSection = (key: string) => {
+    setOpenInfoId(null);
+    setOpenSection((cur) => cur === key ? "" : key);
+  };
 
   const provider = (values.ai_provider || status?.ai_provider || "qwen") as AiProvider;
 
@@ -1877,11 +1984,19 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
         <span><strong>App</strong> v{appVersion || "..."}</span>
       </div>
 
-      <SettingsSection title="AI Analysis" description={`${providerDetails[provider].label} · ${status?.ai_configured ? "configured" : "not configured"}`} open={openSection === "ai"} onToggle={() => toggleSection("ai")}>
+      <SettingsSection id="ai" title="AI Analysis"
+        description={`${providerDetails[provider].label} · ${status?.ai_configured ? "configured" : "not configured"}`}
+        help="Configure the model provider used for analysis, its credentials or local endpoint, and the managed Include and Exclude phrases appended to the built-in analysis prompt."
+        open={openSection === "ai"} onToggle={() => toggleSection("ai")}
+        openInfoId={openInfoId} setOpenInfoId={setOpenInfoId}>
         <form className="settings-ai-form" onSubmit={save}>
-          <p>{localProvider ? "Ollama runs the selected model on this computer. Install the model manually, then load the installed vision models below." : "Cloud provider keys are encrypted and stored only on this computer."}</p>
           <label>
-            AI provider
+            <SettingsLabel infoId="ai-provider" openInfoId={openInfoId} setOpenInfoId={setOpenInfoId}
+              info={localProvider
+                ? "Ollama runs the selected model on this computer. Install the model manually, then load an installed vision model from the Channels page."
+                : "Cloud provider keys are encrypted and stored only on this computer. Choose the saved analysis model from the Channels page after configuring the provider."}>
+              AI provider
+            </SettingsLabel>
             <select value={provider} onChange={(e) => chooseProvider(e.target.value as AiProvider)}>
               <option value="ollama">Ollama Local - use a downloaded model</option>
               <option value="qwen">Qwen Cloud — default for Arabic and charts</option>
@@ -1892,7 +2007,10 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
           </label>
           {!localProvider && <div className="credential-header">
             <div>
-              <strong>{currentProvider.label}</strong>
+              <SettingsLabel infoId="provider-credentials" openInfoId={openInfoId} setOpenInfoId={setOpenInfoId}
+                info="The API key is encrypted with the current Windows user account and stored locally. Replacing it changes only the selected provider credential.">
+                <strong>{currentProvider.label}</strong>
+              </SettingsLabel>
               <span>{status?.ai_provider === provider && status.ai_configured ? "API key saved" : "API key not configured"}</span>
             </div>
             <button type="button" className="secondary" onClick={replaceKey}>
@@ -1901,7 +2019,10 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
           </div>}
           {editingProviderKey && !localProvider && (
             <label>
-              {`New ${currentProvider.label} API key`}
+              <SettingsLabel infoId="new-provider-key" openInfoId={openInfoId} setOpenInfoId={setOpenInfoId}
+                info={`Enter a new ${currentProvider.label} API key. It will be encrypted locally when settings are saved and is never displayed again.`}>
+                {`New ${currentProvider.label} API key`}
+              </SettingsLabel>
               <input type="password" autoComplete="new-password" placeholder={currentProvider.placeholder}
                 value={(values[currentProvider.key!] as string) || ""}
                 onChange={(e) => setValues((cur) => ({ ...cur, [currentProvider.key!]: e.target.value }))} required />
@@ -1909,15 +2030,20 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
           )}
           {localProvider && (
             <label>
-              Ollama local service URL
+              <SettingsLabel infoId="ollama-url" openInfoId={openInfoId} setOpenInfoId={setOpenInfoId}
+                info="Address of the Ollama service on this computer. The default is http://127.0.0.1:11434. Telegram data remains local while Ollama is used.">
+                Ollama local service URL
+              </SettingsLabel>
               <input type="url" value={values.ollama_base_url || "http://127.0.0.1:11434"}
                 onChange={(e) => setValues((cur) => ({ ...cur, ollama_base_url: e.target.value }))} required />
-              <span className="credential-note">Default: http://127.0.0.1:11434. Telegram data remains on this computer while using Ollama.</span>
             </label>
           )}
           {provider === "qwen" && (
             <label>
-              Qwen Cloud endpoint
+              <SettingsLabel infoId="qwen-endpoint" openInfoId={openInfoId} setOpenInfoId={setOpenInfoId}
+                info="Select the Qwen Model Studio endpoint from the same region and pay-as-you-go billing plan as the saved API key.">
+                Qwen Cloud endpoint
+              </SettingsLabel>
               <input type="url" list="qwen-endpoints"
                 value={values.qwen_base_url || "https://dashscope.aliyuncs.com/compatible-mode/v1"}
                 onChange={(e) => setValues((cur) => ({ ...cur, qwen_base_url: e.target.value }))} required />
@@ -1926,15 +2052,16 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
                 <option value="https://dashscope-intl.aliyuncs.com/compatible-mode/v1">Singapore</option>
                 <option value="https://dashscope-us.aliyuncs.com/compatible-mode/v1">US (Virginia)</option>
               </datalist>
-              <span className="credential-note">
-                The key and endpoint must be from the same Model Studio region and pay-as-you-go billing plan.
-              </span>
             </label>
           )}
-          <p className="credential-note">Choose the saved analysis model from the Channels page after configuring this provider.</p>
           <label className="prompt-phrase-field">
             <span className="prompt-phrase-label">
-              <span>Include recommendation phrases</span>
+              <span className="prompt-phrase-name">
+                <span>Include recommendation phrases</span>
+                <SettingsInfo id="include-phrases" title="Include recommendation phrases"
+                  text="Enter Arabic or English phrases separated by Arabic or English commas. They extend recommendation recognition without replacing the built-in stock identity, date, source, and output rules."
+                  openInfoId={openInfoId} setOpenInfoId={setOpenInfoId} />
+              </span>
               <small>{effectiveIncludePhrases.length} active</small>
             </span>
             <textarea
@@ -1943,13 +2070,15 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
               placeholder="سهم تحت المراقبة، أسهم مرشحة T+1، الشراء باختراق"
               rows={4}
             />
-            <span className="credential-note">
-              Arabic or English phrases separated by commas. These extend recommendation recognition without replacing the existing prompt.
-            </span>
           </label>
           <label className="prompt-phrase-field">
             <span className="prompt-phrase-label">
-              <span>Exclude recommendation phrases</span>
+              <span className="prompt-phrase-name">
+                <span>Exclude recommendation phrases</span>
+                <SettingsInfo id="exclude-phrases" title="Exclude recommendation phrases"
+                  text="Matching content is excluded from recommendations. Exclude phrases take priority when the same phrase appears in both boxes."
+                  openInfoId={openInfoId} setOpenInfoId={setOpenInfoId} />
+              </span>
               <small>{excludePhrases.length} active</small>
             </span>
             <textarea
@@ -1958,9 +2087,6 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
               placeholder="الأسهم الأكثر سيولة، توصية سابقة، تم تحقيق المستهدف"
               rows={4}
             />
-            <span className="credential-note">
-              Matching content is excluded from recommendations. Exclude phrases take priority over Include phrases.
-            </span>
           </label>
           {conflictingPhrases.length > 0 && (
             <div className="prompt-guidance-alert warning">
@@ -1975,23 +2101,25 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
             </div>
           )}
           <div className="prompt-guidance-preview">
-            <div>
+            <div className="settings-inline-heading">
               <strong>Active phrase section preview</strong>
-              <span>This section is appended to the existing prompt; it does not replace it.</span>
+              <SettingsInfo id="phrase-preview" title="Active phrase section preview"
+                text="This managed section is appended to the existing prompt and does not replace it. Phrase guidance influences the model, but a recommendation must still identify a stock and satisfy the existing date rules."
+                openInfoId={openInfoId} setOpenInfoId={setOpenInfoId} />
             </div>
             <pre>{promptPreview}</pre>
-            <p>Phrase guidance influences the model. A recommendation still needs identifiable stock-specific content and an applicable date under the existing prompt rules.</p>
           </div>
           <div className="prompt-customization-history">
             <div className="prompt-customization-heading">
               <div>
-                <strong>Prompt change log</strong>
-                <span>
-                  Permanent local history of phrase additions, removals, resets, and restores.
-                  {(status?.prompt_customization_history_total ?? 0) > (status?.prompt_customization_history.length ?? 0)
-                    ? ` Showing the latest ${status?.prompt_customization_history.length} of ${status?.prompt_customization_history_total} entries.`
-                    : ""}
+                <span className="settings-inline-heading">
+                  <strong>Prompt change log</strong>
+                  <SettingsInfo id="prompt-history" title="Prompt change log"
+                    text="Permanent local history of phrase additions, removals, resets, and restores. Restore reapplies a historical phrase configuration and records the action."
+                    openInfoId={openInfoId} setOpenInfoId={setOpenInfoId} />
                 </span>
+                {(status?.prompt_customization_history_total ?? 0) > (status?.prompt_customization_history.length ?? 0)
+                  && <span>Latest {status?.prompt_customization_history.length} of {status?.prompt_customization_history_total} entries</span>}
               </div>
               <button type="button" className="secondary" onClick={resetPrompt} disabled={saving || resettingPrompt}>
                 <Icon name="refresh" /> {resettingPrompt ? "Resetting…" : "Reset to default prompt"}
@@ -2033,11 +2161,18 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
         </form>
       </SettingsSection>
 
-      <SettingsSection title="Telegram" description={status?.telegram_configured ? (status.telegram_authorized ? "Connected" : "Credentials saved — not authorized") : "Not configured"} open={openSection === "telegram"} onToggle={() => toggleSection("telegram")}>
+      <SettingsSection id="telegram" title="Telegram"
+        description={status?.telegram_configured ? (status.telegram_authorized ? "Connected" : "Credentials saved — not authorized") : "Not configured"}
+        help="Configure the Telegram application credentials stored on this computer, authorize the account, and manually check active chats for recent messages."
+        open={openSection === "telegram"} onToggle={() => toggleSection("telegram")}
+        openInfoId={openInfoId} setOpenInfoId={setOpenInfoId}>
         <form onSubmit={save}>
           <div className="credential-header">
             <div>
-              <strong>Telegram</strong>
+              <SettingsLabel infoId="telegram-credentials" openInfoId={openInfoId} setOpenInfoId={setOpenInfoId}
+                info="Telegram API ID and API hash come from my.telegram.org and are encrypted locally. Replacing them signs this computer out, so Telegram authorization must be completed again.">
+                <strong>Telegram credentials</strong>
+              </SettingsLabel>
               <span>{status?.telegram_configured ? "API credentials saved" : "API credentials not configured"}</span>
             </div>
             <button type="button" className="secondary" onClick={() => {
@@ -2050,18 +2185,23 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
           {editingTelegram && (
             <>
               <label>
-                New Telegram API ID
+                <SettingsLabel infoId="telegram-api-id" openInfoId={openInfoId} setOpenInfoId={setOpenInfoId}
+                  info="Numeric application ID created for this account at my.telegram.org.">
+                  New Telegram API ID
+                </SettingsLabel>
                 <input type="number" placeholder="From my.telegram.org"
                   value={values.telegram_api_id || ""}
                   onChange={(e) => setValues((cur) => ({ ...cur, telegram_api_id: Number(e.target.value) || undefined }))} required />
               </label>
               <label>
-                New Telegram API hash
+                <SettingsLabel infoId="telegram-api-hash" openInfoId={openInfoId} setOpenInfoId={setOpenInfoId}
+                  info="Private application hash paired with the Telegram API ID at my.telegram.org. It is encrypted locally after saving.">
+                  New Telegram API hash
+                </SettingsLabel>
                 <input type="password" autoComplete="new-password" placeholder="API hash"
                   value={values.telegram_api_hash || ""}
                   onChange={(e) => setValues((cur) => ({ ...cur, telegram_api_hash: e.target.value }))} required />
               </label>
-              <p className="credential-note">Changing credentials signs this computer out of Telegram.</p>
             </>
           )}
           {(editingTelegram) && <button disabled={saving}>{saving ? "Saving…" : "Save credentials"}</button>}
@@ -2076,9 +2216,17 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
               .catch((reason) => showError(`Could not send Telegram code: ${fullError(reason)}`))
               .finally(() => setSendingCode(false));
           }}>
-            <h3>Connect Telegram</h3>
+            <div className="settings-inline-heading">
+              <h3>Connect Telegram</h3>
+              <SettingsInfo id="connect-telegram" title="Connect Telegram"
+                text="Enter the phone number associated with the Telegram account. Telegram sends a login code that authorizes this computer for future app launches."
+                openInfoId={openInfoId} setOpenInfoId={setOpenInfoId} />
+            </div>
             <label>
-              Phone number
+              <SettingsLabel infoId="telegram-phone" openInfoId={openInfoId} setOpenInfoId={setOpenInfoId}
+                info="Use the complete international number, including the country code, for example +201….">
+                Phone number
+              </SettingsLabel>
               <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+201..." required />
             </label>
             <button disabled={sendingCode}>{sendingCode ? "Sending code…" : "Send code"}</button>
@@ -2096,11 +2244,17 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
               .finally(() => setVerifying(false));
           }}>
             <label>
-              Verification code
+              <SettingsLabel infoId="telegram-code" openInfoId={openInfoId} setOpenInfoId={setOpenInfoId}
+                info="Enter the one-time login code sent by Telegram. The code is used only for this authorization attempt and is not logged.">
+                Verification code
+              </SettingsLabel>
               <input value={code} onChange={(e) => setCode(e.target.value)} required />
             </label>
             <label>
-              Two-step password (only if enabled)
+              <SettingsLabel infoId="telegram-password" openInfoId={openInfoId} setOpenInfoId={setOpenInfoId}
+                info="Required only when Telegram two-step verification is enabled. The password is used for authorization and is never logged.">
+                Two-step password (only if enabled)
+              </SettingsLabel>
               <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
             </label>
             <button disabled={verifying}>{verifying ? "Verifying…" : "Verify code"}</button>
@@ -2109,8 +2263,12 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
 
         {status?.telegram_authorized && (
           <div className="settings-subsection">
-            <strong>Fetch active channels now</strong>
-            <p>Fetches recent messages only. It does not run AI analysis; use Channels when you are ready to analyze selected chats.</p>
+            <span className="settings-inline-heading">
+              <strong>Fetch active channels now</strong>
+              <SettingsInfo id="telegram-check" title="Fetch active channels now"
+                text="Fetches recent messages only. It does not run AI analysis; use Channels when you are ready to analyze selected chats."
+                openInfoId={openInfoId} setOpenInfoId={setOpenInfoId} />
+            </span>
             <button type="button" disabled={checkingTelegram} onClick={() => {
               setCheckingTelegram(true);
               void api.runCollection()
@@ -2125,10 +2283,18 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
         )}
       </SettingsSection>
 
-      <SettingsSection title="EGX Stock Catalog" description={catalogStatus ? `${catalogStatus.stock_count} stocks · refreshes every ${catalogStatus.refresh_days} days` : "Loading local stock mappings"} open={openSection === "catalog"} onToggle={() => toggleSection("catalog")}>
+      <SettingsSection id="catalog" title="EGX Stock Catalog"
+        description={catalogStatus ? `${catalogStatus.stock_count} stocks · refreshes every ${catalogStatus.refresh_days} days` : "Loading local stock mappings"}
+        help="Maintains the local EGX stock catalog used to map ticker codes, Arabic names, English names, and learned aliases during analysis. Online refreshes occur only when due or when requested."
+        open={openSection === "catalog"} onToggle={() => toggleSection("catalog")}
+        openInfoId={openInfoId} setOpenInfoId={setOpenInfoId}>
         <div className="settings-subsection">
-          <strong>Arabic and English stock identities</strong>
-          <p>Downloads the EGX catalog only when due, then keeps codes, Arabic names, English names, and learned aliases on this computer for all analyses.</p>
+          <span className="settings-inline-heading">
+            <strong>Arabic and English stock identities</strong>
+            <SettingsInfo id="catalog-identities" title="Arabic and English stock identities"
+              text="The catalog keeps ticker codes, Arabic names, English names, and learned aliases on this computer so results can use consistent stock identities."
+              openInfoId={openInfoId} setOpenInfoId={setOpenInfoId} />
+          </span>
           <p className="credential-note">
             {catalogStatus?.last_successful_refresh ? `Last updated: ${formatGeneratedAt(catalogStatus.last_successful_refresh)}` : "Using the built-in catalog until the first online refresh."}
           </p>
@@ -2147,21 +2313,34 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
         </div>
       </SettingsSection>
 
-      <SettingsSection title="Application" description={`Version ${appVersion || "Loading"}`} open={openSection === "updates"} onToggle={() => toggleSection("updates")}>
+      <SettingsSection id="application" title="Application" description={`Version ${appVersion || "Loading"}`}
+        help="Check for signed EGX Analyzer releases. Installing an update replaces application files while keeping local settings, Telegram data, analysis history, and saved results."
+        open={openSection === "updates"} onToggle={() => toggleSection("updates")}
+        openInfoId={openInfoId} setOpenInfoId={setOpenInfoId}>
         <div className="settings-subsection">
-          <strong>Application updates</strong>
-          <p>Checks for a signed EGX Analyzer update and keeps your local data unchanged.</p>
+          <span className="settings-inline-heading">
+            <strong>Application updates</strong>
+            <SettingsInfo id="application-updates" title="Application updates"
+              text="Checks the configured release channel for a signed EGX Analyzer update. Local data and configuration remain unchanged."
+              openInfoId={openInfoId} setOpenInfoId={setOpenInfoId} />
+          </span>
           <button type="button" disabled={checkingUpdate} onClick={onCheckForUpdates}>
             {checkingUpdate ? "Checking…" : "Check for updates"}
           </button>
         </div>
       </SettingsSection>
 
-      <SettingsSection title="Support and diagnostics" description="Local request logs and error traces" open={openSection === "diagnostics"} onToggle={() => toggleSection("diagnostics")}>
-        <p>Stores local request results and error traces. API keys, codes, and passwords are never logged.</p>
+      <SettingsSection id="diagnostics" title="Support and diagnostics" description="Local request logs and error traces"
+        help="View local request results and error traces used for troubleshooting. API keys, Telegram codes, and passwords are never written to diagnostics."
+        open={openSection === "diagnostics"} onToggle={() => toggleSection("diagnostics")}
+        openInfoId={openInfoId} setOpenInfoId={setOpenInfoId}>
         {outputAudits.length > 0 && <div className="diagnostic-output-audits">
-          <strong>Model output audits</strong>
-          <p>These non-blocking validation notices apply to saved model responses. They never change the returned data.</p>
+          <span className="settings-inline-heading">
+            <strong>Model output audits</strong>
+            <SettingsInfo id="model-output-audits" title="Model output audits"
+              text="Non-blocking validation notices attached to saved model responses. They are retained for diagnostics and never change the returned model data."
+              openInfoId={openInfoId} setOpenInfoId={setOpenInfoId} />
+          </span>
           {outputAudits.map((item) => <div key={item.id} className="diagnostic-output-audit">
             <span>{formatGeneratedAt(item.generated_at)}</span>
             <p>{item.model_validation_warnings.join(" ")}</p>

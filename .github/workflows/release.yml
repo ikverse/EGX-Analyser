@@ -1,5 +1,5 @@
 name: Publish desktop update
-run-name: ${{ github.ref_name }} - Require contextual T+1 and visible date evidence
+run-name: ${{ github.ref_name }} - Clean Settings with contextual information popups
 
 on:
   push:

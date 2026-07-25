@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.108
+- Replaced persistent Settings explanations with compact information popups beside section headings and individual controls.
+- Added accessible popup behavior with one-open-at-a-time state, outside-click and Escape dismissal, focus return, and responsive viewport positioning.
+- Kept live warnings, errors, connection states, catalog status, and diagnostic results directly visible while reducing static page clutter.
+- Styled the cleaner Settings layout and contextual help consistently across dark and light themes.
+
 ## v0.1.107
 - Required the model to distinguish explicit-date recommendations from T+1 recommendations using visible source dates and exact contextual evidence.
 - Accepted clear Arabic and English next-session equivalents only when they belong to the same stock recommendation, without inferring T+1 from a previous-day date alone.
