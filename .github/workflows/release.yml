@@ -1,5 +1,5 @@
 name: Publish desktop update
-run-name: ${{ github.ref_name }} - Redesign client inquiry reply cards
+run-name: ${{ github.ref_name }} - Extract sell-zone targets and add per-target returns
 
 on:
   push:

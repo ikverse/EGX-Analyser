@@ -169,6 +169,10 @@ async def test_same_template_images_are_sent_separately_for_stock_aware_review(t
     assert "voice-note transcripts" in source_data
     assert "visibly placed directly beneath it in the same recommendation" in source_data
     assert "Watching never means T+1" in source_data
+    assert "SELL-ZONE TARGETS AND RETURNS" in source_data
+    assert "entry 26.80–27.00" in source_data
+    assert "return_tp1_pct=3.70" in source_data
+    assert "return_tp2_pct=6.48" in source_data
     assert "MANDATORY DATE ELIGIBILITY SELF-AUDIT" in source_data
 
 
@@ -192,6 +196,107 @@ def test_source_table_keeps_entry_range_without_averaging():
     assert row["visible_source_date"] == "2026-07-16"
     assert row["date_evidence"] == "16-Jul-2026"
     assert row["timing_evidence"] is None
+
+
+def test_sell_zone_targets_keep_explicit_per_target_returns():
+    payload = {
+        "top_consolidated_recommendations": [{
+            "stock_code": "HRHO",
+            "stock_name_en": "EFG Holding",
+            "mention_count": 1,
+            "rank": 1,
+            "status": "active",
+            "data_points": [{
+                "source": "Ostoul",
+                "source_message_id": "19246",
+                "recommendation_type": "buy",
+                "buy_price_low": 26.80,
+                "buy_price_high": 27.00,
+                "target_1": 28.00,
+                "return_tp1_pct": 3.70,
+                "target_2": 28.75,
+                "return_tp2_pct": 6.48,
+                "stop_loss": 26.10,
+            }],
+        }],
+    }
+
+    row = _consolidated_source_table(payload)[0]
+
+    assert row["recommendation_type"] == "buy"
+    assert row["buy_price"] is None
+    assert row["buy_price_low"] == 26.80
+    assert row["buy_price_high"] == 27.00
+    assert row["target_1"] == 28.00
+    assert row["return_tp1_pct"] == 3.70
+    assert row["target_2"] == 28.75
+    assert row["return_tp2_pct"] == 6.48
+
+
+def test_missing_target_returns_are_calculated_from_upper_entry_bound():
+    payload = {
+        "top_consolidated_recommendations": [{
+            "stock_code": "HRHO",
+            "mention_count": 1,
+            "data_points": [{
+                "source": "Ostoul",
+                "source_message_id": "19246",
+                "recommendation_type": "buy",
+                "buy_price_low": 26.80,
+                "buy_price_high": 27.00,
+                "target_1": 28.00,
+                "target_2": 28.75,
+            }],
+        }],
+    }
+
+    row = _consolidated_source_table(payload)[0]
+
+    assert row["return_tp1_pct"] == 3.70
+    assert row["return_tp2_pct"] == 6.48
+    assert row["expected_return_pct"] == 3.70
+
+
+def test_sell_recommendation_return_calculation_uses_inverse_price_direction():
+    payload = {
+        "top_consolidated_recommendations": [{
+            "stock_code": "COMI",
+            "mention_count": 1,
+            "data_points": [{
+                "source": "Example",
+                "source_message_id": "1",
+                "recommendation_type": "sell",
+                "buy_price": 100,
+                "target_1": 95,
+                "target_2": 90,
+            }],
+        }],
+    }
+
+    row = _consolidated_source_table(payload)[0]
+
+    assert row["return_tp1_pct"] == 5.0
+    assert row["return_tp2_pct"] == 10.0
+
+
+def test_legacy_expected_return_is_preserved_as_tp1_return():
+    payload = {
+        "top_consolidated_recommendations": [{
+            "stock_code": "COMI",
+            "mention_count": 1,
+            "data_points": [{
+                "source": "Legacy",
+                "source_message_id": "1",
+                "target_1": 105,
+                "expected_return_pct": "4.25%",
+            }],
+        }],
+    }
+
+    row = _consolidated_source_table(payload)[0]
+
+    assert row["return_tp1_pct"] == 4.25
+    assert row["return_tp2_pct"] is None
 
 
 def test_qwen_models_return_every_accessible_model():
@@ -972,6 +1077,10 @@ def test_analysis_prompt_keeps_base_prompt_and_appends_phrase_guidance(monkeypat
     assert "For t_plus_1, timing_evidence must be the exact contiguous literal token T+1" in prompt
     assert "No translation, synonym, paraphrase, or inferred next-day meaning qualifies" in prompt
     assert "For watching, timing_evidence must be the exact same-stock phrase" in prompt
+    assert "منطقة البيع" in prompt
+    assert "return_tp1_pct" in prompt
+    assert "return_tp2_pct" in prompt
+    assert "application calculates missing returns separately" in prompt
     assert "text or voice-note transcripts" in prompt
     assert "copy the supplied MESSAGE DATE timestamp into date_evidence" in prompt
     assert "يسمح بالتداول على سعر الشراء المحدد" in prompt

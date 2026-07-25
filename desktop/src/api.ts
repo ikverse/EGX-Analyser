@@ -66,7 +66,9 @@ export type StockSourceTableRow = {
   buy_price_low?: number | null;
   buy_price_high?: number | null;
   target_1?: number | null;
+  return_tp1_pct?: number | null;
   target_2?: number | null;
+  return_tp2_pct?: number | null;
   stop_loss?: number | null;
   support?: number | null;
   resistance?: number | null;

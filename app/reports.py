@@ -206,7 +206,7 @@ class ReportService:
         lines += [f"- {item['channel']}: {item['status']} | Messages {item['messages']} | Recommendations {item['recommendations']}" for item in channel_results]
         if consolidated_source is not None:
             lines += ["", "## Qwen consolidated analysis", f"- Analysis period: {consolidated_source.get('analysis_period') or report_mode}"]
-            lines += ["", "| Rank | Code | Company (EN) | Company (AR) | Source | Date | Timing | Type | Entry | TP1 | TP2 | Stop | Support | Resistance | Return % | Risk % | Status | Notes |", "| ---: | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |"]
+            lines += ["", "| Rank | Code | Company (EN) | Company (AR) | Source | Date | Timing | Type | Entry | TP1 | TP1 Return % | TP2 | TP2 Return % | Stop | Support | Resistance | Risk % | Status | Notes |", "| ---: | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |"]
             noted_tickers: set[str] = set()
             for row in stock_source_table:
                 notes = row["notes_summary"] if row["ticker"] not in noted_tickers else "-"
@@ -214,9 +214,11 @@ class ReportService:
                 lines.append(
                     f"| {row['rank'] or '-'} | {row['ticker']} | {row['company']} | {row['company_ar'] or '-'} | "
                     f"{row['source']} | {', '.join(row['source_dates']) or '-'} | {', '.join(row['effective_date_bases']) or '-'} | {row['recommendation_type'] or '-'} | "
-                    f"{format_entry_point(row['buy_price'], row.get('buy_price_low'), row.get('buy_price_high'))} | {row['target_1'] or '-'} | {row['target_2'] or '-'} | "
+                    f"{format_entry_point(row['buy_price'], row.get('buy_price_low'), row.get('buy_price_high'))} | "
+                    f"{row['target_1'] or '-'} | {row['return_tp1_pct'] if row['return_tp1_pct'] is not None else '-'} | "
+                    f"{row['target_2'] or '-'} | {row['return_tp2_pct'] if row['return_tp2_pct'] is not None else '-'} | "
                     f"{row['stop_loss'] or '-'} | {row['support'] or '-'} | {row['resistance'] or '-'} | "
-                    f"{row['expected_return_pct'] or '-'} | {row['risk_pct'] or '-'} | {row['status'] or '-'} | {notes or '-'} |"
+                    f"{row['risk_pct'] or '-'} | {row['status'] or '-'} | {notes or '-'} |"
                 )
             lines += ["", "## Achieved targets"]
             for item in consolidated_source.get("achieved_targets", []):
@@ -360,7 +362,8 @@ def _consolidated_source_counts(payload: dict) -> dict[str, dict[str, int]]:
 
 _SOURCE_VALUE_FIELDS = (
     "buy_price", "buy_price_low", "buy_price_high", "target_1", "target_2", "stop_loss", "support", "resistance",
-    "expected_return_pct", "risk_pct", "visible_source_date", "date_evidence", "timing_evidence",
+    "return_tp1_pct", "return_tp2_pct", "expected_return_pct", "risk_pct",
+    "visible_source_date", "date_evidence", "timing_evidence",
 )
 
 _T_PLUS_ONE_RE = re.compile(
@@ -417,6 +420,62 @@ def _display_number(value: object) -> str | None:
 
 def _unique_values(values: list[object]) -> list[str]:
     return list(dict.fromkeys(value for item in values if (value := _display_number(item)) is not None))
+
+
+def _as_percentage(value: object) -> float | None:
+    number = _as_number(value)
+    if number is not None:
+        return number
+    if not isinstance(value, str):
+        return None
+    text = value.strip().replace("%", "").replace("٪", "").replace(",", "")
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def _calculated_target_return(row: dict, target_key: str) -> float | None:
+    target = _as_number(row.get(target_key))
+    entry = _as_number(row.get("buy_price"))
+    if entry is None:
+        bounds = [
+            value for key in ("buy_price_low", "buy_price_high")
+            if (value := _as_number(row.get(key))) is not None
+        ]
+        entry = max(bounds) if bounds else None
+    if target is None or entry is None or entry == 0:
+        return None
+    direction = str(row.get("recommendation_type") or "buy").strip().casefold()
+    percentage = ((entry - target) / entry * 100) if direction == "sell" else ((target - entry) / entry * 100)
+    rounded = round(percentage, 2)
+    return 0.0 if rounded == 0 else rounded
+
+
+def ensure_target_returns(rows: list[dict]) -> list[dict]:
+    """Backfill per-target returns for new and previously saved result rows."""
+    for row in rows:
+        explicit_tp1 = next((
+            value for key in ("return_tp1_pct", "tp1_return_pct", "target_1_return_pct")
+            if (value := _as_percentage(row.get(key))) is not None
+        ), None)
+        explicit_tp2 = next((
+            value for key in ("return_tp2_pct", "tp2_return_pct", "target_2_return_pct")
+            if (value := _as_percentage(row.get(key))) is not None
+        ), None)
+        legacy_return = _as_percentage(row.get("expected_return_pct"))
+        row["return_tp1_pct"] = (
+            explicit_tp1 if explicit_tp1 is not None
+            else legacy_return if legacy_return is not None
+            else _calculated_target_return(row, "target_1")
+        )
+        row["return_tp2_pct"] = (
+            explicit_tp2 if explicit_tp2 is not None
+            else _calculated_target_return(row, "target_2")
+        )
+        if row.get("expected_return_pct") is None and row["return_tp1_pct"] is not None:
+            row["expected_return_pct"] = row["return_tp1_pct"]
+    return rows
 
 
 def _stock_notes_summary(item: dict, payload: dict | None = None) -> str:
@@ -512,6 +571,7 @@ def _stock_notes_summary(item: dict, payload: dict | None = None) -> str:
 
 def ensure_stock_notes_summaries(rows: list[dict]) -> list[dict]:
     """Backfill the new stock-level Notes field for previously saved result rows."""
+    ensure_target_returns(rows)
     grouped: dict[str, list[dict]] = {}
     for row in rows:
         grouped.setdefault(str(row.get("ticker") or "").upper(), []).append(row)
@@ -862,9 +922,10 @@ def _build_html_report(
                 '<table><thead><tr>'
                 '<th>Rank</th><th>Code</th><th>Company (EN)</th><th>Company (AR)</th>'
                 '<th>Source</th><th>Date</th><th>Timing</th><th>Type</th><th>Status</th>'
-                '<th class="num">Entry</th><th class="num">TP1</th><th class="num">TP2</th>'
+                '<th class="num">Entry</th><th class="num">TP1</th><th class="num">TP1 Return %</th>'
+                '<th class="num">TP2</th><th class="num">TP2 Return %</th>'
                 '<th class="num">Stop loss</th><th class="num">Support</th><th class="num">Resistance</th>'
-                '<th class="num">Return %</th><th class="num">Risk %</th><th>Notes</th>'
+                '<th class="num">Risk %</th><th>Notes</th>'
                 '</tr></thead><tbody>'
             )
             row_counts: dict[str, int] = {}
@@ -889,11 +950,12 @@ def _build_html_report(
                     f'<td>{badge(row["status"] or "HOLD")}</td>'
                     f'<td class="num">{e(format_entry_point(row["buy_price"], row.get("buy_price_low"), row.get("buy_price_high")))}</td>'
                     f'<td class="num">{e(row["target_1"] or "-")}</td>'
+                    f'<td class="num">{e(row["return_tp1_pct"] if row["return_tp1_pct"] is not None else "-")}</td>'
                     f'<td class="num">{e(row["target_2"] or "-")}</td>'
+                    f'<td class="num">{e(row["return_tp2_pct"] if row["return_tp2_pct"] is not None else "-")}</td>'
                     f'<td class="num">{e(row["stop_loss"] or "-")}</td>'
                     f'<td class="num">{e(row["support"] or "-")}</td>'
                     f'<td class="num">{e(row["resistance"] or "-")}</td>'
-                    f'<td class="num">{e(row["expected_return_pct"] or "-")}</td>'
                     f'<td class="num">{e(row["risk_pct"] or "-")}</td>'
                     f'{notes_cell}'
                     f'</tr>'

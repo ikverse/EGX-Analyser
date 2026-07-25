@@ -1164,11 +1164,12 @@ function DeleteAnalysisResultModal({ item, deleting, onCancel, onConfirm }: {
 const PRICE_FIELDS: Array<{ key: string; label: string }> = [
   { key: "buy_price",           label: "Entry" },
   { key: "target_1",            label: "TP1" },
+  { key: "return_tp1_pct",      label: "TP1 Return %" },
   { key: "target_2",            label: "TP2" },
+  { key: "return_tp2_pct",      label: "TP2 Return %" },
   { key: "stop_loss",           label: "Stop" },
   { key: "support",             label: "Support" },
   { key: "resistance",          label: "Resistance" },
-  { key: "expected_return_pct", label: "Return %" },
   { key: "risk_pct",            label: "Risk %" },
   { key: "date",                label: "Date" },
 ];
@@ -1242,14 +1243,15 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
       <div className="consolidated-table-scroll">
         <table className="consolidated-table">
           <thead><tr>
-            <th>Source</th><th>Target date</th><th>Source date</th><th>Timing</th><th>Type</th><th>Entry</th><th>TP1</th><th>TP2</th>
-            <th>Stop</th><th>Support</th><th>Resistance</th><th>Return %</th><th>Risk %</th><th>Status</th><th>Source image</th><th>Notes</th>
+            <th>Source</th><th>Target date</th><th>Source date</th><th>Timing</th><th>Type</th><th>Entry</th>
+            <th>TP1</th><th>TP1 Return %</th><th>TP2</th><th>TP2 Return %</th>
+            <th>Stop</th><th>Support</th><th>Resistance</th><th>Risk %</th><th>Status</th><th>Source image</th><th>Notes</th>
           </tr></thead>
           {[...grouped.entries()].map(([ticker, stockRows]) => {
             const first = stockRows[0];
             return (
               <tbody key={ticker}>
-                <tr className="consolidated-stock-group"><td colSpan={16}>
+                <tr className="consolidated-stock-group"><td colSpan={17}>
                   <div className="consolidated-stock-group-content">
                     <span className="consolidated-rank">#{first.rank ?? "—"}</span>
                     <strong>{first.ticker}</strong>
@@ -1267,11 +1269,12 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
                     <td><span className={`status-pill ${row.recommendation_type === "sell" ? "neutral" : "active"}`}>{row.recommendation_type || "buy"}</span></td>
                     <td className="numeric">{entryDisplay(row.buy_price, row.buy_price_low, row.buy_price_high)}</td>
                     <td className="numeric positive">{num(row.target_1)}</td>
+                    <td className="numeric positive">{num(row.return_tp1_pct)}</td>
                     <td className="numeric positive">{num(row.target_2)}</td>
+                    <td className="numeric positive">{num(row.return_tp2_pct)}</td>
                     <td className="numeric negative">{num(row.stop_loss)}</td>
                     <td className="numeric">{num(row.support)}</td>
                     <td className="numeric">{num(row.resistance)}</td>
-                    <td className="numeric positive">{num(row.expected_return_pct)}</td>
                     <td className="numeric negative">{num(row.risk_pct)}</td>
                     <td><span className={`status-pill ${row.status === "active" ? "active" : "neutral"}`}>{row.status || "—"}</span></td>
                     <td className="source-image-cell">
@@ -1534,7 +1537,7 @@ function AnalysisResultTable({ summary, details, sourceRows = [], channelResults
                               </td>
                             ) : null}
                             {PRICE_FIELDS.map((f) => (
-                              <td key={f.key} style={{ ...tdStyle, textAlign: "right", color: f.key === "risk_pct" && detail[f.key] ? "#fca5a5" : f.key.startsWith("target") || f.key === "expected_return_pct" ? "#86efac" : "#e5e7eb" }}>
+                              <td key={f.key} style={{ ...tdStyle, textAlign: "right", color: f.key === "risk_pct" && detail[f.key] ? "#fca5a5" : f.key.startsWith("target") || f.key.startsWith("return_") ? "#86efac" : "#e5e7eb" }}>
                                 {f.key === "date" ? (detail[f.key] ? String(detail[f.key]).slice(0, 10) : "—") : num(detail[f.key])}
                               </td>
                             ))}

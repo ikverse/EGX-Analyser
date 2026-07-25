@@ -958,7 +958,7 @@ tr:hover td { background: #131f33; }
 .consolidated-table-title strong { color: #e5e7eb; }
 .consolidated-table-title span { color: #94a3b8; font-size: .8rem; text-align: right; }
 .consolidated-table-scroll { overflow-x: auto; }
-.consolidated-table { min-width: 1640px; font-size: .82rem; }
+.consolidated-table { min-width: 1760px; font-size: .82rem; }
 .consolidated-table th { background: #0f1e33; padding: .65rem .7rem; white-space: nowrap; text-transform: none; }
 .consolidated-table td { padding: .6rem .7rem; vertical-align: top; }
 .consolidated-table .consolidated-stock-group td {
@@ -1903,13 +1903,13 @@ header strong {
 
 .consolidated-table td:nth-child(5),
 .consolidated-table th:nth-child(5),
-.consolidated-table td:nth-child(14),
-.consolidated-table th:nth-child(14) {
+.consolidated-table td:nth-child(15),
+.consolidated-table th:nth-child(15) {
   min-width: 88px;
 }
 
-.consolidated-table td:nth-child(n + 6):nth-child(-n + 13),
-.consolidated-table th:nth-child(n + 6):nth-child(-n + 13) {
+.consolidated-table td:nth-child(n + 6):nth-child(-n + 14),
+.consolidated-table th:nth-child(n + 6):nth-child(-n + 14) {
   min-width: 78px;
 }
 

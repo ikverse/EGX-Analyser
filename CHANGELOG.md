@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.116
+- Taught the analysis model to extract TP1 and TP2 from `منطقة البيع`, `نطاق البيع`, and equivalent exit-zone wording without changing a Buy recommendation to Sell.
+- Added separate TP1 Return % and TP2 Return % fields beside their corresponding targets in Results.
+- Preserved explicit `عائد الربح` percentages and calculated missing returns from available entry and target values.
+- Used the upper bound of an entry range for return calculations and applied direction-aware formulas to Buy and Sell recommendations.
+- Backfilled compatible saved results and updated Markdown and HTML report exports with the new per-target return columns.
+
 ## v0.1.115
 - Rebuilt client inquiry replies as a responsive two-column card grid that becomes one column on narrower layouts.
 - Limited single-reply cards to a readable width and allowed cards of different lengths to keep their natural height.
