@@ -1791,29 +1791,32 @@ function SettingsSection({ id, title, description, help, open, onToggle, openInf
   openInfoId: string | null; setOpenInfoId: React.Dispatch<React.SetStateAction<string | null>>;
   children: React.ReactNode;
 }) {
+  const bodyId = `settings-section-${id}`;
+
   return (
-    <div className="settings-section">
+    <div className={`settings-section${open ? " is-open" : ""}`}>
       <div className="settings-section-header">
+        <button
+          type="button"
+          className="settings-section-toggle"
+          aria-expanded={open}
+          aria-controls={bodyId}
+          aria-label={`${open ? "Collapse" : "Expand"} ${title}`}
+          onClick={onToggle}
+        />
         <div className="settings-section-copy">
           <div className="settings-section-title-row">
-            <button type="button" className="settings-section-title-button" onClick={onToggle} aria-expanded={open}>
-              <span className="settings-section-title">{title}</span>
-            </button>
+            <span className="settings-section-title">{title}</span>
             <SettingsInfo id={`section-${id}`} title={title} text={help}
               openInfoId={openInfoId} setOpenInfoId={setOpenInfoId} />
           </div>
-          {description && (
-            <button type="button" className="settings-section-status-button" onClick={onToggle} aria-expanded={open}>
-              <span className="settings-section-status">{description}</span>
-            </button>
-          )}
+          {description && <span className="settings-section-status">{description}</span>}
         </div>
-        <button type="button" className="settings-section-chevron" onClick={onToggle}
-          aria-label={`${open ? "Collapse" : "Expand"} ${title}`} aria-expanded={open}>
+        <span className="settings-section-chevron" aria-hidden="true">
           <Icon name={open ? "chevron-down" : "chevron-right"} size={17} />
-        </button>
+        </span>
       </div>
-      {open && <div className="settings-section-body">{children}</div>}
+      {open && <div id={bodyId} className="settings-section-body">{children}</div>}
     </div>
   );
 }

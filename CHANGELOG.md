@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.111
+- Made each Settings section expand or collapse from anywhere across its header while keeping information icons independent.
+- Added native keyboard operation and clear focus feedback to every Settings accordion header.
+- Smoothed collapsed and expanded section edges with consistent rounded clipping, hover treatment, and chevron alignment.
+
 ## v0.1.110
 - Left-aligned collapsed Settings titles and statuses and placed each information icon directly beside its heading.
 - Standardized information controls and replaced text arrows with consistently aligned SVG chevrons.

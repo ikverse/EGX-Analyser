@@ -2052,23 +2052,58 @@ header strong {
 .consolidated-table.is-compact .consolidated-stock-group td { padding-block: .38rem; }
 
 /* ── Settings: two-column configuration with a compact, reachable save action ── */
-.settings-section { overflow: visible; }
+.settings-section {
+  background-clip: padding-box;
+  isolation: isolate;
+  overflow: visible;
+}
 
 .settings-section-header {
   align-items: center;
+  background-clip: padding-box;
+  border-radius: calc(var(--radius-md) - 1px);
+  cursor: pointer;
   display: flex;
   gap: .75rem;
   justify-content: space-between;
   min-height: 4.25rem;
   padding: .7rem .85rem .7rem 1rem;
+  position: relative;
+  user-select: none;
 }
 
-button.settings-section-title-button,
-button.settings-section-status-button,
-button.settings-section-chevron,
+button.settings-section-toggle,
 button.settings-info-button {
   background: transparent;
   box-shadow: none;
+}
+
+button.settings-section-toggle {
+  border: 0;
+  border-radius: inherit;
+  inset: 0;
+  outline: none;
+  padding: 0;
+  position: absolute;
+  width: 100%;
+  z-index: 0;
+}
+
+button.settings-section-toggle:hover:not(:disabled),
+button.settings-section-toggle:active:not(:disabled),
+button.settings-section-toggle:focus-visible {
+  background: transparent;
+  filter: none;
+  outline: none;
+  transform: none;
+}
+
+.settings-section.is-open .settings-section-header {
+  border-radius: calc(var(--radius-md) - 1px) calc(var(--radius-md) - 1px) 0 0;
+}
+
+.settings-section-header:has(.settings-section-toggle:focus-visible) {
+  box-shadow: inset 0 0 0 2px var(--focus);
 }
 
 .settings-section-copy {
@@ -2076,6 +2111,9 @@ button.settings-info-button {
   display: grid;
   gap: .18rem;
   min-width: 0;
+  pointer-events: none;
+  position: relative;
+  z-index: 1;
 }
 
 .settings-section-title-row {
@@ -2085,30 +2123,6 @@ button.settings-info-button {
   min-width: 0;
 }
 
-button.settings-section-title-button,
-button.settings-section-status-button {
-  border: 0;
-  border-radius: 5px;
-  display: block;
-  justify-content: flex-start;
-  min-width: 0;
-  padding: 0;
-  text-align: left;
-  transform: none;
-}
-
-button.settings-section-title-button {
-  color: var(--text);
-}
-
-button.settings-section-status-button {
-  color: var(--text-faint);
-  max-width: min(42rem, calc(100vw - 12rem));
-}
-
-button.settings-section-title-button:hover:not(:disabled),
-button.settings-section-status-button:hover:not(:disabled),
-button.settings-section-chevron:hover:not(:disabled),
 button.settings-info-button:hover:not(:disabled) {
   box-shadow: none;
   filter: none;
@@ -2133,20 +2147,23 @@ button.settings-info-button:hover:not(:disabled) {
   white-space: nowrap;
 }
 
-button.settings-section-chevron {
+.settings-section-chevron {
   align-items: center;
-  border: 0;
   border-radius: 999px;
   color: var(--accent-strong);
   display: inline-flex;
+  flex: 0 0 auto;
   height: 2rem;
   justify-content: center;
   margin-left: auto;
-  padding: 0;
+  pointer-events: none;
+  position: relative;
+  transition: background 150ms ease;
   width: 2rem;
+  z-index: 1;
 }
 
-button.settings-section-chevron:hover:not(:disabled) {
+.settings-section-header:hover .settings-section-chevron {
   background: var(--accent-soft);
 }
 
@@ -2154,7 +2171,10 @@ button.settings-section-chevron:hover:not(:disabled) {
   align-items: center;
   display: inline-flex;
   flex: 0 0 auto;
+  pointer-events: auto;
+  position: relative;
   vertical-align: middle;
+  z-index: 2;
 }
 
 button.settings-info-button {

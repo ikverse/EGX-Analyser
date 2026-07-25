@@ -1,5 +1,5 @@
 name: Publish desktop update
-run-name: ${{ github.ref_name }} - Align Settings sections, fields, and information controls
+run-name: ${{ github.ref_name }} - Expand Settings sections from the full header and smooth accordion edges
 
 on:
   push:
