@@ -14,7 +14,8 @@ import { cairoDateInputValue, formatCairoDateTime } from "./time";
 
 type Page = "Channels" | "Results" | "Settings";
 type ThemeMode = "light" | "dark";
-type Toast = { kind: "success" | "warning"; text: string } | null;
+type ToastKind = "success" | "warning" | "error";
+type ToastMessage = { id: number; kind: ToastKind; text: string };
 type AnalysisRunState = { running: boolean; progress: string; startedAt?: number; requestId?: string; stopping?: boolean };
 type ChannelAnalysisConfig = {
   selectedHandles: string[];
@@ -64,6 +65,59 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
     }
   })();
   return <svg className="icon" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">{paths}</svg>;
+}
+
+function ToastItem({ toast, onRemove }: { toast: ToastMessage; onRemove: (id: number) => void }) {
+  const duration = toast.kind === "success" ? 5_000 : 7_000;
+  const [paused, setPaused] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const remainingRef = useRef(duration);
+  const exitTimerRef = useRef<number | null>(null);
+  const title = { success: "Success", warning: "Warning", error: "Error" }[toast.kind];
+  const close = useCallback(() => {
+    if (closing) return;
+    setClosing(true);
+    exitTimerRef.current = window.setTimeout(() => onRemove(toast.id), 180);
+  }, [closing, onRemove, toast.id]);
+
+  useEffect(() => {
+    if (paused || closing) return;
+    const startedAt = Date.now();
+    const timer = window.setTimeout(close, remainingRef.current);
+    return () => {
+      window.clearTimeout(timer);
+      remainingRef.current = Math.max(0, remainingRef.current - (Date.now() - startedAt));
+    };
+  }, [close, closing, paused]);
+
+  useEffect(() => () => {
+    if (exitTimerRef.current !== null) window.clearTimeout(exitTimerRef.current);
+  }, []);
+
+  return (
+    <div
+      className={`toast ${toast.kind}${paused ? " paused" : ""}${closing ? " closing" : ""}`}
+      role={toast.kind === "success" ? "status" : "alert"}
+      aria-atomic="true"
+      style={{ "--toast-duration": `${duration}ms` } as React.CSSProperties}
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onFocus={() => setPaused(true)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setPaused(false);
+      }}
+    >
+      <span className="toast-icon"><Icon name={toast.kind === "success" ? "check" : "warning"} size={18} /></span>
+      <span className="toast-copy">
+        <strong>{title}</strong>
+        <span>{toast.text}</span>
+      </span>
+      <button type="button" className="toast-dismiss" onClick={close} aria-label={`Dismiss ${title.toLowerCase()} message`}>
+        <Icon name="clear" size={16} />
+      </button>
+      <span className="toast-progress" aria-hidden="true"><span /></span>
+    </div>
+  );
 }
 
 function normalizeChannelHandle(value: string): string {
@@ -150,7 +204,7 @@ export default function App() {
   const [analysisConfig, setAnalysisConfig] = useState<ChannelAnalysisConfig>(loadChannelAnalysisConfig);
   const [settings, setSettings] = useState<SettingsStatus | null>(null);
   const [engineStarting, setEngineStarting] = useState(true);
-  const [toast, setToast] = useState<Toast>(null);
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [errorModal, setErrorModal] = useState<string | null>(null);
   const [successModal, setSuccessModal] = useState<{ message: string; resultId?: number } | null>(null);
   const [focusedResultId, setFocusedResultId] = useState<number | null>(null);
@@ -161,6 +215,7 @@ export default function App() {
   const api = useMemo(() => new ApiClient(), []);
   const analysisAbortRef = useRef<AbortController | null>(null);
   const analysisStopRequestedRef = useRef(false);
+  const toastIdRef = useRef(0);
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeMode;
@@ -171,13 +226,19 @@ export default function App() {
     localStorage.setItem("egx.sidebarExpanded", String(sidebarExpanded));
   }, [sidebarExpanded]);
 
-  const notify = (kind: "success" | "warning", text: string) => setToast({ kind, text });
+  const notify = useCallback((kind: ToastKind, text: string) => {
+    const toast = { id: ++toastIdRef.current, kind, text };
+    setToasts((current) => [toast, ...current].slice(0, 4));
+  }, []);
+  const removeToast = useCallback((id: number) => {
+    setToasts((current) => current.filter((toast) => toast.id !== id));
+  }, []);
 
   const showError = useCallback((fullText: string) => {
     setErrorModal(fullText);
     const short = fullText.length > 120 ? `${fullText.slice(0, 117)}…` : fullText;
-    setToast({ kind: "warning", text: short });
-  }, []);
+    notify("error", short);
+  }, [notify]);
   const showSuccess = useCallback((message: string, resultId?: number) => setSuccessModal({ message, resultId }), []);
 
   const updateAnalysisConfig = useCallback((updater: (current: ChannelAnalysisConfig) => ChannelAnalysisConfig) => {
@@ -327,12 +388,6 @@ export default function App() {
       showError(`Update could not be installed: ${fullError(reason)}. Use the installer from GitHub Releases if this continues.`);
     }
   };
-
-  useEffect(() => {
-    if (!toast) return;
-    const timer = window.setTimeout(() => setToast(null), 5000);
-    return () => window.clearTimeout(timer);
-  }, [toast]);
 
   useEffect(() => {
     let cancelled = false;
@@ -525,12 +580,11 @@ export default function App() {
         } : undefined}
       />}
 
-      {toast && (
-        <div className={`toast ${toast.kind}`} role="status">
-          <strong>{toast.kind}</strong>
-          <span>{toast.text}</span>
-          <button onClick={() => setToast(null)} aria-label="Dismiss">✕</button>
-        </div>
+      {toasts.length > 0 && createPortal(
+        <div className="toast-stack" aria-label="Application messages">
+          {toasts.map((toast) => <ToastItem key={toast.id} toast={toast} onRemove={removeToast} />)}
+        </div>,
+        document.body,
       )}
     </>
   );
@@ -538,7 +592,7 @@ export default function App() {
 
 // ── Shared types ──────────────────────────────────────────────────────────────
 
-type Notify = (kind: "success" | "warning", text: string) => void;
+type Notify = (kind: ToastKind, text: string) => void;
 
 const SIGNAL_COLOR: Record<string, string> = { BUY: "#86efac", SELL: "#fca5a5", HOLD: "#fde68a" };
 const SIGNAL_BG: Record<string, string> = { BUY: "#1a3d24", SELL: "#3d1a1a", HOLD: "#2e2a14" };

@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.service import AIAnalysisService
 from app.analysis_filter import is_non_actionable_stock_update
+from app.analysis_validation import unsupported_t_plus_one_warning
 from app.analysis_trace import create_selected_input_trace, save_analysis_performance, save_consolidated_response, save_model_validation
 from app.channel_names import clean_channel_name
 from app.config import get_settings
@@ -655,7 +656,10 @@ async def analysis_results(session: AsyncSession = Depends(get_session)) -> list
             "client_inquiry_responses": _rows_with_clean_sources(
                 item.summary.get("client_inquiry_responses", []),
             ),
-            "model_validation_warnings": item.summary.get("model_validation_warnings", []),
+            "model_validation_warnings": list(dict.fromkeys([
+                *(item.summary.get("model_validation_warnings") or []),
+                *_saved_t_plus_one_warnings(item.summary.get("stock_source_table", [])),
+            ])),
             "model_correction_attempted": item.summary.get("model_correction_attempted", False),
             "model_retry_audit": item.summary.get("model_retry_audit", {}),
             "performance": item.summary.get("performance", {}),
@@ -671,6 +675,7 @@ def _analysis_table_with_source_images(
     target_date: object = None,
 ) -> list[dict]:
     table = [dict(row) for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+    table = [row for row in table if unsupported_t_plus_one_warning(row) is None]
     for row in table:
         row["source"] = clean_channel_name(row.get("source"), "Unspecified")
         if target_date:
@@ -680,6 +685,17 @@ def _analysis_table_with_source_images(
     ensure_stock_notes_summaries(table)
     _attach_source_images(table, image_rows, channels_by_message_id)
     return table
+
+
+def _saved_t_plus_one_warnings(rows: object) -> list[str]:
+    if not isinstance(rows, list):
+        return []
+    return [
+        warning
+        for row in rows
+        if isinstance(row, dict)
+        and (warning := unsupported_t_plus_one_warning(row)) is not None
+    ]
 
 
 def _rows_with_clean_sources(rows: object) -> list[dict]:

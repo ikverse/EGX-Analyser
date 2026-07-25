@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.117
+- Redesigned application messages as a responsive toast stack with distinct success, warning, and error states, manual dismissal, timeout progress, pause-on-hover or focus, and reduced-motion support.
+- Required a literal `T+1` or `t+1` token in same-stock `timing_evidence` before accepting any T+1 recommendation.
+- Prevented generated Notes, summaries, translations, paraphrases, and inferred next-day wording from qualifying as T+1 evidence.
+- Hid unsupported T+1 rows from existing saved results and reported concise warnings containing the affected stock code and Telegram message ID.
+- Required the model output contract to include visible source date, date evidence, and timing evidence fields on every recommendation data point.
+- Added regression coverage for unsupported and valid T+1 evidence while preserving Watching and explicit-date recommendations.
+
 ## v0.1.116
 - Taught the analysis model to extract TP1 and TP2 from `منطقة البيع`, `نطاق البيع`, and equivalent exit-zone wording without changing a Buy recommendation to Sell.
 - Added separate TP1 Return % and TP2 Return % fields beside their corresponding targets in Results.

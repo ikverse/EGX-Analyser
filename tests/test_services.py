@@ -918,7 +918,7 @@ def test_watching_basis_alias_is_backward_compatible():
 def test_saved_result_rows_receive_backward_compatible_stock_notes():
     legacy_rows = [
         {"ticker": "COMI", "mention_count": 2, "effective_date_bases": ["t_plus_1"],
-         "notes_ar": "T+1", "source": "One", "source_dates": []},
+         "timing_evidence": "T+1", "notes_ar": "T+1", "source": "One", "source_dates": []},
         {"ticker": "COMI", "mention_count": 2, "effective_date_bases": [],
          "notes_ar": "سهم مراقبة", "source": "Two", "source_dates": []},
     ]
@@ -1075,6 +1075,9 @@ def test_analysis_prompt_keeps_base_prompt_and_appends_phrase_guidance(monkeypat
     assert "Every returned image, text, or audio data point must contain visible_source_date" in prompt
     assert "For explicit_date, timing_evidence must be null" in prompt
     assert "For t_plus_1, timing_evidence must be the exact contiguous literal token T+1" in prompt
+    assert "T+1 text in notes_ar or notes_summary is never evidence" in prompt
+    assert "visible_source_date, date_evidence, timing_evidence" in prompt
+    assert "using null rather than omitting an unavailable field" in prompt
     assert "No translation, synonym, paraphrase, or inferred next-day meaning qualifies" in prompt
     assert "For watching, timing_evidence must be the exact same-stock phrase" in prompt
     assert "منطقة البيع" in prompt
@@ -1387,6 +1390,110 @@ def test_minimal_validation_does_not_reject_duplicate_trade_values():
     warnings = validate_consolidated_output(payload, messages)
 
     assert warnings == []
+
+
+@pytest.mark.parametrize(
+    "timing_evidence",
+    [None, "T + 1", "next trading day", "\u062c\u0644\u0633\u0629 \u0627\u0644\u063a\u062f"],
+)
+def test_t_plus_one_without_literal_timing_evidence_is_excluded(timing_evidence):
+    messages = [{"source": "Ostoul", "telegram_message_id": 3888, "text": ""}]
+    payload = {"top_consolidated_recommendations": [{
+        "stock_code": "GDWA",
+        "mention_count": 1,
+        "data_points": [{
+            "source_message_id": "3888",
+            "effective_date_basis": "t_plus_1",
+            "timing_evidence": timing_evidence,
+            "recommendation_evidence": "\u0625\u0634\u0627\u0631\u0629 \u062a\u062f\u0627\u0648\u0644 - \u0634\u0631\u0627\u0621 \u0633\u0647\u0645 \u062c\u062f\u0648\u0649 \u0644\u0644\u062a\u0646\u0645\u064a\u0629 \u0627\u0644\u0635\u0646\u0627\u0639\u064a\u0629 GDWA",
+            "notes_ar": "T+1",
+        }],
+    }]}
+
+    warnings = validate_consolidated_output(payload, messages)
+
+    assert payload["top_consolidated_recommendations"] == []
+    assert warnings == [
+        "Excluded unsupported T+1 recommendation GDWA Telegram message 3888: "
+        "timing_evidence does not contain the literal T+1 token."
+    ]
+
+
+@pytest.mark.parametrize("timing_evidence", ["T+1", "t+1", "\u062a\u0648\u0635\u064a\u0629 T+1"])
+def test_t_plus_one_with_literal_timing_evidence_is_retained(timing_evidence):
+    messages = [{"source": "Ostoul", "telegram_message_id": 3888, "text": ""}]
+    payload = {"top_consolidated_recommendations": [{
+        "stock_code": "GDWA",
+        "mention_count": 1,
+        "data_points": [{
+            "source_message_id": "3888",
+            "effective_date_basis": "t_plus_1",
+            "timing_evidence": timing_evidence,
+        }],
+    }]}
+
+    warnings = validate_consolidated_output(payload, messages)
+
+    assert warnings == []
+    assert len(payload["top_consolidated_recommendations"][0]["data_points"]) == 1
+
+
+def test_t_plus_one_guard_does_not_change_watching_or_explicit_date_rows():
+    messages = [
+        {"source": "Ostoul", "telegram_message_id": 1, "text": ""},
+        {"source": "Ostoul", "telegram_message_id": 2, "text": ""},
+    ]
+    payload = {"top_consolidated_recommendations": [{
+        "stock_code": "FWRY",
+        "mention_count": 2,
+        "data_points": [
+            {
+                "source_message_id": "1",
+                "effective_date_basis": "watching",
+                "timing_evidence": "\u062a\u062d\u062a \u0627\u0644\u0645\u0631\u0627\u0642\u0628\u0629",
+            },
+            {
+                "source_message_id": "2",
+                "effective_date_basis": "explicit_date",
+                "timing_evidence": None,
+            },
+        ],
+    }]}
+
+    warnings = validate_consolidated_output(payload, messages)
+
+    assert warnings == []
+    assert len(payload["top_consolidated_recommendations"][0]["data_points"]) == 2
+
+
+def test_saved_results_hide_unsupported_t_plus_one_rows_and_report_warning():
+    rows = [
+        {
+            "ticker": "GDWA",
+            "source_message_id": "3888",
+            "effective_date_bases": ["t_plus_1"],
+            "notes_ar": "T+1",
+        },
+        {
+            "ticker": "VALU",
+            "source_message_id": "3889",
+            "effective_date_bases": ["t_plus_1"],
+            "timing_evidence": "t+1",
+        },
+        {
+            "ticker": "COMI",
+            "source_message_id": "3890",
+            "effective_date_bases": ["explicit_date"],
+        },
+    ]
+
+    visible = api._analysis_table_with_source_images(rows, [], {})
+
+    assert [row["ticker"] for row in visible] == ["VALU", "COMI"]
+    assert api._saved_t_plus_one_warnings(rows) == [
+        "Excluded unsupported T+1 recommendation GDWA Telegram message 3888: "
+        "timing_evidence does not contain the literal T+1 token."
+    ]
 
 
 def test_consolidated_validation_does_not_judge_recommendation_meaning():

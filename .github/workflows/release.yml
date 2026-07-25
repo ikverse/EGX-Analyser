@@ -1,5 +1,5 @@
 name: Publish desktop update
-run-name: ${{ github.ref_name }} - Extract sell-zone targets and add per-target returns
+run-name: ${{ github.ref_name }} - Redesign message toasts and reject unsupported T+1 rows
 
 on:
   push:
