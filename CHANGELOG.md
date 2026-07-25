@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.112
+- Replaced fragile model-returned source labels with trusted local channel resolution based on Telegram message IDs.
+- Removed redundant provenance, evidence, duplicate-value, and inquiry-classification validation along with the second Qwen correction request.
+- Kept each analysis to one model request, excluding only results with missing or unknown Telegram message IDs.
+- Removed emojis from channel names shown to the model, Results, reports, APIs, and traces without changing stored Telegram data.
+- Bound recommendation images locally by Telegram message ID, with safe handling for messages containing multiple images.
+
 ## v0.1.111
 - Made each Settings section expand or collapse from anywhere across its header while keeping information icons independent.
 - Added native keyboard operation and clear focus feedback to every Settings accordion header.

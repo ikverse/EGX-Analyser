@@ -9,6 +9,7 @@ from statistics import median
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.channel_names import clean_channel_name
 from app.config import Settings
 from app.entry_points import format_entry_point, normalize_entry_point
 from app.models import Channel, Image, Media, Message, Recommendation, Report, Stock, StockMention
@@ -100,7 +101,9 @@ class ReportService:
                 signals[recommendation.signal] = signals.get(recommendation.signal, 0) + 1
             signal = max(signals, key=signals.get)
             selected = [recommendation for recommendation, _, _ in items if recommendation.signal == signal]
-            source_channels = {channel.title or channel.handle for _, _, channel in items}
+            source_channels = {
+                clean_channel_name(channel.title or channel.handle) for _, _, channel in items
+            }
             consensus.append({
                 "ticker": ticker, "company": items[0][0].company_name, "signal": signal,
                 "priority": round(len(source_channels) * 100 + sum(item.confidence for item in selected) * 10, 1),
@@ -110,7 +113,7 @@ class ReportService:
                 "tp2": _median([item.target_2 for item in selected if item.target_2 is not None]),
                 "stop": _median([item.stop_loss for item in selected if item.stop_loss is not None]),
                 "confidence": round(sum(item.confidence for item in selected) / len(selected), 2),
-                "evidence": [{"channel": channel.title or channel.handle, "signal": recommendation.signal,
+                "evidence": [{"channel": clean_channel_name(channel.title or channel.handle), "signal": recommendation.signal,
                               "entry": recommendation.entry, "tp1": recommendation.target,
                               "tp2": recommendation.target_2, "stop": recommendation.stop_loss,
                               "reason": recommendation.reason} for recommendation, _, channel in items],
@@ -138,7 +141,7 @@ class ReportService:
             data_samples = []
             details_by_channel: dict[str, list[StockMention]] = {}
             for mention, _, channel, _ in items:
-                channel_name = channel.title or channel.handle
+                channel_name = clean_channel_name(channel.title or channel.handle)
                 channel_counts[channel_name] = channel_counts.get(channel_name, 0) + 1
                 details_by_channel.setdefault(channel_name, []).append(mention)
                 if mention.table_data and len(data_samples) < 3:
@@ -174,7 +177,7 @@ class ReportService:
             client_inquiry_responses = _client_inquiry_rows(consolidated_source)
             source_counts = _consolidated_source_counts(consolidated_source)
             for channel in channels:
-                label = channel.title or channel.handle
+                label = clean_channel_name(channel.title or channel.handle)
                 if label not in source_counts:
                     continue
                 recommendation_counts[channel.id] = source_counts[label]["recommendations"]
@@ -188,7 +191,7 @@ class ReportService:
                 "stock_related_no_recommendations" if any(is_stock_related(text) for text in texts)
                 else "not_stock_related" if texts else "no_recent_messages"
             )
-            channel_results.append({"channel": channel.title or channel.handle, "status": status,
+            channel_results.append({"channel": clean_channel_name(channel.title or channel.handle), "status": status,
                                     "messages": len(texts), "recommendations": recommendations, "stock_codes": mentions})
 
         generated_at = cairo_now()
@@ -276,7 +279,7 @@ class ReportService:
                 if not message.ai_response_raw:
                     continue
                 raw_lines += [
-                    f"Channel: {channel.title or channel.handle}",
+                    f"Channel: {clean_channel_name(channel.title or channel.handle)}",
                     f"Telegram message: {message.telegram_message_id}",
                     f"Published: {as_cairo(message.published_at).isoformat()}",
                     "", message.ai_response_raw, "", "=" * 90, "",
@@ -602,9 +605,9 @@ def _attach_source_images(
         if channel is None:
             continue
         telegram_message_id = str(message.telegram_message_id)
-        source_labels = {channel.handle}
+        source_labels = {channel.handle, clean_channel_name(channel.handle)}
         if channel.title:
-            source_labels.add(channel.title)
+            source_labels.update({channel.title, clean_channel_name(channel.title)})
         for label in source_labels:
             key = (label.strip().casefold(), telegram_message_id)
             by_source_and_message.setdefault(key, []).append(image.path)

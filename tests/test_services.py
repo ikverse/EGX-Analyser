@@ -41,7 +41,8 @@ from app.collector.telegram import is_promotional_message
 from app.reports import ReportService
 from app.analysis_trace import create_selected_input_trace, export_analysis_trace, save_analysis_performance, save_consolidated_response, save_model_validation
 from app.analysis_filter import has_past_recommendation_context, is_non_actionable_stock_update
-from app.analysis_validation import validate_consolidated_output
+from app.analysis_validation import normalize_consolidated_output, validate_consolidated_output
+from app.channel_names import clean_channel_name
 from app.prompt_customization import (
     load_prompt_customization,
     prompt_customization_block,
@@ -1087,7 +1088,7 @@ def test_selected_date_analysis_window_resolves_egypt_weekend_to_thursday():
     assert target_date == date(2026, 7, 16)
 
 
-def test_consolidated_validation_warns_when_inquiries_are_returned_as_recommendations():
+def test_minimal_validation_trusts_model_classification_for_known_telegram_ids():
     messages = [{"source": "Ostoul", "telegram_message_id": 7, "text": "ردًا على استفسارات عملائنا"}]
     payload = {"top_consolidated_recommendations": [{"data_points": [{
         "source": "Ostoul", "source_message_id": "7",
@@ -1095,11 +1096,10 @@ def test_consolidated_validation_warns_when_inquiries_are_returned_as_recommenda
 
     warnings = validate_consolidated_output(payload, messages)
 
-    assert any("placed in recommendations" in warning for warning in warnings)
-    assert any("absent from client inquiries" in warning for warning in warnings)
+    assert warnings == []
 
 
-def test_client_inquiry_validation_does_not_mutate_model_payload():
+def test_minimal_validation_keeps_known_rows_and_restores_local_sources():
     messages = [
         {"source": "Ostoul", "telegram_message_id": 7, "text": "\u0631\u062f\u064b\u0627 \u0639\u0644\u0649 \u0627\u0633\u062a\u0641\u0633\u0627\u0631\u0627\u062a \u0639\u0645\u0644\u0627\u0626\u0646\u0627"},
         {"source": "CFI", "telegram_message_id": 8, "text": "Dated EGX buy recommendation"},
@@ -1116,10 +1116,11 @@ def test_client_inquiry_validation_does_not_mutate_model_payload():
 
     assert payload["top_consolidated_recommendations"][0]["mention_count"] == 2
     assert len(payload["top_consolidated_recommendations"][0]["data_points"]) == 2
-    assert any("placed in recommendations" in warning for warning in warnings)
+    assert warnings == []
+    assert payload["top_consolidated_recommendations"][0]["data_points"][0]["source"] == "Ostoul"
 
 
-def test_consolidated_validation_trusts_model_semantics_and_detects_duplicated_image_rows():
+def test_minimal_validation_does_not_reject_duplicate_trade_values():
     messages = [
         {"source": "Ostoul", "telegram_message_id": 10, "text": ""},
         {"source": "Ostoul", "telegram_message_id": 11, "text": ""},
@@ -1144,11 +1145,7 @@ def test_consolidated_validation_trusts_model_semantics_and_detects_duplicated_i
 
     warnings = validate_consolidated_output(payload, messages)
 
-    assert not any("recommendation context" in warning for warning in warnings)
-    assert not any("does not identify that stock" in warning for warning in warnings)
-    assert not any("non-actionable or completed" in warning for warning in warnings)
-    assert any("repeats identical trade values" in warning and "PHDC" in warning for warning in warnings)
-    assert any("different stocks" in warning and "MASR" in warning and "PHDC" in warning for warning in warnings)
+    assert warnings == []
 
 
 def test_consolidated_validation_does_not_judge_recommendation_meaning():
@@ -1172,7 +1169,7 @@ def test_consolidated_validation_does_not_judge_recommendation_meaning():
 
 
 @pytest.mark.asyncio
-async def test_consolidated_analysis_retries_invalid_provenance_once():
+async def test_consolidated_analysis_uses_one_model_request():
     invalid = {
         "analysis_period": "test", "top_consolidated_recommendations": [{
             "stock_code": "COMI", "stock_name_en": "CIB", "data_points": [{
@@ -1203,13 +1200,51 @@ async def test_consolidated_analysis_retries_invalid_provenance_once():
         "test", "2026-07-16",
     )
 
-    assert outcome.correction_attempted is True
+    assert outcome.correction_attempted is False
     assert outcome.validation_warnings == []
-    assert outcome.retry_audit["status"] == "passed"
-    assert outcome.input_metrics["model_request_count"] == 2
-    assert json.loads(outcome.raw_response)["top_consolidated_recommendations"][0]["data_points"][0][
-        "recommendation_evidence"
-    ] == "COMI - توصية شراء"
+    assert outcome.retry_audit["status"] == "not_required"
+    assert outcome.input_metrics["model_request_count"] == 1
+    assert len(responses) == 1
+    point = json.loads(outcome.raw_response)["top_consolidated_recommendations"][0]["data_points"][0]
+    assert point["source"] == "CFI"
+    assert "recommendation_evidence" not in point
+
+
+def test_minimal_provenance_excludes_unknown_ids_and_restores_one_image_reference():
+    messages = [{
+        "source": "إسأل فني📉🐎",
+        "telegram_message_id": 60035,
+        "text": "",
+    }]
+    payload = {"top_consolidated_recommendations": [{
+        "stock_code": "COMI",
+        "mention_count": 2,
+        "data_points": [
+            {"source_message_id": "60035", "source": "Changed model label"},
+            {"source_message_id": "99999"},
+        ],
+    }]}
+    references = {
+        4: {
+            "path": "recommendation.jpg",
+            "source": "إسأل فني",
+            "source_message_id": "60035",
+            "image_index": "1",
+        },
+    }
+
+    warnings = normalize_consolidated_output(payload, messages, references)
+
+    assert warnings == ["Excluded recommendation with unknown Telegram message 99999."]
+    stock = payload["top_consolidated_recommendations"][0]
+    assert stock["mention_count"] == 1
+    assert stock["data_points"][0]["source"] == "إسأل فني"
+    assert stock["data_points"][0]["source_image_ref"] == 4
+
+
+def test_channel_names_remove_emojis_without_changing_words():
+    assert clean_channel_name("إسأل فني📉🐎") == "إسأل فني"
+    assert clean_channel_name("CFI Egypt 📊") == "CFI Egypt"
 
 
 def test_past_recommendation_caption_detection_handles_arabic_and_english_markers():

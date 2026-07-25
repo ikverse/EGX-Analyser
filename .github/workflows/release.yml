@@ -1,5 +1,5 @@
 name: Publish desktop update
-run-name: ${{ github.ref_name }} - Expand Settings sections from the full header and smooth accordion edges
+run-name: ${{ github.ref_name }} - Trust Telegram IDs and streamline Qwen analysis provenance
 
 on:
   push:

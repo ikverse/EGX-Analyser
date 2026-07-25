@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.channel_names import clean_channel_name
 from app.models import Channel, Image, Message, Recommendation
 from app.time_utils import cairo_now
 
@@ -156,7 +157,9 @@ async def export_analysis_trace(session: AsyncSession, storage_root: Path, chann
     copied_images = 0
     for message, channel in rows:
         lines += [
-            f"[{message.published_at.isoformat()}] {channel.title or channel.handle} | Telegram message {message.telegram_message_id}",
+            f"[{message.published_at.isoformat()}] "
+            f"{clean_channel_name(channel.title or channel.handle)} | "
+            f"Telegram message {message.telegram_message_id}",
             f"Recommendations extracted: {recommendation_counts.get(message.id, 0)}",
             message.text or "[No text]",
         ]

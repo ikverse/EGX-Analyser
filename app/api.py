@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.service import AIAnalysisService
 from app.analysis_filter import is_non_actionable_stock_update
 from app.analysis_trace import create_selected_input_trace, save_analysis_performance, save_consolidated_response, save_model_validation
+from app.channel_names import clean_channel_name
 from app.config import get_settings
 from app.config_store import update_config
 from app.prompt_customization import (
@@ -286,7 +287,7 @@ async def telegram_chats() -> list[dict[str, str]]:
         if not await client.is_user_authorized():
             raise HTTPException(400, "Connect Telegram in Settings first")
         dialogs = await client.get_dialogs()
-    return [{"id": str(dialog.entity.id), "title": dialog.title or str(dialog.entity.id),
+    return [{"id": str(dialog.entity.id), "title": clean_channel_name(dialog.title or str(dialog.entity.id)),
              "username": getattr(dialog.entity, "username", None) or "", "kind":
              "channel" if dialog.is_channel else "group" if dialog.is_group else "direct"}
             for dialog in dialogs]
@@ -387,14 +388,14 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
             source_context = "\n".join([message.text or "", *selected_transcripts])
             if is_non_actionable_stock_update(source_context):
                 excluded_items.append({
-                    "source": channel.title or channel.handle,
+                    "source": clean_channel_name(channel.title or channel.handle),
                     "published_at": message.published_at.astimezone(cairo).isoformat(),
                     "telegram_message_id": str(message.telegram_message_id),
                     "reason": "target_hit_or_previous_recommendation_update",
                 })
                 continue
             batch_messages.append({
-                "source": channel.title or channel.handle,
+                "source": clean_channel_name(channel.title or channel.handle),
                 "published_at": message.published_at.astimezone(cairo).isoformat(),
                 "telegram_message_id": message.telegram_message_id,
                 "text": selected_text,
@@ -541,7 +542,8 @@ async def list_messages(session: AsyncSession = Depends(get_session), limit: int
 
 @router.get("/channels")
 async def list_channels(session: AsyncSession = Depends(get_session)) -> list[dict]:
-    return [{"id": item.id, "handle": item.handle, "title": item.title, "active": item.active,
+    return [{"id": item.id, "handle": item.handle, "title": clean_channel_name(item.title or item.handle),
+             "active": item.active,
              "analyst_score": item.analyst_score} for item in (await session.scalars(select(Channel))).all()]
 
 
@@ -560,7 +562,12 @@ async def select_telegram_chat(payload: TelegramChatSelect, session: AsyncSessio
         channel.title = payload.title
         channel.active = False
         await session.commit()
-        return {"id": channel.id, "handle": channel.handle, "title": channel.title, "active": channel.active}
+        return {
+            "id": channel.id,
+            "handle": channel.handle,
+            "title": clean_channel_name(channel.title or channel.handle),
+            "active": channel.active,
+        }
     except Exception as error:
         await session.rollback()
         logger().exception(
@@ -644,7 +651,9 @@ async def analysis_results(session: AsyncSession = Depends(get_session)) -> list
             "stock_source_table": _analysis_table_with_source_images(
                 item.summary.get("stock_source_table", []), compact_image_rows, channels_by_message_id,
             ),
-            "client_inquiry_responses": item.summary.get("client_inquiry_responses", []),
+            "client_inquiry_responses": _rows_with_clean_sources(
+                item.summary.get("client_inquiry_responses", []),
+            ),
             "model_validation_warnings": item.summary.get("model_validation_warnings", []),
             "model_correction_attempted": item.summary.get("model_correction_attempted", False),
             "model_retry_audit": item.summary.get("model_retry_audit", {}),
@@ -660,9 +669,18 @@ def _analysis_table_with_source_images(
     channels_by_message_id: dict[int, Channel],
 ) -> list[dict]:
     table = [dict(row) for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+    for row in table:
+        row["source"] = clean_channel_name(row.get("source"), "Unspecified")
     ensure_stock_notes_summaries(table)
     _attach_source_images(table, image_rows, channels_by_message_id)
     return table
+
+
+def _rows_with_clean_sources(rows: object) -> list[dict]:
+    cleaned = [dict(row) for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+    for row in cleaned:
+        row["source"] = clean_channel_name(row.get("source"), "Unspecified")
+    return cleaned
 
 
 def _delete_managed_artifact(storage_root: Path, value: object, directory: bool = False) -> None:
