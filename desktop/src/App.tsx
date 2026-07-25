@@ -28,7 +28,7 @@ type UpdateCandidate = {
 };
 
 const pages: Page[] = ["Channels", "Results", "Settings"];
-type IconName = "channels" | "results" | "settings" | "sidebar" | "refresh" | "copy" | "check" | "plus" | "download" | "users" | "clear" | "play" | "eye" | "trash" | "image" | "warning" | "info" | "history";
+type IconName = "channels" | "results" | "settings" | "sidebar" | "refresh" | "copy" | "check" | "plus" | "download" | "users" | "clear" | "play" | "eye" | "trash" | "image" | "warning" | "info" | "history" | "chevron-right" | "chevron-down";
 
 const PAGE_ICONS: Record<Page, IconName> = {
   Channels: "channels",
@@ -58,6 +58,8 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
       case "warning": return <><path {...common} d="M10.3 4.2 2.5 18a2 2 0 0 0 1.8 3h15.4a2 2 0 0 0 1.8-3L13.7 4.2a2 2 0 0 0-3.4 0Z" /><path {...common} d="M12 9v4M12 17h.01" /></>;
       case "info": return <><circle {...common} cx="12" cy="12" r="9" /><path {...common} d="M12 11v5M12 8h.01" /></>;
       case "history": return <><path {...common} d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path {...common} d="M3 3v5h5M12 7v5l3 2" /></>;
+      case "chevron-right": return <path {...common} d="m9 18 6-6-6-6" />;
+      case "chevron-down": return <path {...common} d="m6 9 6 6 6-6" />;
     }
   })();
   return <svg className="icon" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">{paths}</svg>;
@@ -1792,15 +1794,23 @@ function SettingsSection({ id, title, description, help, open, onToggle, openInf
   return (
     <div className="settings-section">
       <div className="settings-section-header">
-        <button type="button" className="settings-section-toggle" onClick={onToggle} aria-expanded={open}>
-          <span className="settings-section-title">{title}</span>
-          {description && <span className="settings-section-status">{description}</span>}
-        </button>
-        <SettingsInfo id={`section-${id}`} title={title} text={help}
-          openInfoId={openInfoId} setOpenInfoId={setOpenInfoId} />
+        <div className="settings-section-copy">
+          <div className="settings-section-title-row">
+            <button type="button" className="settings-section-title-button" onClick={onToggle} aria-expanded={open}>
+              <span className="settings-section-title">{title}</span>
+            </button>
+            <SettingsInfo id={`section-${id}`} title={title} text={help}
+              openInfoId={openInfoId} setOpenInfoId={setOpenInfoId} />
+          </div>
+          {description && (
+            <button type="button" className="settings-section-status-button" onClick={onToggle} aria-expanded={open}>
+              <span className="settings-section-status">{description}</span>
+            </button>
+          )}
+        </div>
         <button type="button" className="settings-section-chevron" onClick={onToggle}
           aria-label={`${open ? "Collapse" : "Expand"} ${title}`} aria-expanded={open}>
-          {open ? "▾" : "▸"}
+          <Icon name={open ? "chevron-down" : "chevron-right"} size={17} />
         </button>
       </div>
       {open && <div className="settings-section-body">{children}</div>}
@@ -1978,10 +1988,10 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
     <div className="settings">
 
       <div className="settings-overview" aria-label="Current configuration">
-        <span><strong>AI</strong> {providerDetails[provider].label} · {configuredModel || "No model selected"}</span>
-        <span><strong>Telegram</strong> {status?.telegram_authorized ? "Connected" : "Not connected"}</span>
-        <span><strong>Catalog</strong> {catalogStatus ? `${catalogStatus.stock_count} stocks` : "Loading"}</span>
-        <span><strong>App</strong> v{appVersion || "..."}</span>
+        <span><strong>AI</strong><span className="settings-overview-value" title={`${providerDetails[provider].label} · ${configuredModel || "No model selected"}`}>{providerDetails[provider].label} · {configuredModel || "No model selected"}</span></span>
+        <span><strong>Telegram</strong><span className="settings-overview-value">{status?.telegram_authorized ? "Connected" : "Not connected"}</span></span>
+        <span><strong>Catalog</strong><span className="settings-overview-value">{catalogStatus ? `${catalogStatus.stock_count} stocks` : "Loading"}</span></span>
+        <span><strong>App</strong><span className="settings-overview-value">v{appVersion || "..."}</span></span>
       </div>
 
       <SettingsSection id="ai" title="AI Analysis"
@@ -1990,7 +2000,7 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
         open={openSection === "ai"} onToggle={() => toggleSection("ai")}
         openInfoId={openInfoId} setOpenInfoId={setOpenInfoId}>
         <form className="settings-ai-form" onSubmit={save}>
-          <label>
+          <label className="settings-field-provider">
             <SettingsLabel infoId="ai-provider" openInfoId={openInfoId} setOpenInfoId={setOpenInfoId}
               info={localProvider
                 ? "Ollama runs the selected model on this computer. Install the model manually, then load an installed vision model from the Channels page."
@@ -2005,7 +2015,7 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
               <option value="openai">OpenAI</option>
             </select>
           </label>
-          {!localProvider && <div className="credential-header">
+          {!localProvider && <div className="credential-header settings-field-credentials">
             <div>
               <SettingsLabel infoId="provider-credentials" openInfoId={openInfoId} setOpenInfoId={setOpenInfoId}
                 info="The API key is encrypted with the current Windows user account and stored locally. Replacing it changes only the selected provider credential.">
@@ -2018,7 +2028,7 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
             </button>
           </div>}
           {editingProviderKey && !localProvider && (
-            <label>
+            <label className="settings-field-api-key">
               <SettingsLabel infoId="new-provider-key" openInfoId={openInfoId} setOpenInfoId={setOpenInfoId}
                 info={`Enter a new ${currentProvider.label} API key. It will be encrypted locally when settings are saved and is never displayed again.`}>
                 {`New ${currentProvider.label} API key`}
@@ -2029,7 +2039,7 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
             </label>
           )}
           {localProvider && (
-            <label>
+            <label className="settings-field-endpoint">
               <SettingsLabel infoId="ollama-url" openInfoId={openInfoId} setOpenInfoId={setOpenInfoId}
                 info="Address of the Ollama service on this computer. The default is http://127.0.0.1:11434. Telegram data remains local while Ollama is used.">
                 Ollama local service URL
@@ -2039,7 +2049,7 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
             </label>
           )}
           {provider === "qwen" && (
-            <label>
+            <label className="settings-field-endpoint">
               <SettingsLabel infoId="qwen-endpoint" openInfoId={openInfoId} setOpenInfoId={setOpenInfoId}
                 info="Select the Qwen Model Studio endpoint from the same region and pay-as-you-go billing plan as the saved API key.">
                 Qwen Cloud endpoint
@@ -2054,7 +2064,7 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
               </datalist>
             </label>
           )}
-          <label className="prompt-phrase-field">
+          <label className="prompt-phrase-field settings-field-include">
             <span className="prompt-phrase-label">
               <span className="prompt-phrase-name">
                 <span>Include recommendation phrases</span>
@@ -2071,7 +2081,7 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
               rows={4}
             />
           </label>
-          <label className="prompt-phrase-field">
+          <label className="prompt-phrase-field settings-field-exclude">
             <span className="prompt-phrase-label">
               <span className="prompt-phrase-name">
                 <span>Exclude recommendation phrases</span>

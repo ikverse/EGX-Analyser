@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.110
+- Left-aligned collapsed Settings titles and statuses and placed each information icon directly beside its heading.
+- Standardized information controls and replaced text arrows with consistently aligned SVG chevrons.
+- Added explicit form-row placement to prevent conditional fields from moving unpredictably or stretching to textarea height.
+- Aligned provider credentials, endpoints, Include/Exclude phrases, preview headings, overview values, and the sticky save action across desktop and narrow layouts.
+
 ## v0.1.109
 - Explicitly classified `يسمح بالتداول على سعر الشراء المحدد` as entry-price execution tolerance rather than T+1 or next-session timing.
 - Applied the same exclusion to percentage-deviation wording around a specified entry price.
