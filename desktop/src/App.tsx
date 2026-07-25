@@ -1331,8 +1331,15 @@ function ClientInquiryResponses({ rows }: { rows: ClientInquiryResponse[] }) {
         const first = replies[0];
         return (
           <section className="client-inquiry-group" key={ticker}>
-            <h4><span dir="ltr">{ticker}</span> {first.company_ar || first.company}{first.company_ar ? ` / ${first.company}` : ""}</h4>
-            <div className="client-inquiry-cards">
+            <div className="client-inquiry-group-heading">
+              <h4>
+                <span className="client-inquiry-ticker" dir="ltr">{ticker}</span>
+                {first.company_ar && <span>{first.company_ar}</span>}
+                {first.company && <span className="client-inquiry-company-en" dir="ltr">{first.company}</span>}
+              </h4>
+              <span>{replies.length === 1 ? "رد واحد" : `${replies.length} ردود`}</span>
+            </div>
+            <div className={`client-inquiry-cards${replies.length === 1 ? " is-single" : ""}`}>
               {replies.map((row, index) => <ClientInquiryCard key={`${row.source}-${row.date ?? ""}-${row.source_message_id ?? index}`} row={row} />)}
             </div>
           </section>
@@ -1346,7 +1353,9 @@ function ClientInquiryCard({ row }: { row: ClientInquiryResponse }) {
   const availableLevels = (levels: Array<[string, string | number | null | undefined]>) => levels
     .filter(([, value]) => value !== undefined && value !== null)
     .map(([label, value]) => [label, num(value)] as const);
-  const entry = entryDisplay(row.buy_price, row.buy_price_low, row.buy_price_high);
+  const hasEntry = [row.buy_price, row.buy_price_low, row.buy_price_high]
+    .some((value) => value !== undefined && value !== null);
+  const entry = hasEntry ? entryDisplay(row.buy_price, row.buy_price_low, row.buy_price_high) : null;
   const tradeLevels = availableLevels([
     ["سعر الدخول", entry], ["الهدف الأول", row.target_1], ["الهدف الثاني", row.target_2], ["وقف الخسارة", row.stop_loss],
   ]);

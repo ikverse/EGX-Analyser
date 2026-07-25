@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.115
+- Rebuilt client inquiry replies as a responsive two-column card grid that becomes one column on narrower layouts.
+- Limited single-reply cards to a readable width and allowed cards of different lengths to keep their natural height.
+- Improved bidirectional alignment for Arabic company names, English names, and ticker symbols.
+- Standardized card headers, trend badges, text sections, market levels, spacing, wrapping, and mobile behavior.
+- Hid unavailable entry-price fields instead of displaying empty placeholder values.
+
 ## v0.1.114
 - Added a `Watching` Timing category for explicit same-stock watch recommendations found in images, text messages, and voice-note transcripts.
 - Recognized equivalent Arabic and English watch wording while preserving entry or breakout conditions, TP1, TP2, stop loss, returns, risks, source dates, and concise Arabic Notes.
