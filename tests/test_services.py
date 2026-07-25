@@ -865,7 +865,7 @@ def test_client_inquiry_validation_does_not_mutate_model_payload():
     assert any("placed in recommendations" in warning for warning in warnings)
 
 
-def test_consolidated_validation_detects_ungrounded_and_duplicated_image_rows():
+def test_consolidated_validation_trusts_model_semantics_and_detects_duplicated_image_rows():
     messages = [
         {"source": "Ostoul", "telegram_message_id": 10, "text": ""},
         {"source": "Ostoul", "telegram_message_id": 11, "text": ""},
@@ -890,9 +890,31 @@ def test_consolidated_validation_detects_ungrounded_and_duplicated_image_rows():
 
     warnings = validate_consolidated_output(payload, messages)
 
-    assert any("lacks explicit recommendation context" in warning and "message 11" in warning for warning in warnings)
+    assert not any("recommendation context" in warning for warning in warnings)
+    assert not any("does not identify that stock" in warning for warning in warnings)
+    assert not any("non-actionable or completed" in warning for warning in warnings)
     assert any("repeats identical trade values" in warning and "PHDC" in warning for warning in warnings)
     assert any("different stocks" in warning and "MASR" in warning and "PHDC" in warning for warning in warnings)
+
+
+def test_consolidated_validation_does_not_judge_recommendation_meaning():
+    messages = [{"source": "Ostoul", "telegram_message_id": 25, "text": ""}]
+    payload = {"top_consolidated_recommendations": [{
+        "stock_code": "OFH",
+        "data_points": [{
+            "source": "Ostoul",
+            "source_message_id": "25",
+            "recommendation_evidence": "previous recommendation target reached",
+            "recommendation_type": "buy",
+            "buy_price_low": 0.720,
+            "buy_price_high": 0.724,
+            "target_1": 0.738,
+            "target_2": 0.749,
+            "stop_loss": 0.710,
+        }],
+    }]}
+
+    assert validate_consolidated_output(payload, messages) == []
 
 
 @pytest.mark.asyncio

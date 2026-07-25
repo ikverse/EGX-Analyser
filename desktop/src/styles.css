@@ -944,13 +944,6 @@ tr:hover td { background: #131f33; }
 .consolidated-table .positive { color: #86efac; }
 .consolidated-table .negative { color: #fca5a5; }
 .source-cell { color: #e5e7eb; font-weight: 600; white-space: nowrap; }
-.stock-identity-cell { min-width: 210px; width: 210px; }
-.stock-identity-cell strong,
-.stock-identity-cell span,
-.stock-identity-cell small { display: block; }
-.stock-identity-cell strong { color: var(--primary); font-size: .82rem; }
-.stock-identity-cell span { color: var(--text); font-weight: 650; margin-top: .08rem; }
-.stock-identity-cell small { color: var(--text-soft); direction: rtl; margin-top: .12rem; text-align: left; }
 .source-image-cell { text-align: center; white-space: nowrap; }
 .source-image-button { align-items: center; display: inline-flex; gap: .32rem; }
 .source-image-modal-card { border-color: #3b82f6; max-width: min(1000px, 96vw); }
@@ -2008,6 +2001,26 @@ header strong {
   position: sticky;
   top: 0;
   z-index: 4;
+}
+
+.consolidated-table thead th:first-child,
+.consolidated-table .source-cell {
+  left: 0;
+  position: sticky;
+}
+
+.consolidated-table thead th:first-child {
+  z-index: 6;
+}
+
+.consolidated-table .source-cell {
+  background: var(--surface);
+  box-shadow: 1px 0 0 var(--border);
+  z-index: 3;
+}
+
+.consolidated-table tr:hover .source-cell {
+  background: var(--surface-hover);
 }
 
 .consolidated-stock-group-content {

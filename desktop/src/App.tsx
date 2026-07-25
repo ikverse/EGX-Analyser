@@ -650,6 +650,7 @@ function Channels({ channels, settings, api, refresh, notify, showError, analysi
     catch { return []; }
   });
   const [loading, setLoading] = useState(false);
+  const [refreshingChats, setRefreshingChats] = useState(false);
   const latestHistoricalDate = useMemo(cairoDateInputValue, []);
   const { selectedHandles, contentTypes, mode: analysisMode, targetDate } = analysisConfig;
   const busy = loading || analysisRun.running;
@@ -658,6 +659,7 @@ function Channels({ channels, settings, api, refresh, notify, showError, analysi
 
   const loadChats = () => {
     setLoading(true);
+    setRefreshingChats(true);
     void api.telegramChats()
       .then((items) => {
         setChats(items);
@@ -666,8 +668,17 @@ function Channels({ channels, settings, api, refresh, notify, showError, analysi
           items.length ? `${items.length} Telegram chats loaded for this session.` : "No chats were found.");
       })
       .catch((reason) => showError(fullError(reason)))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        setRefreshingChats(false);
+      });
   };
+
+  useEffect(() => {
+    if (!settings?.telegram_authorized || sessionStorage.getItem("egx.telegramChatsLoadedAtStartup") === "true") return;
+    sessionStorage.setItem("egx.telegramChatsLoadedAtStartup", "true");
+    loadChats();
+  }, [settings?.telegram_authorized]);
 
   const updateSelectedHandles = (handles: string[]) => {
     updateAnalysisConfig((current) => ({
@@ -763,9 +774,9 @@ function Channels({ channels, settings, api, refresh, notify, showError, analysi
     <>
       <div className="channels-section channel-picker-section">
         <h3 className="section-heading">1. Choose chats for this session</h3>
-        <p className="section-description">Load your Telegram chats, then select only the sources you want to analyze.</p>
+        <p className="section-description">Telegram chats load automatically when the app starts. Refresh them here whenever your chat list changes.</p>
         <button className="secondary load-chats-button" onClick={loadChats} disabled={busy}>
-          <Icon name="download" /> {loading ? "Loading chats…" : "Load my Telegram chats"}
+          <Icon name="refresh" /> {refreshingChats ? "Refreshing Telegram chats…" : "Refresh Telegram chats"}
         </button>
         {chats.length > 0 && <>
           <div className="channel-list-toolbar">
@@ -1219,14 +1230,14 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
       <div className="consolidated-table-scroll">
         <table className={compact ? "consolidated-table is-compact" : "consolidated-table"}>
           <thead><tr>
-            <th>Stock</th><th>Source</th><th>Date</th><th>Timing</th><th>Type</th><th>Entry</th><th>TP1</th><th>TP2</th>
+            <th>Source</th><th>Date</th><th>Timing</th><th>Type</th><th>Entry</th><th>TP1</th><th>TP2</th>
             <th>Stop</th><th>Support</th><th>Resistance</th><th>Return %</th><th>Risk %</th><th>Status</th><th>Source image</th><th>Notes</th>
           </tr></thead>
           {[...grouped.entries()].map(([ticker, stockRows]) => {
             const first = stockRows[0];
             return (
               <tbody key={ticker}>
-                <tr className="consolidated-stock-group"><td colSpan={16}>
+                <tr className="consolidated-stock-group"><td colSpan={15}>
                   <div className="consolidated-stock-group-content">
                     <span className="consolidated-rank">#{first.rank ?? "—"}</span>
                     <strong>{first.ticker}</strong>
@@ -1237,11 +1248,6 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
                 </td></tr>
                 {stockRows.map((row, rowIndex) => (
                   <tr key={`${row.ticker}-${row.source}-${row.latest_date ?? "unknown"}-${row.buy_price ?? "none"}`}>
-                    <td className="stock-identity-cell">
-                      <strong>{first.ticker}</strong>
-                      <span>{first.company}</span>
-                      {first.company_ar && <small lang="ar" dir="rtl">{first.company_ar}</small>}
-                    </td>
                     <td className="source-cell">{row.source}</td>
                     <td>{row.source_dates.join(", ") || "—"}</td>
                     <td>{row.effective_date_bases?.length ? row.effective_date_bases.map((basis) => <span key={basis} className="recommendation-date-basis">{dateBasisLabel(basis)}</span>) : "—"}</td>

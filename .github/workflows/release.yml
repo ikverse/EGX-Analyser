@@ -1,5 +1,5 @@
 name: Publish desktop update
-run-name: ${{ github.ref_name }} - Streamline Results and align row actions
+run-name: ${{ github.ref_name }} - Auto-load Telegram, streamline Results sources, and trust model recommendations
 
 on:
   push:

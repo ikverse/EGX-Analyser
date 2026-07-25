@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.104
+- Loaded authorized Telegram chats automatically once per app session and changed the manual action to Refresh Telegram chats.
+- Removed the repeated Stock column from recommendation rows, made Source the first column, and kept it visible during horizontal scrolling while stock identity remains in each colored group row.
+- Trusted the model prompt for recommendation meaning by removing local evidence-identity, recommendation-wording, and non-actionable-content rejection checks.
+- Retained message/source provenance, evidence presence, duplicate-value safeguards, and client-inquiry consistency checks with regression coverage.
+
 ## v0.1.103
 - Removed the Results history overview box, aggregate counters, and shortcut controls so the Results tab opens directly on its saved-run table.
 - Stabilized the Actions column with equal-size View/Hide and Delete controls, centered icons and labels, and non-wrapping button text.
