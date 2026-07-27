@@ -17,6 +17,7 @@ from app.content_updates import ContentUpdateService
 from app.entry_points import normalize_entry_point
 from app.prompt_customization import prompt_customization_block
 from app.recommendation_notes import remove_unsupported_targets
+from app.recommendation_signal import recommendation_signal
 from app.schemas import AnalysisResult
 
 try:
@@ -38,23 +39,8 @@ class AnalysisOutcome:
     source_image_references: dict[int, dict[str, str]] = field(default_factory=dict)
 
 
-_OUTPUT_CONTRACT = """Return only one JSON object in this consolidated EGX report structure:
-- analysis_period: string describing the covered dates.
-- top_consolidated_recommendations: ranked array. Each item has stock_code, stock_name_en, stock_name_ar, mention_count, rank, status, notes_summary, analysis_summary_ar, and data_points. notes_summary must be written in concise Arabic and generated only after grouping every occurrence of that exact stock. Merge semantically equivalent سهم مراقبة / stock-to-watch wording, preserve genuinely different insights, and never copy full source messages or image text. analysis_summary_ar remains optional for backward compatibility.
-- data_points: array for each stock. Each item must always contain date, effective_date_basis, visible_source_date, date_evidence, timing_evidence, source_message_id, source_image_ref, recommendation_evidence, recommendation_type, buy_price, buy_price_low, buy_price_high, target_1, return_tp1_pct, target_2, return_tp2_pct, stop_loss, support, resistance, risk_pct, and notes_ar. Use null for an unavailable field; never omit these evidence fields. recommendation_evidence is a short exact phrase visibly present in that same source message/image which includes the stock identity and explicit recommendation context such as توصية شراء, منطقة الشراء, إشارة تداول - شراء, سهم تحت المراقبة, or a stock-to-watch heading. Never invent or paraphrase this evidence. Extract only the first two take-profit levels. Ignore TP3, target 3, third target, مستهدف ثالث, الهدف الثالث, and every later target; never return them in any field or summary. source_message_id must exactly equal the supporting TELEGRAM_ID. Do not return a source or channel name; the application restores it locally from source_message_id. recommendation_type is buy or sell. notes_ar is a concise Arabic note for narrative/chart recommendations that do not use a table; otherwise it is null. effective_date_basis is explicit_date or watching only. For watching, timing_evidence must quote the exact same-stock Arabic or English watch wording. For explicit_date, timing_evidence must be null. For a single entry, use buy_price only. For an explicit entry range, set buy_price to null and preserve the exact left and right values in buy_price_low and buy_price_high; never average, round, infer, or swap them. `منطقة البيع` or equivalent exit-zone wording inside a buy recommendation supplies target_1 and target_2 and does not make recommendation_type sell. return_tp1_pct and return_tp2_pct are explicit visible profit-return percentages paired with their respective targets; return numbers without `%`, or null when not shown. Do not calculate missing returns; the application calculates missing returns separately.
-- achieved_targets: array with stock_code, stock_name_en, status_ar, date, and source_message_id.
-- client_inquiry_responses: array for stock-specific replies to customer/member questions. Each item has stock_code, stock_name_en, stock_name_ar, date, source_message_id, source_image_ref, source_excerpt, question_summary_ar, reply_summary_ar, current_trend_ar, last_price, buy_price, buy_price_low, buy_price_high, target_1, target_2, stop_loss, support, resistance, advice_ar, and alternate_scenario_ar. Do not return a source or channel name. Include the supporting source_message_id and source_excerpt when present in the source data. Use the same exact single-entry/range rules as data_points.
-- text_based_categories: object with most_important_stocks, trading_stocks, and watchlist_stocks arrays. Each array item has stock_code, stock_name_en, and stock_name_ar.
-- daily_breakdown: object keyed by date; each item has total_mentions and top_stock_of_day.
-Use English EGX ticker codes in stock_code. Keep unavailable values as null. Do not invent price levels or targets."""
-
-_CORE_ANALYSIS_PROTOCOL = """You are the EGX Intelligence consolidation engine. The mandatory two-list contract and JSON structure in the user request are non-negotiable. Managed include/exclude phrase guidance extends recommendation recognition only; it must never override news exclusion, list separation, date eligibility, source message IDs, or the JSON structure. Client inquiry replies must only appear in client_inquiry_responses, never in top_consolidated_recommendations. Return JSON only."""
-
-_IMAGE_REFERENCE_CONTRACT = """IMAGE TRACEABILITY: Every image is placed directly after its immutable IMAGE_REF metadata block. For every data point whose evidence comes from an image, return source_image_ref as that exact IMAGE_REF integer. For text-only or audio-only evidence, return source_image_ref as null. Never copy an IMAGE_REF, stock identity, recommendation, date, or values from a neighboring image. A source_image_ref is supporting traceability only; an image must still satisfy every recommendation-context and date rule before it can be included."""
-
-_DATE_EVIDENCE_CONTRACT = """DATE TRACEABILITY: Every returned image, text, or audio data point must contain visible_source_date, date_evidence, and timing_evidence, using null rather than omitting an unavailable field. For ordinary recommendations, visible_source_date must exactly equal the target effective trading date, date_evidence must copy the exact same-source date phrase, effective_date_basis must be explicit_date, and timing_evidence must be null. A recommendation with a missing, ambiguous, past, future, or otherwise different source date is ineligible. For watching, timing_evidence must be the exact same-stock phrase meaning سهم تحت المراقبة, تحت المراقبة, سهم للمراقبة, watching, under watch, stock to watch, or a clear semantic equivalent. A watching result may use the supplied MESSAGE DATE as its source date only for text or voice-note transcripts that have explicit same-stock watch wording but no internal date; in that case normalize MESSAGE DATE into visible_source_date and copy the supplied MESSAGE DATE timestamp into date_evidence. Never use MESSAGE DATE to date an image. Never infer, manufacture, translate, or borrow date/timing evidence from another image, message, transcript, or stock."""
-
-_NEWS_EXCLUSION_CONTRACT = """NEWS EXCLUSION HAS HIGHEST PRIORITY: Exclude an entire source item when it is presented as news, urgent news, breaking news, a news alert, or a news update. This applies independently to every image/photo, ordinary text message, and voice-note transcript. Arabic and English indicators include عاجل, خبر عاجل, أخبار, خبر, آخر الأخبار, نبأ عاجل, breaking news, urgent news, news alert, news update, and clear semantic equivalents. Exclude the item even when it names an EGX stock, contains prices or percentages, discusses market movement, or resembles a recommendation. Do not create recommendations, Watching rows, client inquiry rows, achieved targets, categories, Notes, or source links from it. For a Telegram message containing several images, exclude only the image carrying the news context unless the message text or voice transcript makes the entire message a news item. Managed include phrases never override this exclusion."""
+_CORE_ANALYSIS_PROTOCOL = """You are the EGX Intelligence consolidation engine.
+Apply the canonical prompt gates in their numbered order. Do not repair, advance, infer, or borrow dates, identities, evidence, image references, or prices. Managed Include phrases extend recommendation wording only; they never override exclusions, date eligibility, or destination separation. Assign each Telegram ID to recommendations, inquiries, or exclusion, never more than one. Delete invalid rows before grouping or summarizing. Return only the canonical JSON object."""
 
 _MAX_IMAGE_EDGE = 2_048
 _OPTIMIZE_IMAGE_OVER_BYTES = 1_500_000
@@ -63,11 +49,7 @@ _OPTIMIZE_IMAGE_OVER_BYTES = 1_500_000
 def _build_analysis_prompt(base_prompt: str, source_data: str) -> str:
     phrase_guidance = prompt_customization_block()
     managed_guidance = f"\n\n{phrase_guidance}" if phrase_guidance else ""
-    return (
-        f"{base_prompt}{managed_guidance}\n\n{_OUTPUT_CONTRACT}\n\n"
-        f"{_IMAGE_REFERENCE_CONTRACT}\n\n{_DATE_EVIDENCE_CONTRACT}\n\n"
-        f"{_NEWS_EXCLUSION_CONTRACT}\n\n{source_data}"
-    )
+    return f"{base_prompt.rstrip()}{managed_guidance}\n\n## Runtime source data\n\n{source_data}"
 
 
 def _content_reference(value: str, references: dict[str, str], label: str, telegram_id: str) -> tuple[str, bool]:
@@ -138,11 +120,20 @@ def _prepared_image_data_url(path: str) -> tuple[str, int, int, bool]:
     return f"data:{mime_type};base64,{encoded}", original_size, len(content), optimized
 
 
-def _write_provider_request_trace(directory: Path, prompt: str,
-                                  prepared_images: list[tuple[str, int, int, bool]]) -> None:
+def _write_provider_request_trace(
+    directory: Path,
+    prompt: str,
+    prepared_images: list[tuple[str, int, int, bool]],
+    prompt_metadata: dict[str, Any] | None = None,
+) -> None:
     """Save the final text and optimized image bytes supplied to a provider."""
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "provider-prompt.txt").write_text(prompt, encoding="utf-8")
+    if prompt_metadata is not None:
+        (directory / "prompt-metadata.json").write_text(
+            json.dumps(prompt_metadata, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
     image_directory = directory / "sent-images"
     image_directory.mkdir(exist_ok=True)
     manifest: list[dict[str, object]] = []
@@ -253,13 +244,13 @@ def _analysis_result_from_consolidated_payload(payload: dict[str, Any]) -> Analy
         mentions.append({
             "ticker": ticker, "company_name": company_name, "context": summary,
             "table_data": {
-                "rank": str(rank_item.get("rank") or ""), "status": str(rank_item.get("status") or ""),
+                "rank": str(rank_item.get("rank") or ""),
                 "mention_count": str(mention_count or ""), "stock_name_ar": str(rank_item.get("stock_name_ar") or ""),
                 "data_points": json.dumps(data_points, ensure_ascii=False),
             },
             "confidence": _confidence(min(1.0, 0.5 + _number(mention_count or 0) / 10)),
         })
-        signal = "BUY" if str(rank_item.get("status") or "").lower() == "active" else "HOLD"
+        signal = recommendation_signal(data_points)
         for point in data_points or [{}]:
             if not isinstance(point, dict):
                 continue
@@ -281,8 +272,29 @@ def _analysis_result_from_consolidated_payload(payload: dict[str, Any]) -> Analy
 class AIAnalysisService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        prompt_path = ContentUpdateService(settings).file_path("recommendation.md")
-        self.prompt = (prompt_path or Path(__file__).parent / "prompts" / "recommendation.md").read_text(encoding="utf-8")
+        prompt_directory = Path(__file__).parent / "prompts"
+        content_updates = ContentUpdateService(settings)
+        single_selection = content_updates.select_prompt(
+            "recommendation.md", prompt_directory / "recommendation.md",
+        )
+        consolidated_selection = content_updates.select_prompt(
+            "consolidated_recommendation.md",
+            prompt_directory / "consolidated_recommendation.md",
+        )
+        self.prompt = single_selection.path.read_text(encoding="utf-8")
+        self.consolidated_prompt = consolidated_selection.path.read_text(encoding="utf-8")
+        self.prompt_metadata = {
+            "filename": single_selection.path.name,
+            "source": single_selection.source,
+            "schema_version": single_selection.schema_version,
+            "content_pack_version": single_selection.content_pack_version,
+        }
+        self.consolidated_prompt_metadata = {
+            "filename": consolidated_selection.path.name,
+            "source": consolidated_selection.source,
+            "schema_version": consolidated_selection.schema_version,
+            "content_pack_version": consolidated_selection.content_pack_version,
+        }
         base_url = {
             "qwen": settings.qwen_base_url,
             "openrouter": "https://openrouter.ai/api/v1",
@@ -315,117 +327,10 @@ class AIAnalysisService:
 
         prompt_assembly_started = perf_counter()
         parts = [
-            "Selected Telegram chat data follows. Analyze the complete set as one consolidated EGX window.",
-            f"Analysis period: {analysis_period}",
-            f"Target effective trading date: {target_trading_date}.",
-            "FIRST perform an internal two-list classification. LIST 1 contains only stock-specific client/customer inquiry replies, "
-            "such as replies headed or contextualized as 'ردًا على استفسارات عملائنا', 'ردا على استفسارات عملائنا', 'رد على استفسار', "
-            "or 'استفسارات العملاء'. LIST 2 contains every other cleaned, valid EGX recommendation. Do not return either internal list; "
-            "use LIST 1 only for client_inquiry_responses and LIST 2 only for top_consolidated_recommendations. "
-            "Before creating either list, apply NEWS EXCLUSION independently to every image/photo, ordinary text message, and "
-            "voice-note transcript. Exclude the entire source item when it is presented as news, urgent news, breaking news, a news "
-            "alert, or a news update, including عاجل, خبر عاجل, أخبار, خبر, آخر الأخبار, نبأ عاجل, breaking news, urgent news, "
-            "news alert, news update, and clear semantic equivalents. This exclusion has higher priority than stock identity, prices, "
-            "targets, market movement, recommendation-like wording, and managed Include phrases. Do not create a recommendation, "
-            "Watching row, inquiry row, achieved target, category, Note, or source link from excluded news content. For a Telegram "
-            "message with several images, exclude only the image carrying news context unless its text or voice transcript makes the "
-            "whole message a news item. "
-            "Discard all other irrelevant material before this classification: advertisements, links, disclaimers, greetings, memes, "
-            "general commentary, non-EGX material, and stock discussion without an explicit actionable recommendation or explicit "
-            "same-stock Watching classification and an eligible source date. Only include active, actionable EGX BUY or SELL "
-            "recommendations, plus explicit same-stock Watching recommendations, from LIST 2 intended for the target effective trading date. "
-            "A candidate is valid only when its selected text, image, or audio has a visible/explicit effective date equal to the target date. "
-            "There is no prior-date or next-session exception. Exclude every ordinary recommendation whose own visible/explicit source "
-            "date differs from the target effective trading date, even by one day. Never shift a source date forward based on wording, "
-            "Telegram posting time, a neighboring source, or an inferred intended session. "
-            "WATCHING TIMING CATEGORY: A source explicitly classifying the exact stock as سهم تحت المراقبة, تحت المراقبة, "
-            "سهم للمراقبة, watching, under watch, stock to watch, or a clear semantic equivalent is a valid Watching recommendation. "
-            "This applies equally to image text, ordinary text messages, and voice-note transcripts. Set data_points[].date to the target "
-            "date, data_points[].effective_date_basis to watching, and timing_evidence to the exact same-stock watch phrase. Preserve "
-            "conditional actions such as الشراء باختراق / buy on breakout and every explicit entry, TP1, TP2, stop loss, return, and risk value. "
-            "In an image, a watch heading may govern the ticker or stock name visibly placed directly beneath it in the same recommendation "
-            "card even when they are not on one text line; never transfer that heading to a neighboring image or unrelated stock. "
-            "For an image, require a visible image date inside the supplied analysis period and never substitute the Telegram timestamp. "
-            "For a text message or voice-note transcript with no internal date, the supplied MESSAGE DATE may establish the source date "
-            "only for this explicit Watching classification; normalize it into visible_source_date and copy that supplied timestamp "
-            "into date_evidence. "
-            "Undated stock tables, generic watchlists, charts, and price levels without explicit same-stock Watching wording MUST be "
-            "excluded; never infer their effective date from the Telegram posting time alone. data_points[].date must be the effective "
-            "recommendation date, not the post date. "
-            "Set data_points[].effective_date_basis to explicit_date only when the visible source date equals the target date, or "
-            "to watching only for explicit same-stock watch wording. Do not return any other timing basis. "
-            "Exclude recommendations whose effective date is missing, ambiguous, already past, or different from the target date.",
-            "OUTPUT PRIORITY: First extract every valid dated recommendation table, chart, image, text, or audio signal from LIST 2 that is "
-            "intended for the target effective date into top_consolidated_recommendations. For each source row, preserve entry, "
-            "TP1, TP2, stop loss, support, and resistance whenever visible. If any qualifying dated source table exists, the main "
-            "recommendations array must contain its stock rows; do this before creating client_inquiry_responses.",
-            "TAKE-PROFIT LIMIT: Extract and return only TP1 and TP2 (target_1 and target_2). Completely ignore TP3, target 3, "
-            "third target, take profit 3, مستهدف ثالث, الهدف الثالث, and any fourth or later target. Do not mention ignored "
-            "targets in notes_summary, analysis_summary_ar, notes_ar, or any other output field.",
-            "SELL-ZONE TARGETS AND RETURNS: Inside a BUY recommendation, منطقة البيع, نطاق البيع, sell zone, or equivalent "
-            "exit-zone wording contains take-profit levels and does not change recommendation_type to sell. Set the target nearest "
-            "the entry to target_1 and the farther target to target_2 regardless of visual left-to-right order. When عائد الربح, "
-            "profit return, or equivalent wording shows two percentages, pair the TP1 percentage with return_tp1_pct and the TP2 "
-            "percentage with return_tp2_pct using the visible target/percentage relationship rather than visual order alone. Example: "
-            "entry 26.80–27.00, sell zone 28.00–28.75, and returns 3.70%/6.48% means target_1=28.00, "
-            "return_tp1_pct=3.70, target_2=28.75, return_tp2_pct=6.48. Return percentages as numbers without `%`. If a return "
-            "is not explicitly visible, return null and do not calculate it; the application supplies the calculated fallback.",
-            "Entry values require special care. A single entry is buy_price only. If a source explicitly shows an entry range in "
-            "Arabic or English (for example 24.50-25.20, 24.50–25.20, 'from 24.50 to 25.20', or 'من 24.50 إلى 25.20'), "
-            "return buy_price=null, buy_price_low=the exact left value, and buy_price_high=the exact right value. Never average, "
-            "round, infer, reverse, or confuse entry values with stop loss, targets, support, resistance, or current price.",
-            "Extract only explicit recommendations with a stock code and a visible recommendation cue such as توصية, شراء, بيع, "
-            "منطقة الشراء, إشارة تداول, سهم تحت المراقبة, تحت المراقبة, سهم للمراقبة, recommendation, buy, sell, "
-            "watching, under watch, stock to watch, or entry zone. Explicit same-stock watch wording is sufficient context for the "
-            "Watching category even when the action is conditional rather than immediate. Support, "
-            "resistance, stop loss, current price, targets, liquidity ranking, sector ranking, or an important-stocks list alone NEVER "
-            "makes a recommendation and must be excluded. Images may use different source layouts: identify headings rather than "
-            "assuming column positions. For example, Arabic headings may include منطقة الشراء, هدف أول, هدف ثاني, إيقاف الخسارة, "
-            "الدعم, المقاومة, or إشارة تداول - شراء. For every included point, copy a short exact visible phrase containing both the "
-            "stock identity and explicit recommendation context into recommendation_evidence. Keep each source's values separate and "
-            "never copy values or evidence from one image/message into another source_message_id.",
-            "A dated chart/photo with narrative stock guidance but no table is still a data point: extract every visible level and put "
-            "a concise Arabic explanation of its guidance into data_points[].notes_ar. Keep each source's values separate. "
-            "Strictly ignore advertisements, links, disclaimers, greetings, general market commentary, corporate/economic news, "
-            "urgent-news alerts, memes, and stock mentions without a dated actionable recommendation. Do not turn news into a trading "
-            "signal or any other result category.",
-            "Image-only messages are intentionally included for visual review. If an image itself identifies a recommendation as previous, "
-            "past, achieved, target-hit, or no longer actionable, exclude it completely: do not include it in "
-            "top_consolidated_recommendations, achieved_targets, client_inquiry_responses, or text_based_categories.",
-            "IMPORTANT — client/member inquiry replies are reference information, not main recommendations. Classify them from "
-            "their own text, image, or audio context, including phrases such as 'ردًا على استفسارات عملائنا', 'ردا على استفسارات عملائنا', "
-            "'رد على استفسار', or 'استفسارات العملاء'. Never classify a normal table, chart, photo, or signal as an inquiry because "
-            "the same source/channel posted an inquiry elsewhere. A valid dated buy table remains a main recommendation. "
-            "A marked message that clearly answers a member/customer question about a particular stock must NEVER appear in "
-            "top_consolidated_recommendations, achieved_targets, or text_based_categories. Instead place one clean, "
-            "stock-specific record in client_inquiry_responses. Preserve its date, entry, TP1, TP2, stop loss, levels, trend, advice, and "
-            "alternative scenario when explicitly present. Include source_message_id equal to the supporting TELEGRAM_ID and an "
-            "exact source_excerpt whenever available. Do not invent a buy recommendation from an inquiry reply.",
-            "Client/member inquiry replies belong to LIST 1 only; they are reference information, never main recommendations. "
-            "Return only the exact supporting TELEGRAM_ID as data_points[].source_message_id and in every client_inquiry_responses item. "
-            "Do not return channel names or source labels; the application restores them locally. Before returning JSON, internally assign every "
-            "supporting TELEGRAM_ID to exactly one destination: LIST 1 IDs only in client_inquiry_responses, LIST 2 IDs only "
-            "in top_consolidated_recommendations, or excluded. Never use one TELEGRAM_ID in both arrays, and never place a "
-            "LIST 1 TELEGRAM_ID in a recommendation data point.",
-            "NOTES SUMMARY: Group all LIST 2 findings by exact stock_code before writing notes_summary. Produce exactly one concise, "
-            "factual Arabic notes_summary per stock from all of that stock's occurrences, regardless of source. The prose must be Arabic; "
-            "keep only ticker codes, numbers, and standard market abbreviations in their normal form. Treat "
-            "سهم تحت المراقبة/سهم للمراقبة/stock-to-watch wording as one Watching insight after date eligibility is established. Watching "
-            "remains a distinct Timing category. Mention each meaning once. Preserve distinct insights such as watchlist status, "
-            "entry range, targets, stop loss, and "
-            "risk warnings. Do not paste, enumerate, or paraphrase whole source messages, captions, tables, or image text. Keep "
-            "source_message_id and per-message values only in data_points for traceability. Keep notes_summary under 60 Arabic words.",
-            "MANDATORY DATE ELIGIBILITY SELF-AUDIT BEFORE RETURNING JSON: Re-read every proposed data point against its own source image "
-            "or message. Keep explicit_date only when visible_source_date equals the target date and date_evidence exactly supports it; "
-            "timing_evidence must then be null. Reject every ordinary recommendation whose source date differs from the target date. "
-            "Keep watching only when non-empty timing_evidence exactly quotes same-stock watch wording from that image, text, or voice-note "
-            "transcript. For image-based Watching require the visible image date to fall inside the supplied analysis period. For text or "
-            "voice-note Watching with no internal date, normalize the supplied MESSAGE DATE into visible_source_date and copy its timestamp "
-            "into date_evidence. Return the effective "
-            "data point date as the target date. Recheck that no proposed row comes from news, urgent news, breaking news, a news alert, "
-            "or a news update in an image, text message, or voice-note transcript. "
-            "If any required evidence is absent, belongs to another image/stock, or conflicts with the selected basis, remove the data "
-            "point completely before ranking, categorizing, counting mentions, or writing notes_summary.",
+            "RUNTIME CONTEXT",
+            f"ANALYSIS_PERIOD: {analysis_period}",
+            f"TARGET_DATE: {target_trading_date}",
+            "SOURCE ITEMS FOLLOW. Apply the canonical prompt independently to each item.",
         ]
         image_paths: list[str] = []
         image_references: dict[str, int] = {}
@@ -521,6 +426,10 @@ class AIAnalysisService:
             trace_directory,
             _CORE_ANALYSIS_PROTOCOL,
             interleaved_parts=interleaved_parts,
+            base_prompt=getattr(self, "consolidated_prompt", self.prompt),
+            prompt_metadata=getattr(
+                self, "consolidated_prompt_metadata", getattr(self, "prompt_metadata", None),
+            ),
         )
         initial_metrics = dict(initial.input_metrics)
         initial_payload = json.loads(initial.raw_response)
@@ -529,7 +438,7 @@ class AIAnalysisService:
                 initial.raw_response, encoding="utf-8",
             )
         warnings = normalize_consolidated_output(
-            initial_payload, messages, source_image_references,
+            initial_payload, messages, source_image_references, target_trading_date,
         )
         normalized_response = json.dumps(initial_payload, ensure_ascii=False)
         initial_metrics["prompt_assembly_ms"] = round((perf_counter() - prompt_assembly_started) * 1000)
@@ -553,10 +462,13 @@ class AIAnalysisService:
 
     async def _analyze_prompt(self, source_data: str, image_paths: list[str], input_metrics: dict[str, int] | None = None,
                               trace_directory: Path | None = None, system_instruction: str | None = None,
-                              interleaved_parts: list[tuple[str, str | None]] | None = None) -> AnalysisOutcome:
+                              interleaved_parts: list[tuple[str, str | None]] | None = None,
+                              base_prompt: str | None = None,
+                              prompt_metadata: dict[str, Any] | None = None) -> AnalysisOutcome:
         if self.client is None:
             raise RuntimeError("An API key is required for the selected AI provider")
-        prompt = _build_analysis_prompt(self.prompt, source_data)
+        prompt = _build_analysis_prompt(base_prompt or self.prompt, source_data)
+        selected_prompt_metadata = prompt_metadata or getattr(self, "prompt_metadata", None)
         metrics = dict(input_metrics or {})
         image_preparation_started = perf_counter()
         prepared_images = [_prepared_image_data_url(path) for path in image_paths]
@@ -574,7 +486,9 @@ class AIAnalysisService:
         })
         if trace_directory is not None:
             trace_write_started = perf_counter()
-            _write_provider_request_trace(trace_directory, trace_prompt, prepared_images)
+            _write_provider_request_trace(
+                trace_directory, trace_prompt, prepared_images, selected_prompt_metadata,
+            )
             metrics["provider_trace_write_ms"] = round((perf_counter() - trace_write_started) * 1000)
         request_started = perf_counter()
         if self.settings.ai_provider != "openai":

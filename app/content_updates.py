@@ -1,9 +1,11 @@
 import base64
+from dataclasses import dataclass
 import hashlib
 import io
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import secrets
 from typing import Any
@@ -17,12 +19,34 @@ _FIELD = 2**255 - 19
 _ORDER = 2**252 + 27742317777372353535851937790883648493
 _D = (-121665 * pow(121666, _FIELD - 2, _FIELD)) % _FIELD
 _BASE_Y = (4 * pow(5, _FIELD - 2, _FIELD)) % _FIELD
-_ALLOWED_FILES = {"recommendation.md", "stock_aliases.json"}
+_ALLOWED_FILES = {
+    "recommendation.md",
+    "consolidated_recommendation.md",
+    "stock_aliases.json",
+}
 _MAX_ARCHIVE_BYTES = 2 * 1024 * 1024
+_PROMPT_SCHEMA_RE = re.compile(r"<!--\s*EGX_PROMPT_SCHEMA:\s*(\d+)\s*-->")
 
 
 class ContentUpdateError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class PromptSelection:
+    path: Path
+    source: str
+    schema_version: int
+    content_pack_version: str | None = None
+
+
+def prompt_schema_version(path: Path) -> int | None:
+    try:
+        header = path.read_text(encoding="utf-8")[:512]
+    except (OSError, UnicodeError):
+        return None
+    match = _PROMPT_SCHEMA_RE.search(header)
+    return int(match.group(1)) if match else None
 
 
 def _recover_x(y: int) -> int:
@@ -163,6 +187,26 @@ class ContentUpdateService:
     def file_path(self, filename: str) -> Path | None:
         candidate = self.active / filename
         return candidate if filename in _ALLOWED_FILES and candidate.is_file() else None
+
+    def select_prompt(self, filename: str, bundled_path: Path) -> PromptSelection:
+        bundled_schema = prompt_schema_version(bundled_path)
+        if bundled_schema is None:
+            raise ContentUpdateError(
+                f"The bundled {filename} prompt is missing its schema-version marker"
+            )
+        active_path = self.file_path(filename)
+        if active_path is not None and prompt_schema_version(active_path) == bundled_schema:
+            return PromptSelection(
+                path=active_path,
+                source="content_pack",
+                schema_version=bundled_schema,
+                content_pack_version=self.active_version(),
+            )
+        return PromptSelection(
+            path=bundled_path,
+            source="bundled",
+            schema_version=bundled_schema,
+        )
 
     def stock_aliases(self) -> dict[str, str]:
         aliases_path = self.file_path("stock_aliases.json")

@@ -14,6 +14,7 @@ from app.config import Settings
 from app.entry_points import format_entry_point, normalize_entry_point
 from app.models import Channel, Image, Media, Message, Recommendation, Report, Stock, StockMention
 from app.recommendation_notes import remove_unsupported_targets
+from app.recommendation_signal import recommendation_signal
 from app.time_utils import CAIRO_TIMEZONE, as_cairo, cairo_now
 
 try:
@@ -206,7 +207,7 @@ class ReportService:
         lines += [f"- {item['channel']}: {item['status']} | Messages {item['messages']} | Recommendations {item['recommendations']}" for item in channel_results]
         if consolidated_source is not None:
             lines += ["", "## Qwen consolidated analysis", f"- Analysis period: {consolidated_source.get('analysis_period') or report_mode}"]
-            lines += ["", "| Rank | Code | Company (EN) | Company (AR) | Source | Date | Timing | Type | Entry | TP1 | TP1 Return % | TP2 | TP2 Return % | Stop | Support | Resistance | Risk % | Status | Notes |", "| ---: | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |"]
+            lines += ["", "| Rank | Code | Company (EN) | Company (AR) | Source | Date | Timing | Type | Entry | TP1 | TP1 Return % | TP2 | TP2 Return % | Stop | Support | Resistance | Risk % | Notes |", "| ---: | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |"]
             noted_tickers: set[str] = set()
             for row in stock_source_table:
                 notes = row["notes_summary"] if row["ticker"] not in noted_tickers else "-"
@@ -218,7 +219,7 @@ class ReportService:
                     f"{row['target_1'] or '-'} | {row['return_tp1_pct'] if row['return_tp1_pct'] is not None else '-'} | "
                     f"{row['target_2'] or '-'} | {row['return_tp2_pct'] if row['return_tp2_pct'] is not None else '-'} | "
                     f"{row['stop_loss'] or '-'} | {row['support'] or '-'} | {row['resistance'] or '-'} | "
-                    f"{row['risk_pct'] or '-'} | {row['status'] or '-'} | {notes or '-'} |"
+                    f"{row['risk_pct'] or '-'} | {notes or '-'} |"
                 )
             lines += ["", "## Achieved targets"]
             for item in consolidated_source.get("achieved_targets", []):
@@ -633,7 +634,6 @@ def _consolidated_source_table(payload: dict) -> list[dict]:
                 "latest_date": str(point["date"])[:10] if point.get("date") else None,
                 "effective_date_bases": [str(point["effective_date_basis"])] if point.get("effective_date_basis") else [],
                 "mention_count": int(item.get("mention_count") or 1),
-                "status": str(item.get("status") or ""),
                 "analysis_summary_ar": str(item.get("analysis_summary_ar") or ""),
                 "notes_summary": notes_summary,
                 "recommendation_type": str(point.get("recommendation_type") or "buy").lower(),
@@ -753,7 +753,7 @@ def _source_driven_tables(payload: dict) -> tuple[list[dict], list[dict], list[d
         for source, source_details in per_source.items():
             details.append({"ticker": ticker, "company": company, "company_ar": company_ar, "channel": source,
                             "occurrences": len(source_details), "details": source_details, "notes": ticker_notes})
-        signal = "BUY" if str(item.get("status") or "").lower() == "active" else "HOLD"
+        signal = recommendation_signal(points)
         consensus.append({"ticker": ticker, "company": company, "signal": signal, "priority": float(item.get("rank") or 999),
                           "channel_count": len(by_source), "entry": _median([_as_number(point.get("buy_price")) for point in points]),
                           "tp1": _median([_as_number(point.get("target_1")) for point in points]),
@@ -908,7 +908,7 @@ def _build_html_report(
             sections.append(
                 '<table><thead><tr>'
                 '<th>Rank</th><th>Code</th><th>Company (EN)</th><th>Company (AR)</th>'
-                '<th>Source</th><th>Date</th><th>Timing</th><th>Type</th><th>Status</th>'
+                '<th>Source</th><th>Date</th><th>Timing</th><th>Type</th>'
                 '<th class="num">Entry</th><th class="num">TP1</th><th class="num">TP1 Return %</th>'
                 '<th class="num">TP2</th><th class="num">TP2 Return %</th>'
                 '<th class="num">Stop loss</th><th class="num">Support</th><th class="num">Resistance</th>'
@@ -934,7 +934,6 @@ def _build_html_report(
                     f'<td>{e(", ".join(row["source_dates"]) or "-")}</td>'
                     f'<td>{e(", ".join(row["effective_date_bases"]) or "-")}</td>'
                     f'<td>{e(row["recommendation_type"] or "-")}</td>'
-                    f'<td>{badge(row["status"] or "HOLD")}</td>'
                     f'<td class="num">{e(format_entry_point(row["buy_price"], row.get("buy_price_low"), row.get("buy_price_high")))}</td>'
                     f'<td class="num">{e(row["target_1"] or "-")}</td>'
                     f'<td class="num">{e(row["return_tp1_pct"] if row["return_tp1_pct"] is not None else "-")}</td>'

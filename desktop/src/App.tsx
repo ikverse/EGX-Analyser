@@ -1308,20 +1308,19 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
             <col className="result-col-price" />
             <col className="result-col-resistance" />
             <col className="result-col-risk" />
-            <col className="result-col-status" />
             <col className="result-col-source-image" />
             <col className="result-col-notes" />
           </colgroup>
           <thead><tr>
             <th>Source</th><th>Target date</th><th>Source date</th><th>Timing</th><th>Type</th><th className="numeric">Entry</th>
             <th className="numeric">TP1</th><th className="numeric">TP1 Return %</th><th className="numeric">TP2</th><th className="numeric">TP2 Return %</th>
-            <th className="numeric">Stop</th><th className="numeric">Support</th><th className="numeric">Resistance</th><th className="numeric">Risk %</th><th>Status</th><th>Source image</th><th>Notes</th>
+            <th className="numeric">Stop</th><th className="numeric">Support</th><th className="numeric">Resistance</th><th className="numeric">Risk %</th><th>Source image</th><th>Notes</th>
           </tr></thead>
           {[...grouped.entries()].map(([ticker, stockRows]) => {
             const first = stockRows[0];
             return (
               <tbody key={ticker}>
-                <tr className="consolidated-stock-group"><td colSpan={17}>
+                <tr className="consolidated-stock-group"><td colSpan={16}>
                   <div className="consolidated-stock-group-content">
                     <span className="consolidated-rank">#{first.rank ?? "—"}</span>
                     <strong>{first.ticker}</strong>
@@ -1346,7 +1345,6 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
                     <td className="numeric">{num(row.support)}</td>
                     <td className="numeric">{num(row.resistance)}</td>
                     <td className="numeric negative">{num(row.risk_pct)}</td>
-                    <td><span className={`status-pill ${row.status === "active" ? "active" : "neutral"}`}>{row.status || "—"}</span></td>
                     <td className="source-image-cell">
                       {row.source_image_paths?.length ? <button type="button" className="secondary compact source-image-button" onClick={() => setSourceImages({ paths: row.source_image_paths ?? [], title: `${row.ticker} - ${row.source}` })}>
                         <Icon name="image" size={15} /> View ({row.source_image_paths.length})

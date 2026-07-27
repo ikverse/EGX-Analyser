@@ -34,7 +34,15 @@ from app.reports import (
 )
 from app.services import AnalyticsService, MessageService, SearchService
 from app.config_store import load_secrets_into_environment, update_config
-from app.content_updates import ContentUpdateService, generate_seed, public_key_from_seed, sign_bytes, verify_bytes
+from app.content_updates import (
+    ContentUpdateService,
+    generate_seed,
+    prompt_schema_version,
+    public_key_from_seed,
+    sign_bytes,
+    verify_bytes,
+)
+from app.recommendation_signal import recommendation_signal
 from app.telegram_auth import TelegramAuthenticator
 from app.runtime import next_day_analysis_window, selected_date_analysis_window
 from app.collector.telegram import is_promotional_message
@@ -60,10 +68,11 @@ from zoneinfo import ZoneInfo
 QWEN_CONSOLIDATED_OUTPUT = {
     "analysis_period": "Last 3 Days",
     "top_consolidated_recommendations": [{
-        "stock_code": "MFPC", "stock_name_en": "Mobaco", "stock_name_ar": "موبكو", "mention_count": 3, "rank": 1, "status": "active",
+        "stock_code": "MFPC", "stock_name_en": "Mobaco", "stock_name_ar": "موبكو", "mention_count": 3, "rank": 1, "status": "legacy-value-is-ignored",
         "data_points": [{"date": "2026-07-12", "source": "CFI", "buy_price": 37.25, "target_1": 38.7,
                          "target_2": 40.0, "stop_loss": 35.55, "support": None, "resistance": None,
-                         "expected_return_pct": 3.18, "risk_pct": -1.84}],
+                         "expected_return_pct": 3.18, "risk_pct": -1.84,
+                         "recommendation_type": "buy"}],
         "analysis_summary_ar": "توصية شراء قوية",
     }],
     "achieved_targets": [{"stock_code": "EFII", "stock_name_en": "E-Finance", "status_ar": "تم تحقيق المستهدف", "date": "2026-07-12", "source": "CFI"}],
@@ -78,12 +87,26 @@ def test_results_table_keeps_fixed_columns_when_entry_is_a_range():
     styles = (repository_root / "desktop" / "src" / "styles.css").read_text(encoding="utf-8")
 
     assert "<colgroup>" in app_source
-    assert app_source.count('<col className="result-col-') == 17
+    assert app_source.count('<col className="result-col-') == 16
     assert '<th className="numeric">Entry</th>' in app_source
     assert '<td className="numeric entry-value">' in app_source
     assert ".consolidated-table .result-col-entry { width: 140px; }" in styles
     assert "table-layout: fixed;" in styles
-    assert "width: 2195px;" in styles
+    assert "width: 2095px;" in styles
+    assert "<th>Status</th>" not in app_source
+    assert "result-col-status" not in styles
+
+
+def test_expanded_result_hover_does_not_highlight_nested_table():
+    styles = (
+        Path(__file__).resolve().parents[1] / "desktop" / "src" / "styles.css"
+    ).read_text(encoding="utf-8")
+
+    assert "tr:hover td" not in styles
+    assert "tr:hover > td" in styles
+    assert ".analysis-history-row:hover > td" in styles
+    assert ".analysis-history-expanded:hover > td" in styles
+    assert "background: var(--surface-raised);" in styles
 
 
 def test_entry_point_ranges_preserve_exact_source_bounds():
@@ -137,6 +160,7 @@ async def test_same_template_images_are_sent_separately_for_stock_aware_review(t
             image_paths=image_paths,
             input_metrics=dict(input_metrics),
             interleaved_parts=_kwargs.get("interleaved_parts"),
+            base_prompt=_kwargs.get("base_prompt"),
         )
         payload = {
             "analysis_period": "test", "top_consolidated_recommendations": [], "achieved_targets": [],
@@ -174,19 +198,12 @@ async def test_same_template_images_are_sent_separately_for_stock_aware_review(t
     assert outcome.source_image_references[1]["path"] == str(skpc)
     assert outcome.source_image_references[2]["source_message_id"] == "3905"
     source_data = str(captured["source_data"])
-    assert "There is no prior-date or next-session exception" in source_data
-    assert "differs from the target effective trading date, even by one day" in source_data
-    assert "data_points[].effective_date_basis to watching" in source_data
-    assert "voice-note transcripts" in source_data
-    assert "visibly placed directly beneath it in the same recommendation" in source_data
-    assert "NEWS EXCLUSION independently to every image/photo, ordinary text message" in source_data
-    assert "عاجل, خبر عاجل, أخبار, خبر" in source_data
-    assert "managed Include phrases" in source_data
-    assert "SELL-ZONE TARGETS AND RETURNS" in source_data
-    assert "entry 26.80–27.00" in source_data
-    assert "return_tp1_pct=3.70" in source_data
-    assert "return_tp2_pct=6.48" in source_data
-    assert "MANDATORY DATE ELIGIBILITY SELF-AUDIT" in source_data
+    assert source_data == (
+        "RUNTIME CONTEXT\n"
+        "ANALYSIS_PERIOD: test\n"
+        "TARGET_DATE: 2026-07-23\n"
+        "SOURCE ITEMS FOLLOW. Apply the canonical prompt independently to each item."
+    )
 
 
 def test_source_table_keeps_entry_range_without_averaging():
@@ -209,6 +226,7 @@ def test_source_table_keeps_entry_range_without_averaging():
     assert row["visible_source_date"] == "2026-07-16"
     assert row["date_evidence"] == "16-Jul-2026"
     assert row["timing_evidence"] is None
+    assert "status" not in row
 
 
 def test_sell_zone_targets_keep_explicit_per_target_returns():
@@ -739,8 +757,33 @@ def test_qwen_consolidated_output_normalizes_to_recommendations():
     result = _analysis_result_from_payload(QWEN_CONSOLIDATED_OUTPUT)
     assert result.stock_mentions[0].ticker == "MFPC"
     assert result.stock_mentions[0].table_data["stock_name_ar"] == "موبكو"
+    assert "status" not in result.stock_mentions[0].table_data
+    assert result.recommendations[0].signal.value == "BUY"
     assert result.recommendations[0].entry == 37.25
     assert result.recommendations[0].target_2 == 40.0
+
+
+def test_internal_signal_is_derived_from_accepted_rows():
+    assert recommendation_signal([
+        {"recommendation_type": "buy", "effective_date_basis": "explicit_date"},
+        {"recommendation_type": "buy", "effective_date_basis": "explicit_date"},
+    ]) == "BUY"
+    assert recommendation_signal([
+        {"recommendation_type": "sell", "effective_date_basis": "explicit_date"},
+    ]) == "SELL"
+    assert recommendation_signal([
+        {"recommendation_type": "buy", "effective_date_basis": "watching"},
+    ]) == "HOLD"
+    assert recommendation_signal([
+        {"effective_date_basis": "under-watch"},
+    ]) == "HOLD"
+    assert recommendation_signal([
+        {"effective_date_basis": "explicit_date"},
+    ]) == "BUY"
+    assert recommendation_signal([
+        {"recommendation_type": "buy", "effective_date_basis": "explicit_date"},
+        {"recommendation_type": "sell", "effective_date_basis": "explicit_date"},
+    ]) == "HOLD"
 
 
 def test_consolidated_parser_uses_stock_notes_summary():
@@ -1039,26 +1082,31 @@ def test_analysis_prompt_keeps_base_prompt_and_appends_phrase_guidance(monkeypat
     assert prompt.startswith("UNCHANGED BASE PROMPT\n\nMANAGED RECOMMENDATION PHRASE GUIDANCE")
     assert "Include phrases: سهم تحت المراقبة" in prompt
     assert "Exclude phrases: الأسهم الأكثر سيولة" in prompt
-    assert "Return only one JSON object" in prompt
-    assert "Every returned image, text, or audio data point must contain visible_source_date" in prompt
-    assert "effective_date_basis is explicit_date or watching only" in prompt
-    assert "For explicit_date, timing_evidence must be null" in prompt
-    assert "visible_source_date, date_evidence, timing_evidence" in prompt
-    assert "using null rather than omitting an unavailable field" in prompt
-    assert "A recommendation with a missing, ambiguous, past, future, or otherwise different source date is ineligible" in prompt
-    assert "For watching, timing_evidence must be the exact same-stock phrase" in prompt
-    assert "NEWS EXCLUSION HAS HIGHEST PRIORITY" in prompt
-    assert "every image/photo, ordinary text message, and voice-note transcript" in prompt
-    assert "عاجل" in prompt
-    assert "breaking news" in prompt
-    assert "Managed include phrases never override this exclusion" in prompt
-    assert "منطقة البيع" in prompt
-    assert "return_tp1_pct" in prompt
-    assert "return_tp2_pct" in prompt
-    assert "application calculates missing returns separately" in prompt
-    assert "text or voice-note transcripts" in prompt
-    assert "copy the supplied MESSAGE DATE timestamp into date_evidence" in prompt
+    assert "## Runtime source data" in prompt
     assert prompt.endswith("MESSAGE SOURCE DATA")
+
+
+def test_canonical_consolidated_prompt_has_one_versioned_contract():
+    prompt_path = (
+        Path(__file__).resolve().parents[1]
+        / "app" / "ai" / "prompts" / "consolidated_recommendation.md"
+    )
+    prompt = prompt_path.read_text(encoding="utf-8")
+
+    assert prompt_schema_version(prompt_path) == 2
+    assert "27/07/2026` → exclude" in prompt
+    assert "Telegram post is dated 28/7 but its image says 27/7 → exclude" in prompt
+    assert "Images, ordinary text messages, and voice-note transcripts" in prompt
+    assert "`عاجل`" in prompt
+    assert "`منطقة البيع`" in prompt
+    assert '"return_tp1_pct"' in prompt
+    assert '"return_tp2_pct"' in prompt
+    assert '"notes_summary": "concise Arabic string"' in prompt
+    assert '"status"' not in prompt
+    assert "analysis_summary_ar" not in prompt
+    assert "stock_mentions" not in prompt
+    assert "image_observations" not in prompt
+    assert prompt.count("## 2. Hard date gate") == 1
 
 
 def test_prompt_customization_restores_a_historical_configuration(monkeypatch, tmp_path):
@@ -1190,6 +1238,53 @@ def test_content_pack_installs_prompt_and_aliases(tmp_path):
     assert manager.active_version() == "1.0.0"
     assert manager.file_path("recommendation.md").read_text(encoding="utf-8") == "Updated prompt"
     assert manager.stock_aliases()["cib arabic"] == "CIB"
+
+
+def test_incompatible_content_pack_prompt_falls_back_to_bundled_prompt(tmp_path):
+    settings = type(
+        "Settings",
+        (),
+        {"storage_root": tmp_path / "storage", "content_pack_manifest_url": "https://example.test/pack"},
+    )()
+    manager = ContentUpdateService(settings)
+    manager.active.mkdir(parents=True)
+    (manager.active / ".version").write_text("1.0.1", encoding="utf-8")
+    (manager.active / "consolidated_recommendation.md").write_text(
+        "Old prompt without a schema marker", encoding="utf-8",
+    )
+    bundled = tmp_path / "bundled.md"
+    bundled.write_text("<!-- EGX_PROMPT_SCHEMA: 2 -->\nCanonical prompt", encoding="utf-8")
+
+    selection = manager.select_prompt("consolidated_recommendation.md", bundled)
+
+    assert selection.path == bundled
+    assert selection.source == "bundled"
+    assert selection.schema_version == 2
+    assert selection.content_pack_version is None
+
+
+def test_matching_content_pack_prompt_is_selected_and_versioned(tmp_path):
+    settings = type(
+        "Settings",
+        (),
+        {"storage_root": tmp_path / "storage", "content_pack_manifest_url": "https://example.test/pack"},
+    )()
+    manager = ContentUpdateService(settings)
+    manager.active.mkdir(parents=True)
+    (manager.active / ".version").write_text("2.0.0", encoding="utf-8")
+    active_prompt = manager.active / "consolidated_recommendation.md"
+    active_prompt.write_text(
+        "<!-- EGX_PROMPT_SCHEMA: 2 -->\nCompatible update", encoding="utf-8",
+    )
+    bundled = tmp_path / "bundled.md"
+    bundled.write_text("<!-- EGX_PROMPT_SCHEMA: 2 -->\nCanonical prompt", encoding="utf-8")
+
+    selection = manager.select_prompt("consolidated_recommendation.md", bundled)
+
+    assert selection.path == active_prompt
+    assert selection.source == "content_pack"
+    assert selection.schema_version == 2
+    assert selection.content_pack_version == "2.0.0"
 
 
 def test_next_day_analysis_window_uses_current_session_before_egx_opens():
@@ -1423,6 +1518,57 @@ async def test_consolidated_analysis_uses_one_model_request():
     assert "recommendation_evidence" not in point
 
 
+@pytest.mark.asyncio
+async def test_consolidated_analysis_filters_mismatched_date_without_retry():
+    payload = {
+        "analysis_period": "test",
+        "top_consolidated_recommendations": [{
+            "stock_code": "TMGH",
+            "data_points": [{
+                "source_message_id": "60284",
+                "effective_date_basis": "explicit_date",
+                "visible_source_date": "27/07/2026",
+            }],
+        }],
+        "client_inquiry_responses": [],
+    }
+    service = object.__new__(AIAnalysisService)
+    service.settings = SimpleNamespace()
+    service.prompt = ""
+    requests = 0
+
+    async def fake_analyze_prompt(*_args, **_kwargs):
+        nonlocal requests
+        requests += 1
+        return AnalysisOutcome(
+            result=_analysis_result_from_payload(payload),
+            raw_response=json.dumps(payload, ensure_ascii=False),
+            input_metrics={"model_request_ms": 10},
+        )
+
+    service._analyze_prompt = fake_analyze_prompt
+    outcome = await service.analyze_consolidated(
+        [{
+            "source": "CFI Egypt",
+            "telegram_message_id": 60284,
+            "published_at": "2026-07-27T07:47:04+03:00",
+            "text": "",
+            "image_paths": [],
+            "transcripts": [],
+        }],
+        "test",
+        "2026-07-28",
+    )
+
+    assert requests == 1
+    assert outcome.correction_attempted is False
+    assert outcome.validation_warnings == [
+        "Excluded TMGH message 60284: source date 27/07/2026 "
+        "does not match target date 2026-07-28.",
+    ]
+    assert json.loads(outcome.raw_response)["top_consolidated_recommendations"] == []
+
+
 def test_minimal_provenance_excludes_unknown_ids_and_restores_one_image_reference():
     messages = [{
         "source": "إسأل فني📉🐎",
@@ -1453,6 +1599,91 @@ def test_minimal_provenance_excludes_unknown_ids_and_restores_one_image_referenc
     assert stock["mention_count"] == 1
     assert stock["data_points"][0]["source"] == "إسأل فني"
     assert stock["data_points"][0]["source_image_ref"] == 4
+
+
+def test_explicit_date_guard_excludes_mismatch_and_keeps_target_date_and_watching():
+    messages = [
+        {"source": "CFI Egypt", "telegram_message_id": 60284},
+        {"source": "CFI Egypt", "telegram_message_id": 60310},
+        {"source": "CFI Egypt", "telegram_message_id": 60311},
+    ]
+    payload = {"top_consolidated_recommendations": [
+        {
+            "stock_code": "TMGH",
+            "mention_count": 1,
+            "data_points": [{
+                "source_message_id": "60284",
+                "effective_date_basis": "explicit_date",
+                "visible_source_date": "27/07/2026",
+            }],
+        },
+        {
+            "stock_code": "COMI",
+            "mention_count": 1,
+            "data_points": [{
+                "source_message_id": "60310",
+                "effective_date_basis": "explicit_date",
+                "visible_source_date": "28-JULY-2026",
+            }],
+        },
+        {
+            "stock_code": "ASCM",
+            "mention_count": 1,
+            "data_points": [{
+                "source_message_id": "60311",
+                "effective_date_basis": "watching",
+                "visible_source_date": "27 يوليو 2026",
+            }],
+        },
+    ]}
+
+    warnings = normalize_consolidated_output(
+        payload,
+        messages,
+        target_date="2026-07-28",
+    )
+
+    assert warnings == [
+        "Excluded TMGH message 60284: source date 27/07/2026 "
+        "does not match target date 2026-07-28.",
+    ]
+    stocks = payload["top_consolidated_recommendations"]
+    assert [stock["stock_code"] for stock in stocks] == ["COMI", "ASCM"]
+    assert stocks[0]["data_points"][0]["visible_source_date"] == "28-JULY-2026"
+    assert stocks[1]["data_points"][0]["effective_date_basis"] == "watching"
+
+
+def test_explicit_date_guard_understands_arabic_digits_and_rejects_missing_dates():
+    messages = [
+        {"source": "إسأل فني", "telegram_message_id": 1},
+        {"source": "إسأل فني", "telegram_message_id": 2},
+    ]
+    payload = {"top_consolidated_recommendations": [{
+        "stock_code": "COMI",
+        "mention_count": 2,
+        "data_points": [
+            {
+                "source_message_id": "1",
+                "effective_date_basis": "explicit_date",
+                "visible_source_date": "٢٨ يوليو ٢٠٢٦",
+            },
+            {
+                "source_message_id": "2",
+                "effective_date_basis": "explicit_date",
+                "visible_source_date": None,
+            },
+        ],
+    }]}
+
+    warnings = normalize_consolidated_output(payload, messages, target_date=date(2026, 7, 28))
+
+    assert warnings == [
+        "Excluded COMI message 2: source date (missing) does not match target date 2026-07-28.",
+    ]
+    assert payload["top_consolidated_recommendations"][0]["mention_count"] == 1
+    assert payload["top_consolidated_recommendations"][0]["data_points"][0][
+        "visible_source_date"
+    ] == "٢٨ يوليو ٢٠٢٦"
 
 
 def test_channel_names_remove_emojis_without_changing_words():
@@ -1626,8 +1857,20 @@ def test_selected_input_trace_contains_only_the_model_batch(tmp_path):
 
 def test_provider_request_trace_saves_final_prompt_and_sent_image_bytes(tmp_path):
     data_url = "data:image/jpeg;base64," + base64.b64encode(b"provider-image").decode()
-    _write_provider_request_trace(tmp_path, "Exact prompt sent to the model", [(data_url, 30, 14, True)])
+    prompt_metadata = {
+        "filename": "consolidated_recommendation.md",
+        "source": "bundled",
+        "schema_version": 2,
+        "content_pack_version": None,
+    }
+    _write_provider_request_trace(
+        tmp_path,
+        "Exact prompt sent to the model",
+        [(data_url, 30, 14, True)],
+        prompt_metadata,
+    )
     assert (tmp_path / "provider-prompt.txt").read_text(encoding="utf-8") == "Exact prompt sent to the model"
+    assert json.loads((tmp_path / "prompt-metadata.json").read_text(encoding="utf-8")) == prompt_metadata
     assert (tmp_path / "sent-images" / "image-1.jpg").read_bytes() == b"provider-image"
     manifest = json.loads((tmp_path / "sent-images.json").read_text(encoding="utf-8"))
     assert manifest == [{

@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.1.119
+- Rebuilt consolidated analysis around one canonical, versioned prompt with a strict same-source date gate and concise runtime context.
+- Prevented incompatible downloaded content-pack prompts from silently overriding the bundled prompt, while recording the selected prompt source and schema in each provider trace.
+- Clarified news exclusion, destination separation, Watching rules, source traceability, price extraction, TP1/TP2 handling, and concise Arabic Notes in one maintainable contract.
+- Removed the model-owned Status field and derived internal Buy, Sell, or Hold signals deterministically from accepted recommendation rows.
+- Removed Status from Results, Markdown reports, and HTML reports while keeping legacy saved results readable.
+- Retained the lightweight local explicit-date safety guard so mismatched ordinary recommendations are excluded without another model request.
+- Added regression coverage for prompt compatibility, prompt trace metadata, deterministic signals, strict date wording, and the revised 16-column Results layout.
+
 ## v0.1.118
 - Removed the T+1 timing category, prior-date exception, runtime validator, saved-result filtering, Notes synthesis, and legacy UI mappings.
 - Limited recommendation timing to an exact target date or an explicit Watching context.

@@ -1,5 +1,5 @@
 name: Publish desktop update
-run-name: ${{ github.ref_name }} - Remove T+1, exclude news, and align Results columns
+run-name: ${{ github.ref_name }} - Canonical prompt, strict dates, and deterministic Results
 
 on:
   push:

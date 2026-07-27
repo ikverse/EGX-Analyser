@@ -41,9 +41,19 @@ def build(version: str) -> None:
     seed = read_seed()
     if not PUBLIC_KEY_PATH.exists():
         raise SystemExit("The public verification key is missing.")
-    files = [path for path in SOURCE_PATH.iterdir() if path.is_file() and path.name in {"recommendation.md", "stock_aliases.json"}]
+    allowed_files = {
+        "recommendation.md",
+        "consolidated_recommendation.md",
+        "stock_aliases.json",
+    }
+    files = [
+        path for path in SOURCE_PATH.iterdir()
+        if path.is_file() and path.name in allowed_files
+    ]
     if not files:
-        raise SystemExit("Add recommendation.md or stock_aliases.json under remote-content/source first.")
+        raise SystemExit(
+            "Add a supported prompt or stock_aliases.json under remote-content/source first."
+        )
     ARCHIVE_PATH.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(ARCHIVE_PATH, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for file_path in sorted(files):

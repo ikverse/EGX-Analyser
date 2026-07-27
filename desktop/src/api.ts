@@ -57,7 +57,6 @@ export type StockSourceTableRow = {
   date_evidence?: string | null;
   timing_evidence?: string | null;
   mention_count: number;
-  status?: string;
   analysis_summary_ar?: string;
   notes_summary?: string;
   recommendation_type?: "buy" | "sell" | string;

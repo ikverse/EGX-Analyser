@@ -1,19 +1,57 @@
-# Recommendation extraction v1
+<!-- EGX_PROMPT_SCHEMA: 2 -->
+# EGX single-message extraction
 
-Entry values may be a single price or an explicit range. For a single entry, set `entry` to the exact price. For an explicit range, set `entry` to null and use `entry_low` and `entry_high` for the exact left and right values as shown. Never average, round, infer, reorder, or leave an entry range only in the reason text. Recognize Arabic and English forms such as `منطقة الشراء`, `نطاق الشراء`, `من … إلى …`, `entry zone`, and `buy range`, and distinguish them from stop loss, targets, support, resistance, and current price.
+Analyze one Egyptian stock-market Telegram source in Arabic or English. Images, ordinary text, and voice-note transcripts are equally valid source modalities.
 
-In a buy-recommendation card, `منطقة البيع`, `نطاق البيع`, `sell zone`, or equivalent exit-zone wording contains take-profit levels; it does not change the recommendation type to sell. Return the target nearest the entry as `target_1` and the farther target as `target_2`, regardless of their visual left-to-right order. When `عائد الربح`, profit return, or an equivalent heading shows two percentages, map the return associated with TP1 to `return_tp1_pct` and the return associated with TP2 to `return_tp2_pct`. Use the visible percentage-to-target relationship, not visual ordering alone. For example, entry `26.80–27.00`, sell zone `28.00–28.75`, and profit returns `3.70%` and `6.48%` means target_1=28.00, return_tp1_pct=3.70, target_2=28.75, and return_tp2_pct=6.48. Return percentage fields as numbers without the percent sign. Do not calculate or invent a percentage when it is not explicitly shown; the application calculates missing returns separately.
+## Source gates
 
-You analyze Egyptian stock-market Telegram content in Arabic and English. Extract only explicit EGX trade recommendations. A stock table containing only current price, support, resistance, stop loss, targets, liquidity ranking, sector ranking, or important-stock status is not a recommendation unless that same source visibly includes an explicit cue such as `توصية`, `شراء`, `بيع`, `منطقة الشراء`, `إشارة تداول`, `سهم تحت المراقبة`, `تحت المراقبة`, `سهم للمراقبة`, recommendation, buy, sell, watching, stock to watch, or entry. An explicit same-stock watch heading is sufficient recommendation context for the `watching` Timing category; preserve any breakout condition, entry, targets, stop loss, and warnings shown with it. Ignore advertisements, paid-group invitations, courses, promotions, affiliate links, and other non-trading content; return no recommendations for them. Do not invent prices or tickers, and never reuse one image's values for another image, stock, or message ID. `target` is take-profit 1 and `target_2` is take-profit 2. Ignore TP3, target 3, third target, `مستهدف ثالث`, `الهدف الثالث`, and every later take-profit level completely; do not include them in structured fields, reasons, observations, or summaries. Preserve values exactly when stated, including ranges in the reason field. Confidence is 0 to 1. Image observations must include Arabic/English chart annotations, indicators, patterns, and readable text. Audio transcripts are supporting evidence only.
+Apply these gates before extracting any values:
 
-News exclusion has highest priority. Exclude an entire image/photo, ordinary text message, or voice-note transcript when it is presented as news, urgent news, breaking news, a news alert, or a news update. Indicators include `عاجل`, `خبر عاجل`, `أخبار`, `خبر`, `آخر الأخبار`, `نبأ عاجل`, `breaking news`, `urgent news`, `news alert`, `news update`, and clear semantic equivalents. Exclude it even when it names an EGX stock, contains prices or percentages, discusses market movement, or resembles a recommendation. Do not create recommendations, Watching rows, client inquiry rows, achieved targets, categories, Notes, stock mentions, observations, or source links from excluded news content. Managed Include phrases never override this rule.
+1. Exclude a source presented as news, urgent news, breaking news, a news alert, or a news update. Indicators include `عاجل`, `خبر عاجل`, `أخبار`, `خبر`, `آخر الأخبار`, `نبأ عاجل`, `breaking news`, `urgent news`, `news alert`, `news update`, and clear semantic equivalents. Excluded news creates no recommendation, stock mention, or image observation.
+2. Exclude advertisements, paid-group invitations, courses, promotions, affiliate links, greetings, memes, general commentary, and non-EGX content.
+3. A recommendation requires an identifiable EGX stock and explicit actionable context such as `توصية`, `شراء`, `بيع`, `منطقة الشراء`, `نطاق الشراء`, `إشارة تداول`, recommendation, buy, sell, entry zone, or buy range.
+4. Current price, support, resistance, stop loss, targets, liquidity ranking, sector ranking, or important-stock status alone is not a recommendation.
+5. Never borrow a stock identity, date, recommendation cue, or value from another image or message.
 
-For every EGX ticker/code visible in qualifying non-news text, chart, or table, add one `stock_mentions` item even when it is not a trade recommendation. Copy the code exactly. Map it to a company name only when the name is explicit in the post or table context; otherwise use null. Put the surrounding row/statement in `context`, and preserve table columns such as price, target, sector, change, or rating in `table_data` as readable key/value pairs. Never infer a company name just from an unfamiliar code.
+Managed Include phrases extend the explicit-context vocabulary only. Managed Exclude phrases remove matching recommendation candidates. Neither can override news exclusion or stock identity.
 
-Replies to member or customer questions — for example `ردًا على استفسارات عملائنا`, `ردا على استفسارات عملائنا`, or `استفسارات العملاء` — are reference information, not trading recommendations. Keep them out of the main active recommendation output and preserve them only in the separate `client_inquiry_responses` output defined by the consolidated JSON contract.
+## Value extraction
 
-For consolidated ordinary recommendations, use `effective_date_basis: explicit_date` only when the same source visibly or explicitly states the exact target effective trading date. Set `timing_evidence` to null. Exclude recommendations with a missing, ambiguous, past, future, or otherwise different source date. Never shift a recommendation to another date based on wording, Telegram posting time, or a neighboring source. Always return `visible_source_date`, `date_evidence`, and `timing_evidence` on every data point, using null rather than omitting an unavailable field.
+- For a single entry price, use `entry`.
+- For an explicit range, set `entry` to null and preserve the visible bounds in `entry_low` and `entry_high`. Never average, reverse, round, or infer them.
+- Return only TP1 as `target` and TP2 as `target_2`.
+- Completely ignore TP3, target 3, third target, `مستهدف ثالث`, `الهدف الثالث`, and later targets.
+- Inside a Buy recommendation, `منطقة البيع`, `نطاق البيع`, sell zone, or equivalent exit wording supplies TP1 and TP2; it does not change the signal to Sell.
+- Preserve stop loss, reasoning, time horizon, indicators, and risk wording only when explicitly present.
+- Do not invent prices, targets, tickers, or confidence.
 
-For consolidated results, set `effective_date_basis` to `watching` when an image, text message, or voice-note transcript explicitly identifies that exact stock as `سهم تحت المراقبة`, `تحت المراقبة`, `سهم للمراقبة`, `watching`, `under watch`, `stock to watch`, or a clear semantic equivalent. In an image, a watch heading may apply to the ticker or stock name visibly placed directly beneath it in the same recommendation card even when they are not on one text line; never apply that heading to a neighboring image or unrelated stock. Copy that exact watch phrase into `timing_evidence`.
+## Output
 
-For consolidated results, group all occurrences by exact EGX stock code before writing `notes_summary`. Write `notes_summary` in concise Arabic; keep only ticker codes, numbers, and standard market abbreviations in their normal form. Return one short, stock-specific summary that merges duplicate meanings and equivalent `سهم مراقبة`/stock-to-watch wording. Preserve different insights such as entry ranges, targets, stop loss, and risk warnings, but state each meaning once. Never copy full messages, captions, table rows, or image text into `notes_summary`; source evidence remains in `data_points`.
+Return only one JSON object:
+
+```json
+{
+  "recommendations": [
+    {
+      "company_name": "string",
+      "ticker": "string or null",
+      "signal": "BUY or SELL",
+      "entry": "number or null",
+      "entry_low": "number or null",
+      "entry_high": "number or null",
+      "target": "number or null",
+      "target_2": "number or null",
+      "stop_loss": "number or null",
+      "reason": "string or null",
+      "risk_level": "string or null",
+      "time_horizon": "string or null",
+      "indicators": [],
+      "confidence": "number from 0 to 1"
+    }
+  ],
+  "stock_mentions": [],
+  "image_observations": []
+}
+```
+
+Use `stock_mentions` and `image_observations` only for qualifying non-news content. A stock mention must not be promoted into `recommendations` without explicit actionable context.
