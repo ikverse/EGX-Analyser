@@ -934,6 +934,27 @@ function formatGeneratedAt(value: string): string {
   return formatCairoDateTime(value);
 }
 
+function formatTargetDate(value?: string | null): string {
+  if (!value) return "No target date";
+  const parsed = new Date(`${value.slice(0, 10)}T12:00:00`);
+  return Number.isNaN(parsed.getTime())
+    ? value
+    : new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" }).format(parsed);
+}
+
+function resultSources(item: AnalysisResultHistory): string[] {
+  const candidates = [
+    ...(item.sources || []),
+    ...item.stock_source_table.map((row) => row.source),
+    ...item.client_inquiry_responses.map((row) => row.source),
+  ].filter(Boolean);
+  return [...new Set(candidates)];
+}
+
+function textDirection(value: string): "rtl" | "ltr" {
+  return /[\u0600-\u06FF]/.test(value) ? "rtl" : "ltr";
+}
+
 function normalizeStockSearch(value: string): string {
   return value
     .toLocaleLowerCase()
@@ -978,22 +999,6 @@ function loadThemeMode(): ThemeMode {
   return localStorage.getItem("egx.theme") === "light" ? "light" : "dark";
 }
 
-function AnalysisRunOverview({ item }: { item: AnalysisResultHistory }) {
-  const stockCount = new Set(item.stock_source_table.map((row) => row.ticker)).size;
-  const sourceCount = new Set([
-    ...item.stock_source_table.map((row) => row.source),
-    ...item.client_inquiry_responses.map((row) => row.source),
-  ].filter(Boolean)).size;
-
-  return <section className="analysis-run-overview" aria-label="Analysis run overview">
-    <span>{contentTypeLabel(item.content_types)} analyzed</span>
-    <span>{sourceCount} source{sourceCount === 1 ? "" : "s"}</span>
-    <span>{stockCount} stock{stockCount === 1 ? "" : "s"}</span>
-    <span>{item.stock_source_table.length} recommendation{item.stock_source_table.length === 1 ? "" : "s"}</span>
-    <span>{item.client_inquiry_responses.length} inquiry {item.client_inquiry_responses.length === 1 ? "reply" : "replies"}</span>
-  </section>;
-}
-
 function ModelRetryAuditPanel({ audit }: { audit: ModelRetryAudit }) {
   if (!audit.attempted) return null;
   const passed = audit.status === "passed";
@@ -1011,16 +1016,27 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted, 
   onFocusHandled: () => void;
 }) {
   const [expandedAnalysis, setExpandedAnalysis] = useState<number | null>(null);
-  const [expandedSection, setExpandedSection] = useState<"recommendations" | "inquiries" | null>(null);
+  const [inquiriesOpen, setInquiriesOpen] = useState(false);
   const [stockQuery, setStockQuery] = useState("");
   const [deleteCandidate, setDeleteCandidate] = useState<AnalysisResultHistory | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [targetFilter, setTargetFilter] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("");
+  const [resultFilter, setResultFilter] = useState<"all" | "with-results" | "empty">("all");
+  const [expandedTargetGroups, setExpandedTargetGroups] = useState<Set<string>>(new Set());
   const rowRefs = useRef(new Map<number, HTMLTableRowElement>());
 
   useEffect(() => {
-    if (focusedResultId === null || !items.some((item) => item.id === focusedResultId)) return;
+    const focusedItem = items.find((item) => item.id === focusedResultId);
+    if (focusedResultId === null || !focusedItem) return;
     setExpandedAnalysis(focusedResultId);
-    setExpandedSection("recommendations");
+    setInquiriesOpen(false);
+    setStockQuery("");
+    setExpandedTargetGroups((current) => {
+      const next = new Set(current);
+      next.add(focusedItem.target_date || "no-target");
+      return next;
+    });
     const frame = window.requestAnimationFrame(() => {
       rowRefs.current.get(focusedResultId)?.scrollIntoView({ behavior: "smooth", block: "center" });
     });
@@ -1030,10 +1046,6 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted, 
       window.clearTimeout(timer);
     };
   }, [focusedResultId, items, onFocusHandled]);
-  if (!items.length) return <div className="results-empty-state">
-    <strong>No saved analysis results</strong>
-    <span>Run an analysis from Channels. Each completed run will appear here with its recommendations and client inquiry replies.</span>
-  </div>;
 
   const confirmDelete = () => {
     if (!deleteCandidate) return;
@@ -1042,7 +1054,7 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted, 
       .then(() => {
         if (expandedAnalysis === deleteCandidate.id) {
           setExpandedAnalysis(null);
-          setExpandedSection(null);
+          setInquiriesOpen(false);
         }
         onDeleted(deleteCandidate.id);
         setDeleteCandidate(null);
@@ -1055,106 +1067,175 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted, 
   const toggleAnalysis = (id: number) => {
     if (expandedAnalysis === id) {
       setExpandedAnalysis(null);
-      setExpandedSection(null);
+      setInquiriesOpen(false);
       return;
     }
     setExpandedAnalysis(id);
-    setExpandedSection(null);
+    setInquiriesOpen(false);
+    setStockQuery("");
   };
 
-  const toggleSection = (section: "recommendations" | "inquiries") => {
-    setExpandedSection((current) => current === section ? null : section);
-    if (section === "recommendations") setStockQuery("");
-  };
+  if (!items.length) return <div className="results-empty-state">
+    <strong>No saved analysis results</strong>
+    <span>Run an analysis from Channels. Each completed run will appear here with its recommendations and client inquiry replies.</span>
+  </div>;
+
+  const targetDates = [...new Set(items.map((item) => item.target_date).filter(Boolean) as string[])];
+  const availableSources = [...new Set(items.flatMap(resultSources))].sort((left, right) => left.localeCompare(right));
+  const filteredItems = items.filter((item) => {
+    const hasResults = item.stock_source_table.length > 0;
+    return (!targetFilter || item.target_date === targetFilter)
+      && (!sourceFilter || resultSources(item).includes(sourceFilter))
+      && (resultFilter === "all" || (resultFilter === "with-results" ? hasResults : !hasResults));
+  });
+  const groupedResults = new Map<string, AnalysisResultHistory[]>();
+  filteredItems.forEach((item) => {
+    const key = item.target_date || "no-target";
+    groupedResults.set(key, [...(groupedResults.get(key) || []), item]);
+  });
 
   return (
-    <div className="analysis-history-wrap">
-      <table className="analysis-history-table">
-        <colgroup>
-          <col className="analysis-history-output-col" />
-          <col className="analysis-history-generated-col" />
-          <col className="analysis-history-sources-col" />
-          <col className="analysis-history-findings-col" />
-          <col className="analysis-history-actions-col" />
-        </colgroup>
-        <thead>
-          <tr><th>Generated output</th><th>Generated at</th><th>Sources</th><th>Findings</th><th className="analysis-history-actions-heading">Actions</th></tr>
-        </thead>
-        <tbody>
-          {items.map((item) => {
-            const analysisOpen = expandedAnalysis === item.id;
-            const recommendationsOpen = analysisOpen && expandedSection === "recommendations";
-            const inquiriesOpen = analysisOpen && expandedSection === "inquiries";
-            const stockCount = new Set(item.stock_source_table.map((row) => row.ticker)).size;
-            const sources = [...new Set([
-              ...item.stock_source_table.map((row) => row.source),
-              ...item.client_inquiry_responses.map((row) => row.source),
-            ].filter(Boolean))];
-            return (
-              <Fragment key={item.id}>
-                <tr
-                  className={`analysis-history-row ${focusedResultId === item.id ? "is-focused" : ""}`}
-                  onClick={() => toggleAnalysis(item.id)}
-                  ref={(element) => {
-                    if (element) rowRefs.current.set(item.id, element);
-                    else rowRefs.current.delete(item.id);
-                  }}
-                >
-                  <td><strong>Analysis Recommendations · {item.target_date || "No target date"}</strong></td>
-                  <td>{formatGeneratedAt(item.generated_at)}</td>
-                  <td>{sources.join(", ") || "—"}</td>
-                  <td className="analysis-history-findings">
-                    <strong>{stockCount} stock{stockCount === 1 ? "" : "s"}</strong>
-                    <span>{item.stock_source_table.length} recommendation{item.stock_source_table.length === 1 ? "" : "s"}</span>
-                    <span>{item.client_inquiry_responses.length} inquiry {item.client_inquiry_responses.length === 1 ? "reply" : "replies"}</span>
+    <div className="analysis-history">
+      <div className="analysis-history-filters" aria-label="Filter saved results">
+        <label>Target date
+          <select value={targetFilter} onChange={(event) => setTargetFilter(event.target.value)}>
+            <option value="">All target dates</option>
+            {targetDates.map((value) => <option key={value} value={value}>{formatTargetDate(value)}</option>)}
+          </select>
+        </label>
+        <label>Source
+          <select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)}>
+            <option value="">All sources</option>
+            {availableSources.map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
+        </label>
+        <label>Result
+          <select value={resultFilter} onChange={(event) => setResultFilter(event.target.value as typeof resultFilter)}>
+            <option value="all">All results</option>
+            <option value="with-results">With recommendations</option>
+            <option value="empty">No recommendations</option>
+          </select>
+        </label>
+      </div>
+      <div className="analysis-history-wrap">
+        <table className="analysis-history-table">
+          <colgroup>
+            <col className="analysis-history-output-col" />
+            <col className="analysis-history-generated-col" />
+            <col className="analysis-history-sources-col" />
+            <col className="analysis-history-findings-col" />
+            <col className="analysis-history-actions-col" />
+          </colgroup>
+          <thead>
+            <tr><th>Result</th><th>Generated</th><th>Sources</th><th>Findings</th><th className="analysis-history-actions-heading">Actions</th></tr>
+          </thead>
+          <tbody>
+            {[...groupedResults.entries()].map(([targetKey, groupItems]) => {
+              const groupOpen = expandedTargetGroups.has(targetKey);
+              const visibleItems = groupOpen ? groupItems : groupItems.slice(0, 1);
+              return <Fragment key={`target-${targetKey}`}>
+                {groupItems.length > 1 && <tr className="analysis-history-target-group">
+                  <td colSpan={5}>
+                    <button type="button" onClick={() => setExpandedTargetGroups((current) => {
+                      const next = new Set(current);
+                      if (next.has(targetKey)) next.delete(targetKey);
+                      else next.add(targetKey);
+                      return next;
+                    })}>
+                      <span><strong>Target {formatTargetDate(targetKey === "no-target" ? null : targetKey)}</strong><small>{groupItems.length} saved runs</small></span>
+                      <span>{groupOpen ? "Hide older runs" : `Show ${groupItems.length - 1} older run${groupItems.length === 2 ? "" : "s"}`}</span>
+                    </button>
                   </td>
-                  <td className="analysis-history-actions">
-                    <div className="analysis-history-action-buttons">
-                      <button type="button" className="secondary compact" onClick={(event) => {
-                        event.stopPropagation();
-                        toggleAnalysis(item.id);
-                      }}><Icon name={analysisOpen ? "clear" : "eye"} size={16} /> {analysisOpen ? "Hide" : "View"}</button>
-                      <button type="button" className="danger compact" onClick={(event) => {
-                        event.stopPropagation();
-                        setDeleteCandidate(item);
-                      }}><Icon name="trash" size={16} /> Delete</button>
-                    </div>
-                  </td>
-                </tr>
-                {analysisOpen && (
-                  <tr className="analysis-history-expanded">
-                    <td colSpan={5}>
-                      <AnalysisRunOverview item={item} />
-                      <div className="analysis-section-list">
-                        <button type="button" className="analysis-section-row" onClick={() => toggleSection("recommendations")} aria-expanded={recommendationsOpen}>
-                          <span><strong>Recommendations table</strong><small>One model-returned row for each dated source recommendation</small></span>
-                          <span>{item.stock_source_table.length} rows - {recommendationsOpen ? "Hide" : "View"}</span>
-                        </button>
-                        {recommendationsOpen && <div className="analysis-section-content">
-                      <label className="analysis-result-search">
-                        Find stock code or name
-                        <input
-                          value={stockQuery}
-                          onChange={(event) => setStockQuery(event.target.value)}
-                          placeholder="COMI, Commercial International Bank, البنك التجاري…"
-                        />
-                      </label>
-                      <ConsolidatedStockTable rows={item.stock_source_table.filter((row) => matchesStockQuery(row, stockQuery))} />
-                        </div>}
-                        <button type="button" className="analysis-section-row analysis-section-reference" onClick={() => toggleSection("inquiries")} aria-expanded={inquiriesOpen}>
-                          <span><strong>Client inquiry replies</strong><small>Reference-only replies, excluded from recommendations</small></span>
-                          <span>{item.client_inquiry_responses.length} replies - {inquiriesOpen ? "Hide" : "View"}</span>
-                        </button>
-                        {inquiriesOpen && <div className="analysis-section-content"><ClientInquiryResponses rows={item.client_inquiry_responses} /></div>}
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </Fragment>
-            );
-          })}
-        </tbody>
-      </table>
+                </tr>}
+                {visibleItems.map((item) => {
+                  const analysisOpen = expandedAnalysis === item.id;
+                  const stockCount = new Set(item.stock_source_table.map((row) => row.ticker)).size;
+                  const sources = resultSources(item);
+                  const hasRecommendations = item.stock_source_table.length > 0;
+                  return <Fragment key={item.id}>
+                    <tr
+                      className={[
+                        "analysis-history-row",
+                        focusedResultId === item.id ? "is-focused" : "",
+                        item.id === items[0]?.id ? "is-latest" : "",
+                        hasRecommendations ? "has-results" : "is-empty",
+                      ].filter(Boolean).join(" ")}
+                      onClick={() => toggleAnalysis(item.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          toggleAnalysis(item.id);
+                        }
+                      }}
+                      aria-expanded={analysisOpen}
+                      tabIndex={0}
+                      ref={(element) => {
+                        if (element) rowRefs.current.set(item.id, element);
+                        else rowRefs.current.delete(item.id);
+                      }}
+                    >
+                      <td className="analysis-history-output">
+                        <strong>Recommendations · {formatTargetDate(item.target_date)}</strong>
+                        {item.id === items[0]?.id && <span className="analysis-latest-badge">Latest</span>}
+                      </td>
+                      <td className="analysis-history-generated">{formatGeneratedAt(item.generated_at)}</td>
+                      <td><div className="analysis-source-chips">
+                        {sources.length
+                          ? sources.map((source) => <span key={source} dir={textDirection(source)}>{source}</span>)
+                          : <span className="analysis-source-unavailable">Source unavailable</span>}
+                      </div></td>
+                      <td className="analysis-history-findings">
+                        {hasRecommendations
+                          ? <span><strong>{stockCount} stock{stockCount === 1 ? "" : "s"}</strong> · {item.stock_source_table.length} recommendation{item.stock_source_table.length === 1 ? "" : "s"}{item.client_inquiry_responses.length ? ` · ${item.client_inquiry_responses.length} replies` : ""}</span>
+                          : <span className="analysis-empty-status">No recommendations found</span>}
+                      </td>
+                      <td className="analysis-history-actions">
+                        <div className="analysis-history-action-buttons">
+                          <button type="button" className="secondary compact" onClick={(event) => {
+                            event.stopPropagation();
+                            toggleAnalysis(item.id);
+                          }}><Icon name={analysisOpen ? "chevron-down" : "eye"} size={16} /> {analysisOpen ? "Collapse" : "View"}</button>
+                          <button type="button" className="secondary compact analysis-delete-button" aria-label={`Delete result for ${formatTargetDate(item.target_date)}`} onClick={(event) => {
+                            event.stopPropagation();
+                            setDeleteCandidate(item);
+                          }}><Icon name="trash" size={16} /> Delete</button>
+                        </div>
+                      </td>
+                    </tr>
+                    {analysisOpen && (
+                      <tr className="analysis-history-expanded">
+                        <td colSpan={5}>
+                          <div className="analysis-expanded-meta">
+                            <span>{contentTypeLabel(item.content_types)} analyzed</span>
+                            {item.audio_transcription_pending > 0 && <span>{item.audio_transcription_pending} voice note{item.audio_transcription_pending === 1 ? "" : "s"} pending</span>}
+                          </div>
+                          {hasRecommendations && <label className="analysis-result-search">
+                            Find stock code or name
+                            <input
+                              value={stockQuery}
+                              onChange={(event) => setStockQuery(event.target.value)}
+                              placeholder="COMI, Commercial International Bank, البنك التجاري…"
+                            />
+                          </label>}
+                          <ConsolidatedStockTable rows={item.stock_source_table.filter((row) => matchesStockQuery(row, stockQuery))} />
+                          {item.client_inquiry_responses.length > 0 && <>
+                            <button type="button" className="analysis-section-row analysis-section-reference" onClick={() => setInquiriesOpen((current) => !current)} aria-expanded={inquiriesOpen}>
+                              <span><strong>Client inquiry replies</strong><small>Reference only - excluded from recommendations</small></span>
+                              <span>{item.client_inquiry_responses.length} {inquiriesOpen ? "· Collapse" : "· View"}</span>
+                            </button>
+                            {inquiriesOpen && <div className="analysis-section-content"><ClientInquiryResponses rows={item.client_inquiry_responses} /></div>}
+                          </>}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>;
+                })}
+              </Fragment>;
+            })}
+          </tbody>
+        </table>
+        {!filteredItems.length && <div className="analysis-history-no-match">No saved results match these filters.</div>}
+      </div>
       {deleteCandidate && (
         <DeleteAnalysisResultModal
           item={deleteCandidate}
@@ -1205,6 +1286,11 @@ function num(v: unknown): string {
   if (v === undefined || v === null || v === "" || v === "None" || v === "null") return "—";
   const n = Number(v);
   return Number.isNaN(n) ? String(v) : String(n);
+}
+
+function percent(v: unknown): string {
+  const value = num(v);
+  return value === "—" || value.endsWith("%") ? value : `${value}%`;
 }
 
 function entryDisplay(value: unknown, low?: unknown, high?: unknown): string {
@@ -1271,7 +1357,7 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
             <col className="result-col-target-date" />
             <col className="result-col-source-date" />
             <col className="result-col-timing" />
-            <col className="result-col-type" />
+            <col className="result-col-source-image" />
             <col className="result-col-entry" />
             <col className="result-col-price" />
             <col className="result-col-return" />
@@ -1281,19 +1367,18 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
             <col className="result-col-price" />
             <col className="result-col-resistance" />
             <col className="result-col-risk" />
-            <col className="result-col-source-image" />
             <col className="result-col-notes" />
           </colgroup>
           <thead><tr>
-            <th>Source</th><th>Target date</th><th>Source date</th><th>Timing</th><th>Type</th><th className="numeric">Entry</th>
+            <th>Source</th><th>Target date</th><th>Source date</th><th>Timing</th><th>Source image</th><th className="numeric column-break-left">Entry</th>
             <th className="numeric">TP1</th><th className="numeric">TP1 Return %</th><th className="numeric">TP2</th><th className="numeric">TP2 Return %</th>
-            <th className="numeric">Stop</th><th className="numeric">Support</th><th className="numeric">Resistance</th><th className="numeric">Risk %</th><th>Source image</th><th>Notes</th>
+            <th className="numeric column-break-left">Stop</th><th className="numeric">Support</th><th className="numeric">Resistance</th><th className="numeric">Risk %</th><th>Notes</th>
           </tr></thead>
           {[...grouped.entries()].map(([ticker, stockRows]) => {
             const first = stockRows[0];
             return (
               <tbody key={ticker}>
-                <tr className="consolidated-stock-group"><td colSpan={16}>
+                <tr className="consolidated-stock-group"><td colSpan={15}>
                   <div className="consolidated-stock-group-content">
                     <span className="consolidated-rank">#{first.rank ?? "—"}</span>
                     <strong>{first.ticker}</strong>
@@ -1308,21 +1393,20 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
                     <td className="target-date-cell">{row.target_date || "—"}</td>
                     <td>{row.source_dates.join(", ") || "—"}</td>
                     <td>{row.effective_date_bases?.length ? row.effective_date_bases.map((basis) => <span key={basis} className="recommendation-date-basis">{dateBasisLabel(basis)}</span>) : "—"}</td>
-                    <td><span className={`status-pill ${row.recommendation_type === "sell" ? "neutral" : "active"}`}>{row.recommendation_type || "buy"}</span></td>
-                    <td className="numeric entry-value">{entryDisplay(row.buy_price, row.buy_price_low, row.buy_price_high)}</td>
-                    <td className="numeric positive">{num(row.target_1)}</td>
-                    <td className="numeric positive">{num(row.return_tp1_pct)}</td>
-                    <td className="numeric positive">{num(row.target_2)}</td>
-                    <td className="numeric positive">{num(row.return_tp2_pct)}</td>
-                    <td className="numeric negative">{num(row.stop_loss)}</td>
-                    <td className="numeric">{num(row.support)}</td>
-                    <td className="numeric">{num(row.resistance)}</td>
-                    <td className="numeric negative">{num(row.risk_pct)}</td>
                     <td className="source-image-cell">
                       {row.source_image_paths?.length ? <button type="button" className="secondary compact source-image-button" onClick={() => setSourceImages({ paths: row.source_image_paths ?? [], title: `${row.ticker} - ${row.source}` })}>
-                        <Icon name="image" size={15} /> View ({row.source_image_paths.length})
+                        <Icon name="image" size={15} /> View
                       </button> : "—"}
                     </td>
+                    <td className="numeric entry-value positive-entry column-break-left">{entryDisplay(row.buy_price, row.buy_price_low, row.buy_price_high)}</td>
+                    <td className="numeric positive">{num(row.target_1)}</td>
+                    <td className="numeric positive">{percent(row.return_tp1_pct)}</td>
+                    <td className="numeric positive">{num(row.target_2)}</td>
+                    <td className="numeric positive">{percent(row.return_tp2_pct)}</td>
+                    <td className="numeric negative column-break-left">{num(row.stop_loss)}</td>
+                    <td className="numeric">{num(row.support)}</td>
+                    <td className="numeric">{num(row.resistance)}</td>
+                    <td className="numeric negative">{percent(row.risk_pct)}</td>
                     {rowIndex === 0 && <td className="analysis-summary" rowSpan={stockRows.length}>{first.notes_summary || "—"}</td>}
                   </tr>
                 ))}
@@ -1792,9 +1876,10 @@ function SettingsSection({ id, title, description, help, open, onToggle, openInf
   const bodyId = `settings-section-${id}`;
 
   return (
-    <div className={`settings-section${open ? " is-open" : ""}`}>
+    <div id={`settings-card-${id}`} className={`settings-section${open ? " is-open" : ""}`}>
       <div className="settings-section-header">
         <button
+          id={`settings-toggle-${id}`}
           type="button"
           className="settings-section-toggle"
           aria-expanded={open}
@@ -1866,12 +1951,21 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
   const [catalogStatus, setCatalogStatus] = useState<EgxCatalogStatus | null>(null);
   const [refreshingCatalog, setRefreshingCatalog] = useState(false);
   const [appVersion, setAppVersion] = useState("");
-  const [openSection, setOpenSection] = useState<string>("ai");
+  const [openSection, setOpenSection] = useState<string>("");
   const [openInfoId, setOpenInfoId] = useState<string | null>(null);
 
   const toggleSection = (key: string) => {
     setOpenInfoId(null);
     setOpenSection((cur) => cur === key ? "" : key);
+  };
+
+  const navigateToSection = (key: string) => {
+    setOpenInfoId(null);
+    setOpenSection(key);
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+      document.getElementById(`settings-toggle-${key}`)?.focus({ preventScroll: true });
+      document.getElementById(`settings-card-${key}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }));
   };
 
   const provider = (values.ai_provider || status?.ai_provider || "qwen") as AiProvider;
@@ -1992,10 +2086,18 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
     <div className="settings">
 
       <div className="settings-overview" aria-label="Current configuration">
-        <span><strong>AI</strong><span className="settings-overview-value" title={`${providerDetails[provider].label} · ${configuredModel || "No model selected"}`}>{providerDetails[provider].label} · {configuredModel || "No model selected"}</span></span>
-        <span><strong>Telegram</strong><span className="settings-overview-value">{status?.telegram_authorized ? "Connected" : "Not connected"}</span></span>
-        <span><strong>Catalog</strong><span className="settings-overview-value">{catalogStatus ? `${catalogStatus.stock_count} stocks` : "Loading"}</span></span>
-        <span><strong>App</strong><span className="settings-overview-value">v{appVersion || "..."}</span></span>
+        <button type="button" onClick={() => navigateToSection("ai")} aria-controls="settings-section-ai">
+          <strong>AI</strong><span className="settings-overview-value" title={`${providerDetails[provider].label} · ${configuredModel || "No model selected"}`}>{providerDetails[provider].label} · {configuredModel || "No model selected"}</span>
+        </button>
+        <button type="button" onClick={() => navigateToSection("telegram")} aria-controls="settings-section-telegram">
+          <strong>Telegram</strong><span className="settings-overview-value">{status?.telegram_authorized ? "Connected" : "Not connected"}</span>
+        </button>
+        <button type="button" onClick={() => navigateToSection("catalog")} aria-controls="settings-section-catalog">
+          <strong>Catalog</strong><span className="settings-overview-value">{catalogStatus ? `${catalogStatus.stock_count} stocks` : "Loading"}</span>
+        </button>
+        <button type="button" onClick={() => navigateToSection("application")} aria-controls="settings-section-application">
+          <strong>App</strong><span className="settings-overview-value">v{appVersion || "..."}</span>
+        </button>
       </div>
 
       <SettingsSection id="ai" title="AI Analysis"
@@ -2329,7 +2431,7 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
 
       <SettingsSection id="application" title="Application" description={`Version ${appVersion || "Loading"}`}
         help="Check for signed EGX Analyzer releases. Installing an update replaces application files while keeping local settings, Telegram data, analysis history, and saved results."
-        open={openSection === "updates"} onToggle={() => toggleSection("updates")}
+        open={openSection === "application"} onToggle={() => toggleSection("application")}
         openInfoId={openInfoId} setOpenInfoId={setOpenInfoId}>
         <div className="settings-subsection">
           <span className="settings-inline-heading">

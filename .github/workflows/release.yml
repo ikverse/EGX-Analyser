@@ -1,5 +1,5 @@
 name: Publish desktop update
-run-name: ${{ github.ref_name }} - Recommendation-table extraction, exact Cairo dates, and reliability hardening
+run-name: ${{ github.ref_name }} - Compact results history, clearer recommendation tables, and settings navigation
 
 on:
   push:

@@ -147,6 +147,7 @@ export type AnalysisResultHistory = {
   messages_analyzed: number;
   audio_transcription_pending: number;
   content_types: AnalysisContentType[];
+  sources: string[];
   stock_source_table: StockSourceTableRow[];
   client_inquiry_responses: ClientInquiryResponse[];
   model_validation_warnings: string[];

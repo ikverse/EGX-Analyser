@@ -730,6 +730,7 @@ async def analysis_results(
             "messages_analyzed": item.summary.get("messages_analyzed", 0),
             "audio_transcription_pending": item.summary.get("audio_transcription_pending", 0),
             "content_types": item.summary.get("content_types", ["text", "images", "audio"]),
+            "sources": _analysis_result_sources(item.summary),
             "stock_source_table": _analysis_table_with_source_images(
                 item.summary.get("stock_source_table", []), compact_image_rows, channels_by_message_id,
                 item.summary.get("target_date"),
@@ -744,6 +745,27 @@ async def analysis_results(
         }
         for item in result_reports
     ]
+
+
+def _analysis_result_sources(summary: dict) -> list[str]:
+    """Preserve selected chats even when a model returns no recommendation rows."""
+    candidates = [
+        row.get("channel")
+        for row in summary.get("channel_results", [])
+        if isinstance(row, dict)
+    ]
+    if not any(candidates):
+        candidates.extend(
+            row.get("source")
+            for field in ("stock_source_table", "client_inquiry_responses")
+            for row in summary.get(field, [])
+            if isinstance(row, dict)
+        )
+    return list(dict.fromkeys(
+        clean_channel_name(value)
+        for value in candidates
+        if str(value or "").strip()
+    ))
 
 
 def _analysis_table_with_source_images(

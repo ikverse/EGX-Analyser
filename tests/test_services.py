@@ -86,14 +86,34 @@ def test_results_table_keeps_fixed_columns_when_entry_is_a_range():
     styles = (repository_root / "desktop" / "src" / "styles.css").read_text(encoding="utf-8")
 
     assert "<colgroup>" in app_source
-    assert app_source.count('<col className="result-col-') == 16
-    assert '<th className="numeric">Entry</th>' in app_source
-    assert '<td className="numeric entry-value">' in app_source
+    assert app_source.count('<col className="result-col-') == 15
+    assert (
+        "<th>Source</th><th>Target date</th><th>Source date</th><th>Timing</th>"
+        '<th>Source image</th><th className="numeric column-break-left">Entry</th>'
+    ) in app_source
+    assert '<td className="numeric entry-value positive-entry column-break-left">' in app_source
     assert ".consolidated-table .result-col-entry { width: 140px; }" in styles
     assert "table-layout: fixed;" in styles
-    assert "width: 2095px;" in styles
+    assert "width: 1885px;" in styles
     assert "<th>Status</th>" not in app_source
     assert "result-col-status" not in styles
+    assert "result-col-type" not in app_source
+    assert "result-col-type" not in styles
+
+
+def test_results_ui_keeps_history_and_settings_compact():
+    repository_root = Path(__file__).resolve().parents[1]
+    app_source = (repository_root / "desktop" / "src" / "App.tsx").read_text(encoding="utf-8")
+
+    assert 'const [openSection, setOpenSection] = useState<string>("");' in app_source
+    assert "navigateToSection" in app_source
+    assert "All target dates" in app_source
+    assert "All sources" in app_source
+    assert "No recommendations found" in app_source
+    assert "AnalysisRunOverview" not in app_source
+    assert "{percent(row.return_tp1_pct)}" in app_source
+    assert "{percent(row.return_tp2_pct)}" in app_source
+    assert "{percent(row.risk_pct)}" in app_source
 
 
 def test_expanded_result_hover_does_not_highlight_nested_table():
@@ -663,9 +683,22 @@ async def test_analysis_results_returns_only_batch_analysis_reports(session):
     assert len(results) == 1
     assert results[0]["generated_at"] == "2026-07-16T16:01:51+03:00"
     assert results[0]["target_date"] == "2026-07-15"
+    assert results[0]["sources"] == ["CFI"]
     assert results[0]["stock_source_table"][0]["ticker"] == "COMI"
     assert results[0]["stock_source_table"][0]["target_date"] == "2026-07-15"
     assert len(await api.analysis_results(session, limit=1, offset=0)) == 1
+
+
+def test_analysis_result_sources_preserve_selected_channels_for_empty_runs():
+    assert api._analysis_result_sources({
+        "channel_results": [
+            {"channel": "إسأل فني"},
+            {"channel": "CFI Egypt"},
+            {"channel": "إسأل فني"},
+        ],
+        "stock_source_table": [],
+        "client_inquiry_responses": [],
+    }) == ["إسأل فني", "CFI Egypt"]
 
 
 def test_selected_analysis_requires_valid_content_types():

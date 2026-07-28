@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.1.121
+- Redesigned Results history with compact rows, target-date grouping, source and result filters, a latest-run indicator, clear empty-result states, and less prominent destructive actions.
+- Opened recommendation details immediately from each clickable, keyboard-accessible result row, kept only one run expanded, and hid empty inquiry sections and duplicated run summaries.
+- Preserved selected Telegram channel names for empty analyses so Results remains traceable even when the model returns no recommendations.
+- Simplified the recommendation table to 15 columns by moving Source image after Timing and removing the visible Type column while preserving recommendation-type data internally.
+- Improved recommendation readability with tighter rows, sticky context, compact image controls, green Entry values, cyan targets, red stops, percentage suffixes, and clearer price-group separators.
+- Made every Settings section collapsed by default and turned the AI, Telegram, Catalog, and App summary cards into accessible shortcuts that expand, focus, and scroll to the corresponding section.
+- Added regression coverage for the revised table geometry, compact result behavior, Settings navigation, percentage rendering, and empty-result source preservation.
+
 ## v0.1.120
 - Recognized `أهم الأسهم اليوم` as explicit recommendation context and extracted every stock row in its following table while preserving the general important-stock exclusion elsewhere.
 - Merged complementary panels for the same stock and Telegram image into one source row without losing Watching, entry, TP1, TP2, return, stop, or evidence details.
