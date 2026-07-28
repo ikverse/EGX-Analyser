@@ -31,6 +31,18 @@ _MERGED_TEXT_FIELDS = {
     "date_evidence",
     "notes_ar",
 }
+_WATCHING_BASES = {
+    "watching",
+    "watch",
+    "watchlist",
+    "watch_list",
+    "under_watch",
+    "stock_to_watch",
+}
+
+
+def _basis_key(value: object) -> str:
+    return str(value or "").strip().casefold().replace("-", "_").replace(" ", "_")
 
 
 def _effective_date_bases(point: dict[str, Any]) -> list[str]:
@@ -42,7 +54,7 @@ def _effective_date_bases(point: dict[str, Any]) -> list[str]:
     seen: set[str] = set()
     for value in candidates:
         label = str(value or "").strip()
-        key = label.casefold().replace("-", "_").replace(" ", "_")
+        key = _basis_key(label)
         if label and key not in seen:
             seen.add(key)
             bases.append(label)
@@ -83,7 +95,40 @@ def _merge_same_source_points(points: list[dict[str, Any]]) -> list[dict[str, An
                 continue
             if field in _MERGED_TEXT_FIELDS and str(value).strip() != str(current).strip():
                 existing[field] = f"{str(current).strip()} | {str(value).strip()}"
+    for point in merged:
+        bases = _effective_date_bases(point)
+        point["effective_date_bases"] = bases
+        if any(_basis_key(value) in _WATCHING_BASES for value in bases):
+            point["effective_date_basis"] = "watching"
     return merged
+
+
+def _category_code(value: object) -> str:
+    if isinstance(value, dict):
+        value = value.get("stock_code") or value.get("ticker") or value.get("code")
+    return str(value or "").strip().upper()
+
+
+def _filter_categories(
+    payload: dict[str, Any],
+    accepted_codes: set[str],
+    watching_codes: set[str],
+) -> None:
+    categories = payload.get("text_based_categories")
+    if not isinstance(categories, dict):
+        payload["text_based_categories"] = {}
+        return
+    for name, values in list(categories.items()):
+        filtered: list[object] = []
+        seen: set[str] = set()
+        allowed = watching_codes if name == "watchlist_stocks" else accepted_codes
+        for value in values if isinstance(values, list) else []:
+            code = _category_code(value)
+            if not code or code not in allowed or code in seen:
+                continue
+            seen.add(code)
+            filtered.append(value)
+        categories[name] = filtered
 
 
 def _parsed_source_date(value: object) -> date | None:
@@ -154,6 +199,7 @@ def normalize_consolidated_output(
         row_type: str,
         link_images: bool = True,
         stock_code: object = None,
+        enforce_target_date: bool = False,
     ) -> list[dict[str, Any]]:
         normalized: list[dict[str, Any]] = []
         for row in rows if isinstance(rows, list) else []:
@@ -164,14 +210,7 @@ def normalize_consolidated_output(
                 label = message_id or "(missing)"
                 warnings.append(f"Excluded {row_type} with unknown Telegram message {label}.")
                 continue
-            timing_basis = (
-                str(row.get("effective_date_basis") or "")
-                .strip()
-                .casefold()
-                .replace("-", "_")
-                .replace(" ", "_")
-            )
-            if parsed_target_date is not None and timing_basis == "explicit_date":
+            if parsed_target_date is not None and enforce_target_date:
                 visible_date = str(row.get("visible_source_date") or "").strip()
                 if _parsed_source_date(visible_date) != parsed_target_date:
                     stock_label = str(stock_code or "(unknown stock)").strip()
@@ -211,13 +250,33 @@ def normalize_consolidated_output(
             stock.get("data_points"),
             "recommendation",
             stock_code=stock.get("stock_code"),
+            enforce_target_date=True,
         )
         if not points:
             continue
-        stock["data_points"] = _merge_same_source_points(points)
-        stock["mention_count"] = len(points)
+        merged_points = _merge_same_source_points(points)
+        stock["data_points"] = merged_points
+        stock["mention_count"] = len(merged_points)
         recommendations.append(stock)
+    for rank, stock in enumerate(recommendations, start=1):
+        stock["rank"] = rank
     payload["top_consolidated_recommendations"] = recommendations
+    accepted_codes = {
+        str(stock.get("stock_code") or "").strip().upper()
+        for stock in recommendations
+        if stock.get("stock_code")
+    }
+    watching_codes = {
+        str(stock.get("stock_code") or "").strip().upper()
+        for stock in recommendations
+        if any(
+            _basis_key(basis) in _WATCHING_BASES
+            for point in stock.get("data_points", [])
+            if isinstance(point, dict)
+            for basis in _effective_date_bases(point)
+        )
+    }
+    _filter_categories(payload, accepted_codes, watching_codes)
     payload["client_inquiry_responses"] = normalize_rows(
         payload.get("client_inquiry_responses"), "client inquiry",
     )

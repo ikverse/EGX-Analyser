@@ -89,9 +89,11 @@ def test_results_table_keeps_fixed_columns_when_entry_is_a_range():
     assert app_source.count('<col className="result-col-') == 15
     assert (
         "<th>Source</th><th>Target date</th><th>Source date</th><th>Timing</th>"
-        '<th>Source image</th><th className="numeric column-break-left">Entry</th>'
+        '<th>Source image</th><th className="numeric">Entry</th>'
     ) in app_source
-    assert '<td className="numeric entry-value positive-entry column-break-left">' in app_source
+    assert '<td className="numeric entry-value positive-entry">' in app_source
+    assert "column-break-left" not in app_source
+    assert "column-break-left" not in styles
     assert ".consolidated-table .result-col-entry { width: 140px; }" in styles
     assert "table-layout: fixed;" in styles
     assert "width: 1885px;" in styles
@@ -1158,9 +1160,9 @@ def test_canonical_consolidated_prompt_has_one_versioned_contract():
     )
     prompt = prompt_path.read_text(encoding="utf-8")
 
-    assert prompt_schema_version(prompt_path) == 2
-    assert "27/07/2026` → exclude" in prompt
-    assert "Telegram post is dated 28/7 but its image says 27/7 → exclude" in prompt
+    assert prompt_schema_version(prompt_path) == 3
+    assert "28/07/2026` → exclude" in prompt
+    assert "Telegram post is dated 29/7 but its image says 28/7 → exclude" in prompt
     assert "Images, ordinary text messages, and voice-note transcripts" in prompt
     assert "`عاجل`" in prompt
     assert "`منطقة البيع`" in prompt
@@ -1555,7 +1557,9 @@ async def test_consolidated_analysis_uses_one_model_request():
     invalid = {
         "analysis_period": "test", "top_consolidated_recommendations": [{
             "stock_code": "COMI", "stock_name_en": "CIB", "data_points": [{
-                "source": "CFI", "source_message_id": "7", "recommendation_type": "buy", "target_1": 100,
+                "source": "CFI", "source_message_id": "7", "recommendation_type": "buy",
+                "effective_date_basis": "explicit_date", "visible_source_date": "2026-07-16",
+                "target_1": 100,
             }],
         }], "client_inquiry_responses": [],
     }
@@ -1713,7 +1717,7 @@ def test_same_stock_panels_in_one_image_merge_without_losing_distinct_values():
 
     assert warnings == []
     stock = payload["top_consolidated_recommendations"][0]
-    assert stock["mention_count"] == 2
+    assert stock["mention_count"] == 1
     assert len(stock["data_points"]) == 1
     point = stock["data_points"][0]
     assert point["effective_date_basis"] == "watching"
@@ -1727,7 +1731,92 @@ def test_same_stock_panels_in_one_image_merge_without_losing_distinct_values():
     assert row["effective_date_bases"] == ["watching", "explicit_date"]
 
 
-def test_explicit_date_guard_excludes_mismatch_and_keeps_target_date_and_watching():
+def test_same_image_merge_prioritizes_watching_and_cleans_final_metadata():
+    messages = [
+        {"source": "Ostoul", "telegram_message_id": 60397},
+        {"source": "Ostoul", "telegram_message_id": 60398},
+    ]
+    references = {
+        39: {
+            "path": "combined.jpg",
+            "source": "Ostoul",
+            "source_message_id": "60397",
+            "image_index": "1",
+        },
+    }
+    payload = {
+        "top_consolidated_recommendations": [
+            {
+                "stock_code": "SCEM",
+                "rank": 4,
+                "mention_count": 2,
+                "data_points": [
+                    {
+                        "source_message_id": "60397",
+                        "source_image_ref": 39,
+                        "effective_date_basis": "explicit_date",
+                        "visible_source_date": "29 JULY 2026",
+                        "buy_price_low": 86.0,
+                        "buy_price_high": 86.5,
+                    },
+                    {
+                        "source_message_id": "60397",
+                        "source_image_ref": 39,
+                        "effective_date_basis": "watching",
+                        "visible_source_date": "29 JULY 2026",
+                        "timing_evidence": "سهم المراقبة",
+                        "target_1": 91.0,
+                    },
+                ],
+            },
+            {
+                "stock_code": "OLD",
+                "rank": 9,
+                "mention_count": 1,
+                "data_points": [{
+                    "source_message_id": "60398",
+                    "effective_date_basis": "watching",
+                    "visible_source_date": "28 JULY 2026",
+                    "timing_evidence": "تحت المراقبة",
+                }],
+            },
+        ],
+        "text_based_categories": {
+            "most_important_stocks": ["SCEM", "OLD", "MISSING"],
+            "trading_stocks": ["OLD", "SCEM"],
+            "watchlist_stocks": ["MISSING", "SCEM", "OLD"],
+        },
+    }
+
+    warnings = normalize_consolidated_output(
+        payload,
+        messages,
+        references,
+        target_date="2026-07-29",
+    )
+
+    assert warnings == [
+        "Excluded OLD message 60398: source date 28 JULY 2026 "
+        "does not match target date 2026-07-29.",
+    ]
+    assert len(payload["top_consolidated_recommendations"]) == 1
+    stock = payload["top_consolidated_recommendations"][0]
+    assert stock["rank"] == 1
+    assert stock["mention_count"] == 1
+    assert len(stock["data_points"]) == 1
+    point = stock["data_points"][0]
+    assert point["effective_date_basis"] == "watching"
+    assert point["effective_date_bases"] == ["explicit_date", "watching"]
+    assert point["buy_price_low"] == 86.0
+    assert point["target_1"] == 91.0
+    assert payload["text_based_categories"] == {
+        "most_important_stocks": ["SCEM"],
+        "trading_stocks": ["SCEM"],
+        "watchlist_stocks": ["SCEM"],
+    }
+
+
+def test_date_guard_excludes_mismatched_main_and_watching_rows():
     messages = [
         {"source": "CFI Egypt", "telegram_message_id": 60284},
         {"source": "CFI Egypt", "telegram_message_id": 60310},
@@ -1772,11 +1861,12 @@ def test_explicit_date_guard_excludes_mismatch_and_keeps_target_date_and_watchin
     assert warnings == [
         "Excluded TMGH message 60284: source date 27/07/2026 "
         "does not match target date 2026-07-28.",
+        "Excluded ASCM message 60311: source date 27 يوليو 2026 "
+        "does not match target date 2026-07-28.",
     ]
     stocks = payload["top_consolidated_recommendations"]
-    assert [stock["stock_code"] for stock in stocks] == ["COMI", "ASCM"]
+    assert [stock["stock_code"] for stock in stocks] == ["COMI"]
     assert stocks[0]["data_points"][0]["visible_source_date"] == "28-JULY-2026"
-    assert stocks[1]["data_points"][0]["effective_date_basis"] == "watching"
 
 
 def test_explicit_date_guard_understands_arabic_digits_and_rejects_missing_dates():

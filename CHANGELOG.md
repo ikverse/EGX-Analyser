@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.123
+- Strengthened recommendation accuracy with exact target dates for Watching, sector-ranking exclusions, and strict per-ticker table extraction.
+- Upgraded the canonical analysis prompt to schema 3 while keeping images, text messages, and voice-note transcripts under one consistent date and recommendation contract.
+- Kept mixed Main and Watching image sections independent in the model response, then consolidated only matching stock, Telegram ID, and image occurrences locally without overwriting conflicting values.
+- Recalculated mention counts, Watching timing, sequential ranks, and result categories after exclusions so rejected stocks cannot remain in final metadata.
+- Corrected Results-history cell alignment, reduced recommendation row and Notes spacing, removed the explanatory table subtitle, and removed the two price-group vertical dividers.
+- Added regression coverage for mismatched Watching dates, deterministic same-image consolidation, category cleanup, prompt schema compatibility, and the revised Results layout.
+
 ## v0.1.122
 - Restored chronological Results history with every saved run directly visible, while retaining compact target-date, source, and result filters.
 - Restored the clickable Recommendations table and Client inquiry replies sections, opened recommendations by default, and kept the inquiry section visible even when no replies were returned.

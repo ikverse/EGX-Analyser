@@ -2859,6 +2859,10 @@ section {
 }
 
 .analysis-history-output {
+  vertical-align: middle;
+}
+
+.analysis-history-output-content {
   align-items: center;
   display: flex;
   flex-wrap: wrap;
@@ -3029,19 +3033,15 @@ section {
 }
 
 .consolidated-table td {
-  padding: .34rem .5rem;
+  padding: .25rem .5rem;
 }
 
 .consolidated-table .consolidated-stock-group td {
-  padding-block: .27rem;
+  padding-block: .22rem;
 }
 
 .consolidated-stock-group-content {
   gap: .55rem;
-}
-
-.consolidated-table .column-break-left {
-  border-left: 1px solid var(--border-strong);
 }
 
 .consolidated-table .positive-entry {
@@ -3060,7 +3060,8 @@ section {
 }
 
 .consolidated-table .analysis-summary {
-  line-height: 1.35;
+  font-size: .76rem;
+  line-height: 1.22;
 }
 
 /* Settings overview cards navigate to collapsed sections. */

@@ -1,119 +1,248 @@
-<!-- EGX_PROMPT_SCHEMA: 2 -->
+<!-- EGX_PROMPT_SCHEMA: 3 -->
 # EGX consolidated recommendation analysis
 
-Analyze the supplied Egyptian stock-market Telegram sources as one Results run. Images, ordinary text messages, and voice-note transcripts are equally valid source modalities. Apply the gates below independently to each source item before extracting stock identities or values.
+Analyze the supplied Egyptian stock-market Telegram sources as one Results run.
+
+Images, ordinary text messages, and voice-note transcripts are equally valid source modalities. Apply the following gates independently to every source item before extracting stock identities or values.
+
+Do not repair, advance, infer, or borrow dates, stock identities, evidence, image references, or prices.
+
+Managed Include phrases extend recommendation wording only. They never override exclusions, date eligibility, source isolation, or destination separation.
 
 ## 1. Highest-priority exclusions
 
-Exclude an entire source item when it is presented as news, urgent news, breaking news, a news alert, or a news update. Indicators include `عاجل`, `خبر عاجل`, `أخبار`, `خبر`, `آخر الأخبار`, `نبأ عاجل`, `breaking news`, `urgent news`, `news alert`, `news update`, and clear semantic equivalents. Exclude it even when it names a stock, contains prices or percentages, discusses market movement, or resembles a recommendation.
+Exclude an entire source item when it is presented as news, urgent news, breaking news, a news alert, or a news update.
 
-Also exclude advertisements, invitations, courses, promotions, links, disclaimers, greetings, memes, general commentary, non-EGX material, previous or achieved recommendations, target-hit updates, and content that is no longer actionable.
+Indicators include:
 
-An excluded source must create nothing in any output array, category, count, Notes field, or source link. Managed Include phrases never override these exclusions.
+- `عاجل`
+- `خبر عاجل`
+- `أخبار`
+- `خبر`
+- `آخر الأخبار`
+- `نبأ عاجل`
+- `breaking news`
+- `urgent news`
+- `news alert`
+- `news update`
+- Clear semantic equivalents
 
-For a Telegram message containing several images, judge each image independently. Exclude only the news image unless the message text or voice transcript makes the entire message a news item.
+Exclude news content even when it names a stock, contains prices or percentages, discusses market movement, or resembles a recommendation.
+
+Also exclude:
+
+- Advertisements
+- Invitations
+- Courses
+- Promotions
+- Links
+- Disclaimers
+- Greetings
+- Memes
+- General commentary
+- Non-EGX material
+- Previous or achieved recommendations
+- Target-hit updates
+- Content that is no longer actionable
+- Liquidity rankings without an actionable recommendation
+- Sector rankings and sector-summary content
+- `أهم القطاعات`
+- `أنشط القطاعات`
+- `أهم سهم لكل قطاع`
+- Clear semantic equivalents of these sector-ranking headings
+
+`أهم الأسهم اليوم` is not a sector-ranking heading and remains eligible under the Main recommendation rule.
+
+For an image containing multiple distinct sections, judge each section independently.
+
+For a Telegram message containing several images, judge each image independently. Exclude only the invalid image unless the message text or voice transcript makes the entire message invalid.
+
+An excluded item or section must create nothing in any output array, category, count, Notes field, or source link.
 
 ## 2. Hard date gate
 
 `TARGET_DATE` is supplied in the runtime context.
 
-For every ordinary recommendation:
+Apply this date gate to every Main or Watching recommendation, regardless of whether its source is an image, text message, or voice-note transcript.
 
-1. Read the date explicitly printed or stated inside that same source item.
-2. Parse it without changing, advancing, translating, repairing, or inferring it.
-3. Keep the recommendation only when that source date equals `TARGET_DATE` exactly.
+1. Read the date explicitly printed or stated inside that exact source item.
+2. Parse it without changing, advancing, repairing, or inferring it.
+3. Keep the recommendation only when the source date equals `TARGET_DATE` exactly.
 4. Exclude it when the date is missing, unreadable, ambiguous, earlier, later, or different by even one day.
-5. Never use a Telegram posting timestamp, nearby source, timing wording, or intended future session to override the source date.
-6. For an image, only a date visible inside that image is valid.
+5. Never use a Telegram posting timestamp, nearby source, timing wording, or intended future session as a substitute.
+6. For an image, only a date visibly printed inside that image is valid.
+7. For text or voice, only a date explicitly stated in that text or transcript is valid.
 
-Examples for `TARGET_DATE: 2026-07-28`:
+Examples for `TARGET_DATE: 2026-07-29`:
 
-- Image says `27/07/2026` → exclude.
-- Image says `28/07/2026` → eligible for later gates.
-- Image has no readable date → exclude.
-- Telegram post is dated 28/7 but its image says 27/7 → exclude.
+- Source says `28/07/2026` → exclude.
+- Source says `29/07/2026` → eligible for later gates.
+- Source has no readable date → exclude.
+- Telegram post is dated 29/7 but its image says 28/7 → exclude.
 
-For an eligible ordinary recommendation, return:
+For an eligible recommendation, return:
 
 - `date`: `TARGET_DATE`
-- `effective_date_basis`: `explicit_date`
-- `visible_source_date`: the exact visible source date
+- `visible_source_date`: the exact visible or stated source date
 - `date_evidence`: the exact same-source date phrase
-- `timing_evidence`: null
 
-Never set `date` to `TARGET_DATE` to repair a mismatched `visible_source_date`.
+Never set `date` to `TARGET_DATE` to repair a mismatched or missing `visible_source_date`.
 
 ## 3. Destination classification
 
-Assign each eligible source to exactly one destination:
+Assign every eligible source item or independent image section to exactly one destination.
 
 ### Main recommendation
 
-Requires an identifiable EGX stock and explicit actionable context such as `توصية`, `شراء`, `بيع`, `منطقة الشراء`, `نطاق الشراء`, `إشارة تداول`, recommendation, buy, sell, entry zone, or buy range.
+A Main recommendation requires:
+
+- An identifiable EGX stock
+- Explicit actionable recommendation context
+
+Examples include:
+
+- `توصية`
+- `شراء`
+- `بيع`
+- `منطقة الشراء`
+- `نطاق الشراء`
+- `إشارة تداول`
+- `recommendation`
+- `buy`
+- `sell`
+- `entry zone`
+- `buy range`
+- Clear semantic equivalents
 
 Current price, support, resistance, stop loss, targets, liquidity ranking, sector ranking, important-stock status, a ticker list, or general technical discussion alone is not a recommendation.
 
-`أهم الأسهم اليوم` is explicit recommendation context; extract every stock row from the table directly beneath it. This overrides the general important-stock exclusion.
+The exact heading `أهم الأسهم اليوم` is explicit recommendation context; extract every stock row from the table directly beneath it.
+
+For a Main recommendation, return:
+
+- `effective_date_basis`: `explicit_date`
+- `timing_evidence`: null
 
 ### Watching
 
-Use `effective_date_basis: watching` only when the same source explicitly identifies that exact stock as `سهم تحت المراقبة`, `تحت المراقبة`, `سهم للمراقبة`, watching, under watch, stock to watch, or a clear semantic equivalent.
+Use `effective_date_basis: watching` only when the same source explicitly identifies that exact stock using wording such as:
 
-- Copy the exact watch wording into `timing_evidence`.
-- Preserve conditional actions such as buy on breakout and all explicit levels.
-- A watch heading may govern the ticker immediately beneath it in the same image card.
-- For a Watching image, require a visible image date inside the supplied analysis period; never substitute the Telegram timestamp.
-- For Watching text or a voice transcript without an internal date, the supplied `MESSAGE DATE` may become `visible_source_date` and `date_evidence`.
-- Return `date` as `TARGET_DATE`.
+- `سهم تحت المراقبة`
+- `تحت المراقبة`
+- `سهم للمراقبة`
+- `watching`
+- `under watch`
+- `stock to watch`
+- A clear semantic equivalent
 
-Never apply Watching date flexibility to an ordinary recommendation.
+Requirements:
+
+- The source date must equal `TARGET_DATE` exactly.
+- Copy the exact Watching wording into `timing_evidence`.
+- Preserve conditional actions such as buying on a breakout.
+- Preserve all explicitly stated levels.
+- A Watching heading may govern the ticker immediately beneath it in the same image card.
+- Do not apply Watching wording from one stock or section to another.
+
+### Main and Watching sections in one image
+
+Analyze the sections independently.
+
+Return a separate `data_point` for every valid section, including when the same stock appears in more than one section. Never combine or transfer values across sections. The application consolidates exact same-stock and same-image occurrences after extraction.
 
 ### Client inquiry
 
-Content explicitly presented as a reply to a customer or member question, including `ردًا على استفسارات عملائنا`, `ردا على استفسارات عملائنا`, `رد على استفسار`, and `استفسارات العملاء`, belongs only in `client_inquiry_responses`.
+Content explicitly presented as a reply to a customer or member question belongs only in `client_inquiry_responses`.
 
-Never place the same Telegram ID in both a recommendation and an inquiry. Do not classify a normal recommendation as an inquiry merely because the same channel posted inquiries elsewhere.
+Examples include:
+
+- `ردًا على استفسارات عملائنا`
+- `ردا على استفسارات عملائنا`
+- `رد على استفسار`
+- `استفسارات العملاء`
+
+Do not classify a normal recommendation as an inquiry merely because the same channel posts inquiry replies elsewhere.
 
 ### Excluded
 
-Everything that fails these gates is excluded. Do not return general stock mentions or image observations in consolidated analysis.
+Everything that fails these gates is excluded.
+
+Do not return general stock mentions or image observations in consolidated analysis.
 
 ## 4. Source traceability
 
 - `source_message_id` must exactly equal the supporting `TELEGRAM_ID`.
 - Do not return a channel name; the application restores it locally.
-- For image evidence, `source_image_ref` must equal the immutable `IMAGE_REF` immediately associated with that image.
+- For image evidence, `source_image_ref` must equal the immutable `IMAGE_REF` associated with that exact image.
 - For text-only or voice-only evidence, `source_image_ref` must be null.
-- `recommendation_evidence` must be a short exact actionable cue from the same source. It does not need to contain the ticker when the source layout places the ticker and cue separately.
-- Never copy an image reference, stock identity, evidence phrase, date, or value from a neighboring source.
+- `recommendation_evidence` must be a short, exact actionable cue from that same source.
+- Never copy an image reference, stock identity, evidence phrase, date, or value from a neighboring source, image, section, or stock row.
 
-## 5. Price and target extraction
+## 5. Stock-row and table-column isolation
 
-- Use `buy_price` for one entry price.
-- For an explicit entry range, set `buy_price` to null and preserve the visible bounds in `buy_price_low` and `buy_price_high`. Never average, reverse, round, or infer them.
-- Return only TP1 in `target_1` and TP2 in `target_2`.
-- Completely ignore TP3, target 3, third target, take profit 3, `مستهدف ثالث`, `الهدف الثالث`, and every later target in all fields and summaries.
-- Inside a Buy recommendation, `منطقة البيع`, `نطاق البيع`, sell zone, or equivalent exit wording supplies TP1 and TP2; it does not make the recommendation a Sell.
-- Pair explicit `عائد الربح` or profit-return percentages with their corresponding target in `return_tp1_pct` and `return_tp2_pct`.
+For every table:
+
+1. Locate one exact ticker row.
+2. Confirm that the company name belongs to that ticker.
+3. Read each value only at the intersection of that ticker row and its visible column heading.
+4. Finish that ticker row before processing another ticker.
+5. Return null when a cell is missing, unreadable, ambiguous, or cannot be confidently mapped.
+6. Never shift values left or right.
+7. Never reuse one numeric row for another stock.
+8. Never use values from a row above or below the selected ticker.
+
+Use these mappings when present:
+
+- `منطقة الشراء` or `نطاق الشراء` → Entry or entry range
+- `الدعم` → Support
+- `المقاومة` → Resistance
+- `الهدف الأول` or `مستهدف أول` → TP1
+- First corresponding `عائد الربح` → TP1 Return %
+- `الهدف الثاني` or `مستهدف ثاني` → TP2
+- Second corresponding `عائد الربح` → TP2 Return %
+- `وقف الخسارة` → Stop
+- `عائد المخاطرة` → Risk %
+
+Support and resistance are not targets unless the source explicitly labels them as targets.
+
+A current or closing price is not an entry unless the source explicitly presents it as an entry or purchase price.
+
+## 6. Price and target extraction
+
+- Use `buy_price` for one explicit entry price.
+- For an explicit entry range, set `buy_price` to null.
+- Preserve the visible range bounds in `buy_price_low` and `buy_price_high`.
+- Never average, reverse, round, or infer entry bounds.
+- Return only TP1 in `target_1`.
+- Return only TP2 in `target_2`.
+- Ignore every third or later target in all output fields and summaries.
+- Inside a Buy recommendation, `منطقة البيع`, `نطاق البيع`, sell zone, or equivalent exit wording supplies TP1 and TP2; it does not change the recommendation to Sell.
+- Pair explicit profit-return percentages with their corresponding targets.
 - If a return percentage is not explicitly visible, return null. The application calculates the fallback.
 - Preserve explicit stop loss, support, resistance, and risk values.
-- Do not invent or transfer values.
+- Do not invent, calculate, transfer, or repair source values.
 
-## 6. Arabic Notes
+## 7. Arabic Notes
 
-Group all accepted recommendation occurrences by exact `stock_code` before writing `notes_summary`.
+First complete all exclusions, date checks, and row isolation.
+
+Then group accepted occurrences by exact `stock_code` and write `notes_summary`.
+
+Requirements:
 
 - Write exactly one concise, factual Arabic summary per stock.
-- Merge duplicate and semantically equivalent meanings.
-- Preserve genuinely different insights such as Watching, entry range, TP1, TP2, stop loss, and risk warnings.
+- Use only accepted `data_points` for that stock.
+- Preserve useful and genuinely different insights.
+- Merge duplicate or semantically equivalent meanings.
 - Mention each meaning once.
-- Do not paste or enumerate full messages, captions, tables, or image text.
-- Keep source-specific evidence and values only in `data_points`.
+- Do not include rejected dates, excluded sources, excluded sections, neighboring stocks, or deleted rows.
+- Do not paste full messages, captions, tables, or image text.
+- Keep source-specific evidence and values in `data_points`.
 - Keep the summary under 60 Arabic words.
 
-## 7. JSON contract
+## 8. JSON contract
 
-Return only one JSON object with this structure:
+Return only one JSON object using this structure:
 
 ```json
 {
@@ -188,19 +317,34 @@ Return only one JSON object with this structure:
 }
 ```
 
-`achieved_targets` remains empty because previous and target-hit sources are excluded from this active recommendation run. Populate `text_based_categories` and `daily_breakdown` only from accepted main or Watching rows; never use excluded general mentions.
+Additional contract rules:
 
-## 8. Final invariants
+- `mention_count` equals the number of independently extracted `data_points`. The application recalculates it after exact same-image consolidation.
+- Rank accepted stocks consecutively starting from 1.
+- Do not leave rank gaps after exclusions.
+- Populate categories only with stock codes present in final accepted recommendation rows.
+- `watchlist_stocks` contains only accepted rows classified as Watching.
+- `achieved_targets` remains empty because previous and target-hit content is excluded.
 
-Before returning JSON, delete any row that fails:
+## 9. Final invariants
 
-- It is not news or other excluded content.
-- Its Telegram ID belongs to its own source.
+Before returning JSON, delete every row that fails any of these checks:
+
+- It is not news or another excluded content type.
+- It is not from a sector-ranking section.
+- Its Telegram ID belongs to its exact source.
+- Its image reference belongs to that Telegram message.
 - It has an identifiable EGX stock.
-- It has explicit recommendation context or explicit same-stock Watching context.
-- An `explicit_date` row has `date == TARGET_DATE`, a parseable `visible_source_date == TARGET_DATE`, matching `date_evidence`, and `timing_evidence == null`.
-- A `watching` row has exact same-source watch wording in `timing_evidence`.
-- Its values and image reference come from that same source.
+- It has explicit recommendation context or exact same-stock Watching context.
+- Its visible or stated source date equals `TARGET_DATE`.
+- Its `date_evidence` comes from that exact source.
+- A Main row has `effective_date_basis: explicit_date` and `timing_evidence: null`.
+- A Watching row has exact same-source Watching wording in `timing_evidence`.
+- Its stock identity and values come from the same ticker row.
+- Its values and image reference come from the same source.
 - It appears in exactly one destination.
+- Its Notes and categories use only accepted rows.
 
-Delete invalid rows before grouping, ranking, counting mentions, creating categories, or writing Notes. Return JSON only.
+Delete invalid rows before grouping, ranking, counting mentions, creating categories, or writing Notes.
+
+Return JSON only.

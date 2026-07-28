@@ -1148,8 +1148,10 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted, 
                       }}
                     >
                       <td className="analysis-history-output">
-                        <strong>Recommendations · {formatTargetDate(item.target_date)}</strong>
-                        {item.id === items[0]?.id && <span className="analysis-latest-badge">Latest</span>}
+                        <div className="analysis-history-output-content">
+                          <strong>Recommendations · {formatTargetDate(item.target_date)}</strong>
+                          {item.id === items[0]?.id && <span className="analysis-latest-badge">Latest</span>}
+                        </div>
                       </td>
                       <td className="analysis-history-generated">{formatGeneratedAt(item.generated_at)}</td>
                       <td><div className="analysis-source-chips">
@@ -1327,7 +1329,6 @@ function ConsolidatedStockTable({ rows, rankOrder }: { rows: StockSourceTableRow
       <div className="consolidated-table-title">
         <div>
           <strong>EGX recommendations by source</strong>
-          <span>Each row preserves one model-returned dated recommendation without combining source values.</span>
         </div>
         <div className="consolidated-table-tools">
           <span className="table-scroll-hint">Scroll horizontally to view every price field</span>
@@ -1353,9 +1354,9 @@ function ConsolidatedStockTable({ rows, rankOrder }: { rows: StockSourceTableRow
             <col className="result-col-notes" />
           </colgroup>
           <thead><tr>
-            <th>Source</th><th>Target date</th><th>Source date</th><th>Timing</th><th>Source image</th><th className="numeric column-break-left">Entry</th>
+            <th>Source</th><th>Target date</th><th>Source date</th><th>Timing</th><th>Source image</th><th className="numeric">Entry</th>
             <th className="numeric">TP1</th><th className="numeric">TP1 Return %</th><th className="numeric">TP2</th><th className="numeric">TP2 Return %</th>
-            <th className="numeric column-break-left">Stop</th><th className="numeric">Support</th><th className="numeric">Resistance</th><th className="numeric">Risk %</th><th>Notes</th>
+            <th className="numeric">Stop</th><th className="numeric">Support</th><th className="numeric">Resistance</th><th className="numeric">Risk %</th><th>Notes</th>
           </tr></thead>
           {[...grouped.entries()].map(([ticker, stockRows]) => {
             const first = stockRows[0];
@@ -1383,12 +1384,12 @@ function ConsolidatedStockTable({ rows, rankOrder }: { rows: StockSourceTableRow
                         <Icon name="image" size={15} /> View
                       </button> : "—"}
                     </td>
-                    <td className="numeric entry-value positive-entry column-break-left">{entryDisplay(row.buy_price, row.buy_price_low, row.buy_price_high)}</td>
+                    <td className="numeric entry-value positive-entry">{entryDisplay(row.buy_price, row.buy_price_low, row.buy_price_high)}</td>
                     <td className="numeric positive">{num(row.target_1)}</td>
                     <td className="numeric positive">{percent(row.return_tp1_pct)}</td>
                     <td className="numeric positive">{num(row.target_2)}</td>
                     <td className="numeric positive">{percent(row.return_tp2_pct)}</td>
-                    <td className="numeric negative column-break-left">{num(row.stop_loss)}</td>
+                    <td className="numeric negative">{num(row.stop_loss)}</td>
                     <td className="numeric">{num(row.support)}</td>
                     <td className="numeric">{num(row.resistance)}</td>
                     <td className="numeric negative">{percent(row.risk_pct)}</td>
