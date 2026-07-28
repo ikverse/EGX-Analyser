@@ -1177,6 +1177,12 @@ def test_canonical_consolidated_prompt_has_one_versioned_contract():
         "`أهم الأسهم اليوم` is explicit recommendation context; extract every stock row "
         "from the table directly beneath it."
     ) in prompt
+    assert "`سهم المراقبة`" in prompt
+    assert "Scan the entire image from top to bottom" in prompt
+    assert (
+        "When `أهم الأسهم اليوم` appears below another recommendation or Watching card"
+        in prompt
+    )
     assert prompt.count("## 2. Hard date gate") == 1
 
 

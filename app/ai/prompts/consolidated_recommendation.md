@@ -128,6 +128,7 @@ For a Main recommendation, return:
 Use `effective_date_basis: watching` only when the same source explicitly identifies that exact stock using wording such as:
 
 - `سهم تحت المراقبة`
+- `سهم المراقبة`
 - `تحت المراقبة`
 - `سهم للمراقبة`
 - `watching`
@@ -146,7 +147,9 @@ Requirements:
 
 ### Main and Watching sections in one image
 
-Analyze the sections independently.
+Scan the entire image from top to bottom and analyze every distinct section independently. Do not stop after the first recommendation panel.
+
+When `أهم الأسهم اليوم` appears below another recommendation or Watching card, also extract every valid stock row from the table directly beneath that heading.
 
 Return a separate `data_point` for every valid section, including when the same stock appears in more than one section. Never combine or transfer values across sections. The application consolidates exact same-stock and same-image occurrences after extraction.
 

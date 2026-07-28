@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.124
+- Completed composite-image recommendation extraction by scanning every image from top to bottom instead of stopping after the first panel.
+- Recognized the exact `سهم المراقبة` heading as Watching context while retaining the strict target-date requirement.
+- Required lower `أهم الأسهم اليوم` tables to be processed even when another recommendation or Watching card appears above them.
+- Kept each image section independent in the model response so matching stock and image occurrences remain safely consolidated by the application.
+- Added regression coverage for the Watching heading and full composite-image scan instructions.
+
 ## v0.1.123
 - Strengthened recommendation accuracy with exact target dates for Watching, sector-ranking exclusions, and strict per-ticker table extraction.
 - Upgraded the canonical analysis prompt to schema 3 while keeping images, text messages, and voice-note transcripts under one consistent date and recommendation contract.

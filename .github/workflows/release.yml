@@ -1,5 +1,5 @@
 name: Publish desktop update
-run-name: ${{ github.ref_name }} - Exact-date analysis, safer table extraction, and compact result rows
+run-name: ${{ github.ref_name }} - Complete composite-image recommendation extraction
 
 on:
   push:
