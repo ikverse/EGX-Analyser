@@ -2,7 +2,7 @@
 
 The installed application is a Tauri window containing the React dashboard. On startup it launches a bundled FastAPI executable bound only to `127.0.0.1:8000`; it stores data under `%LOCALAPPDATA%\EGX Intelligence`. Users therefore do not need Docker, PostgreSQL, Redis, Python, Node, or a browser after installation.
 
-The installer does not package secrets. Configure the OpenAI and Telegram credentials from the app's **Settings** page; they are stored only in `%LOCALAPPDATA%\EGX Intelligence\.env`. The installer automatically installs Microsoft WebView2 when Windows does not already provide it.
+The installer does not package secrets. Configure Qwen Cloud or optional Ollama and Telegram from the app's **Settings** page. Public settings are stored in `%LOCALAPPDATA%\EGX Intelligence\.env`; credentials are protected with Windows DPAPI in `secrets.json`. The installer automatically installs Microsoft WebView2 when Windows does not already provide it.
 
 ## Create the installer
 
@@ -11,7 +11,7 @@ The installer does not package secrets. Configure the OpenAI and Telegram creden
 3. Run `scripts/build-desktop.ps1`.
 4. Distribute the generated NSIS `.exe` from `desktop/src-tauri/target/release/bundle/nsis/`.
 
-The build script packages `desktop/sidecar_server.py` with PyInstaller and gives it the Windows target suffix required by Tauri. Tauri embeds that executable as a sidecar and starts it when the desktop app opens. Before public distribution, code-sign both the installer and sidecar, define a release-update endpoint, and move authentication to an identity provider.
+The build script packages `desktop/sidecar_server.py` with PyInstaller and gives it the Windows target suffix required by Tauri. Tauri embeds that executable as a sidecar and starts it when the desktop app opens. Before public distribution, code-sign both the installer and sidecar and configure the signed release-update endpoint.
 
 ## Automatic updates
 

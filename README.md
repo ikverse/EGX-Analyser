@@ -5,10 +5,10 @@ A production-quality Windows desktop application for analysing Egyptian Exchange
 ## What it does
 
 - Connects to your personal Telegram account and loads all your chats, groups, and channels for the current session
-- Lets you pick which channels to analyse and over how many days (1–5)
+- Lets you pick chats, input types, and an automatic or historical recommendation target date
 - Sends text, images, and audio transcripts to your chosen AI provider (Qwen Cloud by default)
 - Returns a structured JSON report with ranked stock recommendations, achieved targets, and daily breakdowns
-- Saves consolidated Markdown, HTML, and PDF reports plus the original AI response verbatim
+- Saves the Results table, Markdown and HTML reports, the original AI response, and a local diagnostic trace
 - All credentials are encrypted with Windows DPAPI and stored only on your machine
 
 ---
@@ -76,7 +76,7 @@ After authorisation the session is saved in `%LOCALAPPDATA%\EGX Intelligence\tel
 
 ## AI provider setup
 
-Open **Settings** and select your provider from the dropdown.
+Open **Settings** and configure Qwen Cloud or optional local Ollama. The application does not require an OpenAI key.
 
 ### Qwen Cloud (default — best for Arabic + chart images)
 
@@ -91,23 +91,14 @@ Open **Settings** and select your provider from the dropdown.
 
 > Token Plan, Coding Plan, Qwen Chat, and expired temporary keys do **not** work. You need a pay-as-you-go Model Studio key.
 
-### OpenRouter (free models available)
+### Ollama (optional local models)
 
-1. Sign up at [openrouter.ai](https://openrouter.ai) and create an API key
-2. Select **OpenRouter** in Settings and paste the key
-3. Press **Load available models** — filter shows only multimodal models that support structured output
+1. Install and start Ollama.
+2. Download a vision-capable model.
+3. Select **Ollama Local** in Settings and confirm the local service URL.
+4. Load the installed models from Channels.
 
-### Hugging Face
-
-1. Create an account at [huggingface.co](https://huggingface.co) and generate an access token
-2. Select **Hugging Face** and paste the token
-3. Load models — shows inference provider endpoints
-
-### OpenAI
-
-1. Create an API key at [platform.openai.com](https://platform.openai.com)
-2. Select **OpenAI** and paste the key
-3. Supported models: GPT-4o and GPT-4 series with vision
+Voice-note files are always retained locally. If the configured provider cannot transcribe audio, the app leaves the voice note pending and displays that status instead of marking it processed.
 
 ---
 
@@ -115,7 +106,7 @@ Open **Settings** and select your provider from the dropdown.
 
 The built-in prompt instructs the AI to extract EGX trade recommendations from Arabic and English Telegram content, preserving prices and tickers exactly as posted.
 
-You can override it in **Settings → Primary analysis prompt**. The required JSON output structure is always enforced regardless of the custom prompt.
+Settings provides managed Include and Exclude phrase lists. These extend recommendation recognition without replacing the canonical date, identity, source, and output rules.
 
 The expected JSON structure:
 
@@ -129,22 +120,28 @@ The expected JSON structure:
       "stock_name_ar": "موبكو",
       "mention_count": 3,
       "rank": 1,
-      "status": "active",
+      "notes_summary": "توصيات شراء مجمعة للسهم مع نطاق دخول وأهداف ووقف خسارة.",
       "data_points": [
         {
           "date": "2026-07-12",
+          "effective_date_basis": "explicit_date",
+          "visible_source_date": "12/07/2026",
           "source": "CFI",
-          "buy_price": 37.25,
+          "source_message_id": "12345",
+          "recommendation_type": "buy",
+          "buy_price_low": 37.20,
+          "buy_price_high": 37.30,
           "target_1": 38.70,
+          "return_tp1_pct": 3.89,
           "target_2": 40.00,
+          "return_tp2_pct": 7.24,
           "stop_loss": 35.55,
           "support": null,
           "resistance": null,
-          "expected_return_pct": 3.18,
-          "risk_pct": -1.84
+          "risk_pct": -4.56,
+          "notes_ar": "توصية شراء قصيرة الأجل."
         }
-      ],
-      "analysis_summary_ar": "توصية شراء قوية"
+      ]
     }
   ],
   "achieved_targets": [],
@@ -164,11 +161,11 @@ The expected JSON structure:
 ## Running an analysis
 
 1. Go to **Channels**
-2. Press **Load my Telegram chats** — loads your current-session chat list (not persisted after closing the app)
-3. Click **Select** next to any channel you want to analyse
-4. Use the **Analysis window** slider to set how many days back to look (1–5)
+2. Telegram chats load automatically; use **Refresh Telegram chats** when needed
+3. Select one or more chats
+4. Choose automatic or historical target-date analysis and the input types
 5. Press **Analyze selected chats**
-6. When complete, report paths appear on screen and the Reports page updates
+6. Review the saved run in **Results**
 
 Reports are saved to `%LOCALAPPDATA%\EGX Intelligence\storage\reports\<date>\`.
 
@@ -248,15 +245,11 @@ Common causes:
 
 ### "A background collection is already running"
 
-The 60-second background collector is active. Wait a few seconds and try again.
+Telegram refresh is already active. Wait a few seconds and try again. Background collection stores content only and does not invoke AI.
 
 ### Telegram `FloodWaitError` or `AuthKeyError`
 
 Telegram rate-limited your account or the session expired. Wait the specified seconds, then reconnect in Settings. If the error persists, delete `telegram.session` from `%LOCALAPPDATA%\EGX Intelligence\` and reconnect.
-
-### PDF Arabic text is garbled
-
-Install Arial font if not already present (`C:\Windows\Fonts\arial.ttf`). The PDF renderer falls back to Courier if Arial is missing, which does not support Arabic glyphs.
 
 ### `cargo check` fails in `build-desktop.ps1`
 

@@ -1,7 +1,6 @@
 const baseUrl = "http://127.0.0.1:8000";
 
 export type Channel = { id: number; handle: string; title?: string; active: boolean; analyst_score?: number };
-export type Consensus = { company: string; sentiment: string; confidence: number; buy_count: number; sell_count: number; hold_count: number };
 export type AiProvider = "qwen" | "openrouter" | "huggingface" | "openai" | "ollama";
 export type PromptCustomizationHistoryEntry = {
   history_index: number;
@@ -15,7 +14,7 @@ export type PromptCustomizationHistoryEntry = {
   restored_from_timestamp?: string;
   recovered_corrupt_file?: string;
 };
-export type SettingsStatus = { openai_configured: boolean; ai_configured: boolean; ai_provider: AiProvider; telegram_configured: boolean; telegram_authorized: boolean; openai_model: string; ollama_model: string; ollama_base_url: string; telegram_session: string; analysis_include_phrases: string; analysis_exclude_phrases: string; prompt_customization_history: PromptCustomizationHistoryEntry[]; prompt_customization_history_total: number; prompt_customization_error?: string | null };
+export type SettingsStatus = { openai_configured: boolean; ai_configured: boolean; ai_provider: AiProvider; telegram_configured: boolean; telegram_authorized: boolean; openai_model: string; ollama_model: string; qwen_base_url: string; ollama_base_url: string; telegram_session: string; audio_transcription_available: boolean; audio_transcription_status: string; analysis_include_phrases: string; analysis_exclude_phrases: string; prompt_customization_history: PromptCustomizationHistoryEntry[]; prompt_customization_history_total: number; prompt_customization_error?: string | null };
 export type SettingsInput = { ai_provider?: AiProvider; openai_api_key?: string; openrouter_api_key?: string; huggingface_api_key?: string; qwen_api_key?: string; qwen_base_url?: string; ollama_base_url?: string; ollama_model?: string; openai_model?: string; analysis_include_phrases?: string; analysis_exclude_phrases?: string; telegram_api_id?: number; telegram_api_hash?: string; telegram_session?: string };
 export type TelegramChat = { id: string; title: string; username: string; kind: string };
 export type DiagnosticEntry = { timestamp?: string; level: string; event: string; request_id?: string; method?: string; path?: string; status_code?: number; duration_ms?: number; error_type?: string };
@@ -110,6 +109,7 @@ export type SelectedAnalysisResult = {
   messages_analyzed: number;
   messages_reanalyzed: number;
   messages_already_saved: number;
+  audio_transcription_pending: number;
   window_start: string;
   window_end: string;
   target_date: string;
@@ -145,6 +145,7 @@ export type AnalysisResultHistory = {
   generated_at: string;
   target_date?: string | null;
   messages_analyzed: number;
+  audio_transcription_pending: number;
   content_types: AnalysisContentType[];
   stock_source_table: StockSourceTableRow[];
   client_inquiry_responses: ClientInquiryResponse[];
@@ -210,11 +211,6 @@ export class ApiClient {
     return this.request<{ cancelled: boolean }>(`/collection/analyze-selected/${encodeURIComponent(requestId)}/cancel`, { method: "POST" });
   }
   setChannelActive(id: number, active: boolean) { return this.request<Channel>(`/channels/${id}`, { method: "PATCH", body: JSON.stringify({ active }) }); }
-  consensus() { return this.request<Consensus[]>("/analytics/consensus"); }
-  recommendations() { return this.request<Array<Record<string, unknown>>>("/recommendations"); }
-  analysisResults() { return this.request<AnalysisResultHistory[]>("/analysis-results"); }
+  analysisResults(limit = 25, offset = 0) { return this.request<AnalysisResultHistory[]>(`/analysis-results?limit=${limit}&offset=${offset}`); }
   deleteAnalysisResult(id: number) { return this.request<{ deleted: boolean }>(`/analysis-results/${id}`, { method: "DELETE" }); }
-  reports() { return this.request<Array<Record<string, unknown>>>("/reports"); }
-  generateReport(report_mode: "calendar" | "session") { return this.request<Record<string, unknown>>("/reports/daily", { method: "POST", body: JSON.stringify({ report_mode }) }); }
-  search(query: string) { return this.request<Array<Record<string, unknown>>>("/search", { method: "POST", body: JSON.stringify({ query }) }); }
 }

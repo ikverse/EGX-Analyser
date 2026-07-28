@@ -25,6 +25,46 @@ _MONTHS = {
     "nov": 11, "november": 11, "نوفمبر": 11,
     "dec": 12, "december": 12, "ديسمبر": 12,
 }
+_MERGED_TEXT_FIELDS = {
+    "recommendation_evidence",
+    "timing_evidence",
+    "date_evidence",
+    "notes_ar",
+}
+
+
+def _merge_same_source_points(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Merge repeated same-stock panels from one Telegram image into one result row."""
+    merged: list[dict[str, Any]] = []
+    by_source: dict[tuple[str, object], dict[str, Any]] = {}
+    for index, point in enumerate(points):
+        image_reference = point.get("source_image_ref")
+        key = (
+            str(point.get("source_message_id") or ""),
+            image_reference if image_reference is not None else f"unlinked:{index}",
+        )
+        existing = by_source.get(key)
+        if existing is None:
+            existing = dict(point)
+            by_source[key] = existing
+            merged.append(existing)
+            continue
+
+        existing_basis = str(existing.get("effective_date_basis") or "").casefold()
+        incoming_basis = str(point.get("effective_date_basis") or "").casefold()
+        if "watch" in incoming_basis and "watch" not in existing_basis:
+            existing["effective_date_basis"] = point.get("effective_date_basis")
+
+        for field, value in point.items():
+            if value is None or value == "":
+                continue
+            current = existing.get(field)
+            if current is None or current == "":
+                existing[field] = value
+                continue
+            if field in _MERGED_TEXT_FIELDS and str(value).strip() != str(current).strip():
+                existing[field] = f"{str(current).strip()} | {str(value).strip()}"
+    return merged
 
 
 def _parsed_source_date(value: object) -> date | None:
@@ -155,7 +195,7 @@ def normalize_consolidated_output(
         )
         if not points:
             continue
-        stock["data_points"] = points
+        stock["data_points"] = _merge_same_source_points(points)
         stock["mention_count"] = len(points)
         recommendations.append(stock)
     payload["top_consolidated_recommendations"] = recommendations

@@ -107,7 +107,8 @@ class AnalyticsService:
             func.avg(Recommendation.entry), func.avg(Recommendation.target), func.avg(Recommendation.stop_loss)
         ).group_by(Recommendation.company_name, Recommendation.signal))).all()
         grouped: dict[str, list] = {}
-        for row in rows: grouped.setdefault(row[0], []).append(row)
+        for row in rows:
+            grouped.setdefault(row[0], []).append(row)
         results = []
         for company, values in grouped.items():
             counts = Counter({value[1]: value[2] for value in values})

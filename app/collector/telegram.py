@@ -29,7 +29,7 @@ class TelegramCollector:
     def __init__(self, settings: Settings) -> None: self.settings = settings
 
     async def collect_once(self, service: MessageService, channel_handles: list[str] | None = None,
-                           since: datetime | None = None, analyze_messages: bool = True) -> dict[str, int]:
+                           since: datetime | None = None, analyze_messages: bool = False) -> dict[str, int]:
         if not self.settings.telegram_api_id or not self.settings.telegram_api_hash:
             raise RuntimeError("Telegram credentials are required")
         summary = {
@@ -37,6 +37,7 @@ class TelegramCollector:
             "messages_analyzed": 0,
             "messages_reanalyzed": 0,
             "messages_already_saved": 0,
+            "audio_transcription_pending": 0,
         }
         async with TelegramClient(self.settings.telegram_session, self.settings.telegram_api_id, self.settings.telegram_api_hash) as client:
             cutoff = since.astimezone(timezone.utc) if since is not None else None
@@ -49,7 +50,8 @@ class TelegramCollector:
                 min_id = 0 if cutoff is not None else (channel.last_collected_message_id if channel and channel.last_collected_message_id else 0)
                 latest_message_id = min_id
                 async for remote in client.iter_messages(entity, limit=None if cutoff else 250, min_id=min_id):
-                    if not remote.date: continue
+                    if not remote.date:
+                        continue
                     published_at = remote.date.astimezone(timezone.utc)
                     if cutoff is not None and published_at < cutoff:
                         break
@@ -63,7 +65,8 @@ class TelegramCollector:
                         folder = self.settings.storage_root / "images" / handle / as_cairo(remote.date).strftime("%Y/%m/%d")
                         folder.mkdir(parents=True, exist_ok=True)
                         filename = folder / f"{remote.id}_{remote.photo.id}.jpg"
-                        if not filename.exists(): await client.download_media(remote, file=str(filename))
+                        if not filename.exists():
+                            await client.download_media(remote, file=str(filename))
                         image = await service.session.scalar(select(Image).where(Image.path == str(filename)))
                         if image is None:
                             service.session.add(Image(message_id=message.id, path=str(filename), mime_type="image/jpeg"))
@@ -86,7 +89,9 @@ class TelegramCollector:
                                     media.transcript = await service.analyzer.transcribe(media.path)
                                 except RuntimeError:
                                     media.transcript = None
-                                media.processed_at = remote.date.astimezone(timezone.utc)
+                                    summary["audio_transcription_pending"] += 1
+                                else:
+                                    media.processed_at = remote.date.astimezone(timezone.utc)
                     force_reanalysis = cutoff is not None
                     if analyze_messages and service.analyzer is not None and (force_reanalysis or message.processed_at is None):
                         was_previously_analyzed = message.processed_at is not None

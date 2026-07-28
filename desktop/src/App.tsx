@@ -200,10 +200,13 @@ export default function App() {
   const [page, setPage] = useState<Page>("Channels");
   const [channels, setChannels] = useState<Channel[]>([]);
   const [analysisResults, setAnalysisResults] = useState<AnalysisResultHistory[]>([]);
+  const [analysisHistoryHasMore, setAnalysisHistoryHasMore] = useState(false);
   const [analysisRun, setAnalysisRun] = useState<AnalysisRunState>({ running: false, progress: "" });
   const [analysisConfig, setAnalysisConfig] = useState<ChannelAnalysisConfig>(loadChannelAnalysisConfig);
   const [settings, setSettings] = useState<SettingsStatus | null>(null);
   const [engineStarting, setEngineStarting] = useState(true);
+  const [engineFailure, setEngineFailure] = useState<string | null>(null);
+  const [engineRetryToken, setEngineRetryToken] = useState(0);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [errorModal, setErrorModal] = useState<string | null>(null);
   const [successModal, setSuccessModal] = useState<{ message: string; resultId?: number } | null>(null);
@@ -261,9 +264,11 @@ export default function App() {
       setSettings(nextSettings);
       setConnected(true);
       setEngineStarting(false);
+      setEngineFailure(null);
       return true;
     } catch (reason) {
       setConnected(false);
+      setEngineFailure(fullError(reason));
       if (showFailure) showError(fullError(reason));
       return false;
     }
@@ -309,7 +314,9 @@ export default function App() {
     )
       .then(async (result) => {
         await refresh(false);
-        setAnalysisResults(await api.analysisResults());
+        const latestResults = await api.analysisResults();
+        setAnalysisResults(latestResults);
+        setAnalysisHistoryHasMore(latestResults.length === 25);
         if (analysisStopRequestedRef.current) {
           notify("warning", "The analysis finished before it could be stopped, so its result was saved.");
           return;
@@ -320,7 +327,9 @@ export default function App() {
         showSuccess(
           `${result.messages_analyzed} of ${result.messages_in_window} messages were analyzed. ` +
           `Target suggestion date: ${result.target_date}. Inputs sent: ${contentTypeLabel(result.content_types)}. ` +
-          `The result is now available in Results.${noStockContext}`,
+          `The result is now available in Results.` +
+          `${result.audio_transcription_pending ? ` ${result.audio_transcription_pending} voice note(s) remain pending transcription.` : ""}` +
+          noStockContext,
           result.report.id,
         );
       })
@@ -392,16 +401,25 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     let retryTimer: number | undefined;
+    let attempts = 0;
     const waitForEngine = async () => {
       const ready = await refresh(false);
-      if (!ready && !cancelled) retryTimer = window.setTimeout(waitForEngine, 500);
+      if (ready || cancelled) return;
+      attempts += 1;
+      if (attempts >= 8) {
+        setEngineStarting(false);
+        return;
+      }
+      const delay = Math.min(500 * (2 ** (attempts - 1)), 8_000);
+      retryTimer = window.setTimeout(waitForEngine, delay);
     };
+    setEngineStarting(true);
     void waitForEngine();
     return () => {
       cancelled = true;
       if (retryTimer) window.clearTimeout(retryTimer);
     };
-  }, [api]);
+  }, [api, engineRetryToken]);
 
   useEffect(() => {
     if (!connected) return;
@@ -411,7 +429,10 @@ export default function App() {
 
   useEffect(() => {
     if (connected && page === "Results") {
-      void api.analysisResults().then(setAnalysisResults).catch((reason) => showError(fullError(reason)));
+      void api.analysisResults().then((rows) => {
+        setAnalysisResults(rows);
+        setAnalysisHistoryHasMore(rows.length === 25);
+      }).catch((reason) => showError(fullError(reason)));
     }
   }, [api, connected, page, showError]);
 
@@ -427,17 +448,23 @@ export default function App() {
             </div>
           </div>
           <div className="startup-intro">
-            <h2>{engineStarting ? "Preparing your workspace" : "Restarting your workspace"}</h2>
-            <p>Loading your channels, analysis history, and locally stored settings.</p>
+            <h2>{engineStarting ? "Preparing your workspace" : "Local engine could not start"}</h2>
+            <p>{engineStarting
+              ? "Loading your channels, analysis history, and locally stored settings."
+              : "The app stopped retrying automatically. Review the error, then try again."}</p>
           </div>
           <div className="startup-status" role="status" aria-live="polite">
-            <span className="startup-spinner" aria-hidden="true" />
+            {engineStarting ? <span className="startup-spinner" aria-hidden="true" /> : <Icon name="warning" />}
             <div>
               <strong>Local engine</strong>
-              <span>{engineStarting ? "Starting services…" : "Reconnecting services…"}</span>
+              <span>{engineStarting ? "Starting services…" : engineFailure || "The local service did not respond."}</span>
             </div>
           </div>
-          <div className="startup-progress" aria-hidden="true"><span /></div>
+          {engineStarting
+            ? <div className="startup-progress" aria-hidden="true"><span /></div>
+            : <button type="button" onClick={() => setEngineRetryToken((current) => current + 1)}>
+                <Icon name="refresh" /> Retry local engine
+              </button>}
           <div className="startup-details">
             <span>Cairo market workflow</span>
             <span>Local results storage</span>
@@ -548,6 +575,15 @@ export default function App() {
               notify={notify}
               showError={showError}
               analysisResults={analysisResults}
+              historyHasMore={analysisHistoryHasMore}
+              onLoadMore={async () => {
+                const older = await api.analysisResults(25, analysisResults.length);
+                setAnalysisResults((current) => [
+                  ...current,
+                  ...older.filter((candidate) => !current.some((existing) => existing.id === candidate.id)),
+                ]);
+                setAnalysisHistoryHasMore(older.length === 25);
+              }}
               onAnalysisDeleted={(id) => setAnalysisResults((current) => current.filter((item) => item.id !== id))}
               focusedResultId={focusedResultId}
               onFocusHandled={() => setFocusedResultId(null)}
@@ -594,8 +630,6 @@ export default function App() {
 
 type Notify = (kind: ToastKind, text: string) => void;
 
-const SIGNAL_COLOR: Record<string, string> = { BUY: "#86efac", SELL: "#fca5a5", HOLD: "#fde68a" };
-const SIGNAL_BG: Record<string, string> = { BUY: "#1a3d24", SELL: "#3d1a1a", HOLD: "#2e2a14" };
 type ShowError = (message: string) => void;
 type ShowSuccess = (message: string) => void;
 
@@ -609,85 +643,6 @@ function contentTypeLabel(contentTypes: AnalysisContentType[]): string {
   return contentTypes.map((item) => CONTENT_TYPE_LABEL[item]).join(", ");
 }
 
-
-// ── Reports ───────────────────────────────────────────────────────────────────
-
-function Reports({ api, rows, setRows, notify, showError }: {
-  api: ApiClient; rows: Array<Record<string, unknown>>;
-  setRows: (rows: Array<Record<string, unknown>>) => void;
-  notify: Notify; showError: ShowError;
-}) {
-  const [mode, setMode] = useState<"calendar" | "session">("calendar");
-  const [generating, setGenerating] = useState(false);
-  const [openTableId, setOpenTableId] = useState<number | null>(null);
-  const generate = () => {
-    setGenerating(true);
-    void api.generateReport(mode)
-      .then(() => api.reports())
-      .then(setRows)
-      .then(() => notify("success", "Bilingual consolidated report created."))
-      .catch((reason) => showError(fullError(reason)))
-      .finally(() => setGenerating(false));
-  };
-
-  type ReportRow = Record<string, unknown> & {
-    id?: number; date?: string;
-    markdown_path?: string; html_path?: string;
-    summary?: {
-      original_ai_response_text_path?: string;
-      stock_source_table?: StockSourceTableRow[];
-    };
-  };
-  const typedRows = rows as ReportRow[];
-
-  return (
-    <>
-      <div className="report-controls">
-        <label>
-          Report period
-          <select value={mode} onChange={(e) => setMode(e.target.value as "calendar" | "session")}>
-            <option value="calendar">Cairo calendar day</option>
-            <option value="session">EGX trading session</option>
-          </select>
-        </label>
-        <button onClick={generate} disabled={generating}>
-          {generating ? "Generating report…" : "Generate consolidated report"}
-        </button>
-      </div>
-
-      {typedRows.length === 0 && <p className="empty">No reports yet.</p>}
-      {typedRows.map((report, i) => (
-        <div key={report.id ?? i} className="report-card">
-          <strong className="report-card-title">
-            {report.date ? String(report.date).slice(0, 16).replace("T", " ") : `Report #${report.id}`}
-          </strong>
-          <div className="report-links">
-            {(report.summary?.stock_source_table?.length ?? 0) > 0 && (
-              <button className="secondary compact" onClick={() => setOpenTableId((current) => current === report.id ? null : report.id ?? null)}>
-                {openTableId === report.id ? "Hide table" : "View table in app"}
-              </button>
-            )}
-            {report.html_path && (
-              <a href={`file:///${String(report.html_path).replace(/\\/g, "/")}`}
-                target="_blank" rel="noreferrer" className="report-link">
-                HTML report
-              </a>
-            )}
-            {report.summary?.original_ai_response_text_path && (
-              <a href={`file:///${String(report.summary.original_ai_response_text_path).replace(/\\/g, "/")}`}
-                target="_blank" rel="noreferrer" className="report-link muted">
-                AI response text
-              </a>
-            )}
-          </div>
-          {openTableId === report.id && report.summary?.stock_source_table && (
-            <ConsolidatedStockTable rows={report.summary.stock_source_table} />
-          )}
-        </div>
-      ))}
-    </>
-  );
-}
 
 // ── Channels ──────────────────────────────────────────────────────────────────
 
@@ -909,6 +864,11 @@ function Channels({ channels, settings, api, refresh, notify, showError, analysi
             </label>
           ))}
         </fieldset>
+        {contentTypes.includes("audio") && settings && !settings.audio_transcription_available && (
+          <p className="analysis-input-notice" role="status">
+            {settings.audio_transcription_status}
+          </p>
+        )}
         <div className="analysis-action-bar">
           <div className="analysis-action-controls">
             <ModelSelector
@@ -937,23 +897,36 @@ function Channels({ channels, settings, api, refresh, notify, showError, analysi
 
 // ── Results (merged Recommendations + Search) ─────────────────────────────────
 
-function Results({ api, notify, showError, analysisResults, onAnalysisDeleted, focusedResultId, onFocusHandled }: {
+function Results({ api, notify, showError, analysisResults, historyHasMore, onLoadMore, onAnalysisDeleted, focusedResultId, onFocusHandled }: {
   api: ApiClient;
   notify: Notify; showError: ShowError; analysisResults: AnalysisResultHistory[];
   onAnalysisDeleted: (id: number) => void;
   focusedResultId: number | null;
   onFocusHandled: () => void;
+  historyHasMore: boolean;
+  onLoadMore: () => Promise<void>;
 }) {
+  const [loadingMore, setLoadingMore] = useState(false);
   return (
-    <AnalysisResultHistoryTable
-      items={analysisResults}
-      api={api}
-      notify={notify}
-      showError={showError}
-      onDeleted={onAnalysisDeleted}
-      focusedResultId={focusedResultId}
-      onFocusHandled={onFocusHandled}
-    />
+    <>
+      <AnalysisResultHistoryTable
+        items={analysisResults}
+        api={api}
+        notify={notify}
+        showError={showError}
+        onDeleted={onAnalysisDeleted}
+        focusedResultId={focusedResultId}
+        onFocusHandled={onFocusHandled}
+      />
+      {historyHasMore && <div className="analysis-history-load-more">
+        <button type="button" className="secondary" disabled={loadingMore} onClick={() => {
+          setLoadingMore(true);
+          void onLoadMore()
+            .catch((reason) => showError(fullError(reason)))
+            .finally(() => setLoadingMore(false));
+        }}>{loadingMore ? "Loading older results…" : "Load older results"}</button>
+      </div>}
+    </>
   );
 }
 
@@ -1656,77 +1629,6 @@ const tdStyle: React.CSSProperties = {
 const evenRow: React.CSSProperties = { background: "#111c2e" };
 const oddRow: React.CSSProperties  = { background: "#0f1a2e" };
 
-// ── Recommendations ───────────────────────────────────────────────────────────
-
-type RecommendationRow = { id: number; company: string; ticker?: string; signal: string; confidence: number; target?: number };
-
-function Recommendations({ rows }: { rows: Array<Record<string, unknown>> }) {
-  if (!rows.length) return <p className="empty">No recommendations yet. Run an analysis to populate this page.</p>;
-  const typed = rows as unknown as RecommendationRow[];
-  return (
-    <div className="table">
-      <table>
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Company</th>
-            <th>Ticker</th>
-            <th>Signal</th>
-            <th style={{ textAlign: "right" }}>Confidence</th>
-            <th style={{ textAlign: "right" }}>Target</th>
-          </tr>
-        </thead>
-        <tbody>
-          {typed.map((row, i) => (
-            <tr key={row.id}>
-              <td style={{ color: "#94a3b8", fontSize: ".8rem" }}>{i + 1}</td>
-              <td><strong>{row.company}</strong></td>
-              <td style={{ color: "#94a3b8" }}>{row.ticker || "—"}</td>
-              <td>
-                <span style={{
-                  display: "inline-block", padding: ".2rem .55rem", borderRadius: "4px",
-                  fontSize: ".78rem", fontWeight: 700,
-                  background: SIGNAL_BG[row.signal] ?? "#172033",
-                  color: SIGNAL_COLOR[row.signal] ?? "#e5e7eb",
-                }}>
-                  {row.signal}
-                </span>
-              </td>
-              <td style={{ textAlign: "right" }}>{row.confidence != null ? `${(row.confidence * 100).toFixed(0)}%` : "—"}</td>
-              <td style={{ textAlign: "right" }}>{row.target ?? "—"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-// ── Search ────────────────────────────────────────────────────────────────────
-
-function Search({ api, onResult, showError }: {
-  api: ApiClient; onResult: (rows: Array<Record<string, unknown>>) => void;
-  notify: Notify; showError: ShowError;
-}) {
-  const [query, setQuery] = useState("");
-  const [searching, setSearching] = useState(false);
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    setSearching(true);
-    void api.search(query)
-      .then(onResult)
-      .catch((reason) => showError(fullError(reason)))
-      .finally(() => setSearching(false));
-  };
-  return (
-    <form className="inline" onSubmit={submit}>
-      <input value={query} onChange={(e) => setQuery(e.target.value)}
-        placeholder="Ask about CIB, TMG, or market changes" required />
-      <button disabled={searching}>{searching ? "Searching…" : "Search"}</button>
-    </form>
-  );
-}
-
 // ── Model selector ────────────────────────────────────────────────────────────
 
 function ModelSelector({ api, configured, selected, onChange, showError, compact = false }: {
@@ -1942,6 +1844,7 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
     ai_provider: status?.ai_provider || "qwen",
     openai_model: status?.openai_model || "qwen3-vl-plus",
     ollama_model: status?.ollama_model || "qwen3-vl:4b",
+    qwen_base_url: status?.qwen_base_url || "https://dashscope.aliyuncs.com/compatible-mode/v1",
     ollama_base_url: status?.ollama_base_url || "http://127.0.0.1:11434",
     analysis_include_phrases: status?.analysis_include_phrases || "",
     analysis_exclude_phrases: status?.analysis_exclude_phrases || "",
@@ -2008,6 +1911,7 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
       ai_provider: status.ai_provider,
       openai_model: status.openai_model,
       ollama_model: status.ollama_model,
+      qwen_base_url: status.qwen_base_url,
       ollama_base_url: status.ollama_base_url,
       analysis_include_phrases: status.analysis_include_phrases,
       analysis_exclude_phrases: status.analysis_exclude_phrases,
@@ -2021,7 +1925,8 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
       .then((saved) => {
         setValues((cur) => ({
           ai_provider: cur.ai_provider, openai_model: cur.openai_model, ollama_model: cur.ollama_model,
-          ollama_base_url: cur.ollama_base_url, analysis_include_phrases: saved.analysis_include_phrases,
+          qwen_base_url: cur.qwen_base_url, ollama_base_url: cur.ollama_base_url,
+          analysis_include_phrases: saved.analysis_include_phrases,
           analysis_exclude_phrases: saved.analysis_exclude_phrases,
         }));
         return onSaved();

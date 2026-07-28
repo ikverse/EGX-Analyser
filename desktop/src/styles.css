@@ -1809,6 +1809,18 @@ header strong {
   padding-bottom: .25rem;
 }
 
+.analysis-history-load-more {
+  display: flex;
+  justify-content: center;
+  padding: 1rem 0;
+}
+
+.analysis-input-notice {
+  margin: -.35rem 0 .8rem;
+  color: var(--text-muted);
+  font-size: .88rem;
+}
+
 .analysis-history-table {
   min-width: 980px;
   table-layout: fixed;

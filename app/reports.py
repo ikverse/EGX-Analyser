@@ -1,7 +1,6 @@
 from datetime import datetime, time, timedelta, timezone
 from html import escape
 import json
-import os
 from pathlib import Path
 import re
 from statistics import median
@@ -12,18 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.channel_names import clean_channel_name
 from app.config import Settings
 from app.entry_points import format_entry_point, normalize_entry_point
-from app.models import Channel, Image, Media, Message, Recommendation, Report, Stock, StockMention
+from app.models import Channel, Image, Message, Recommendation, Report, Stock, StockMention
 from app.recommendation_notes import remove_unsupported_targets
 from app.recommendation_signal import recommendation_signal
 from app.time_utils import CAIRO_TIMEZONE, as_cairo, cairo_now
-
-try:
-    import arabic_reshaper
-    from bidi.algorithm import get_display
-except ImportError:
-    arabic_reshaper = None
-    get_display = None
-
 
 def is_stock_related(text: str) -> bool:
     normalized = text.lower()
@@ -51,15 +42,18 @@ class ReportService:
     async def generate_selected_chat_report(self, channel_ids: list[int], start: datetime, end: datetime,
                                              lookback_days: int, consolidated_source: dict | None = None,
                                              consolidated_raw_response: str | None = None,
-                                             report_label: str | None = None) -> Report:
+                                             report_label: str | None = None,
+                                             analyzed_message_count: int | None = None) -> Report:
         return await self._generate(
             start, end, report_label or f"selected chats ({lookback_days} days)", channel_ids,
             consolidated_source=consolidated_source, consolidated_raw_response=consolidated_raw_response,
+            analyzed_message_count=analyzed_message_count,
         )
 
     async def _generate(self, start: datetime, end: datetime, report_mode: str,
                         channel_ids: list[int] | None = None, consolidated_source: dict | None = None,
-                        consolidated_raw_response: str | None = None) -> Report:
+                        consolidated_raw_response: str | None = None,
+                        analyzed_message_count: int | None = None) -> Report:
         filters = [Message.published_at >= start, Message.published_at < end]
         if channel_ids is not None:
             filters.append(Message.channel_id.in_(channel_ids))
@@ -199,9 +193,12 @@ class ReportService:
         directory = self.settings.storage_root / "reports" / generated_at.strftime("%Y-%m-%d")
         directory.mkdir(parents=True, exist_ok=True)
         display_recommendation_count = sum(recommendation_counts.values())
+        displayed_message_count = (
+            analyzed_message_count if analyzed_message_count is not None else len(message_rows)
+        )
         lines = [
             f"# EGX Intelligence Report - {generated_at:%Y-%m-%d}", "",
-            f"## Overview ({report_mode})", f"- Messages: {len(message_rows)}",
+            f"## Overview ({report_mode})", f"- Messages analyzed: {displayed_message_count}",
             f"- Recommendations: {display_recommendation_count}", "", "## Chat relevance",
         ]
         lines += [f"- {item['channel']}: {item['status']} | Messages {item['messages']} | Recommendations {item['recommendations']}" for item in channel_results]
@@ -291,7 +288,7 @@ class ReportService:
             raw_lines.append("No original AI responses were recorded for this analysis window.")
         raw_text_path.write_text("\n".join(raw_lines), encoding="utf-8")
         report = Report(markdown_path=str(markdown_path), html_path=str(html_path), pdf_path="", summary={
-            "mode": report_mode, "consensus": consensus, "message_count": len(message_rows),
+            "mode": report_mode, "consensus": consensus, "message_count": displayed_message_count,
             "recommendation_count": display_recommendation_count, "channel_results": channel_results,
             "stock_code_summary": stock_code_summary, "stock_code_details": stock_code_details,
             "stock_source_table": stock_source_table,
@@ -308,27 +305,6 @@ class ReportService:
 def _median(values: list[float | None]) -> float | None:
     numeric = [value for value in values if value is not None]
     return median(numeric) if numeric else None
-
-
-def _wrap_pdf_line(value: str, width: int) -> list[str]:
-    return [value[index:index + width] for index in range(0, max(len(value), 1), width)]
-
-
-def _format_pdf_text(value: str) -> str:
-    if arabic_reshaper is not None and get_display is not None:
-        return get_display(arabic_reshaper.reshape(value))
-    return value
-
-
-def _raw_pdf_font() -> str:
-    font_name = "EGXUnicode"
-    if font_name in pdfmetrics.getRegisteredFontNames():
-        return font_name
-    font_path = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts" / "arial.ttf"
-    if font_path.exists():
-        pdfmetrics.registerFont(TTFont(font_name, str(font_path)))
-        return font_name
-    return "Courier"
 
 
 def _consolidated_source_output(message_rows: list[tuple[Message, Channel]]) -> dict | None:

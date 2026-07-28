@@ -12,14 +12,12 @@ def recommendation_signal(data_points: list[dict[str, Any]]) -> str:
             .replace("-", "_")
             .replace(" ", "_")
         )
-        if timing_basis in {"watching", "under_watch", "watchlist", "watch"}:
-            continue
         recommendation_type = str(point.get("recommendation_type") or "").strip().lower()
         if recommendation_type == "buy":
             actionable.add("BUY")
         elif recommendation_type == "sell":
             actionable.add("SELL")
-        elif not recommendation_type:
+        elif not recommendation_type and timing_basis not in {"watching", "under_watch", "watchlist", "watch"}:
             # Older saved rows predate recommendation_type and were displayed as Buy.
             actionable.add("BUY")
     return next(iter(actionable)) if len(actionable) == 1 else "HOLD"

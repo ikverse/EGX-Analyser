@@ -26,6 +26,7 @@ _SEED_STOCKS: tuple[dict[str, str], ...] = (
     {"ticker": "ABUK", "name_en": "Abu Qir Fertilizers and Chemicals", "name_ar": "أبو قير للأسمدة والصناعات الكيماوية"},
     {"ticker": "ALUM", "name_en": "Aluminium Arabia", "name_ar": "الألومنيوم العربية"},
     {"ticker": "AMER", "name_en": "Amer Group Holding", "name_ar": "عامر جروب"},
+    {"ticker": "ASCM", "name_en": "ASEC Company for Mining", "name_ar": "أسيك للتعدين"},
     {"ticker": "BTFH", "name_en": "Beltone Holding", "name_ar": "بلتون القابضة"},
     {"ticker": "CCAP", "name_en": "Qalaa Holdings", "name_ar": "القلعة للاستثمارات المالية"},
     {"ticker": "CICH", "name_en": "CI Capital Holding", "name_ar": "سي آي كابيتال القابضة"},
@@ -48,6 +49,7 @@ _SEED_STOCKS: tuple[dict[str, str], ...] = (
     {"ticker": "TMGH", "name_en": "Talaat Moustafa Group Holding", "name_ar": "مجموعة طلعت مصطفى القابضة"},
     {"ticker": "ZMID", "name_en": "Zahraa Maadi Investment and Development", "name_ar": "زهراء المعادي للاستثمار والتعمير"},
 )
+_TRUSTED_TICKERS = {entry["ticker"] for entry in _SEED_STOCKS}
 
 
 def normalize_stock_name(value: str | None) -> str:
@@ -157,7 +159,7 @@ class EGXStockCatalog:
     async def ensure(self, force: bool = False) -> dict[str, object]:
         """Seed locally and only download a fresh public catalog when the cache is due."""
         entries = list(_SEED_STOCKS)
-        changed = await self._upsert(entries)
+        changed = await self._upsert(entries, authoritative=True)
         state = self._state()
         refreshed = False
         if self._refresh_due(state, force):
@@ -174,7 +176,7 @@ class EGXStockCatalog:
             self._save_state(state)
         return {"changed": changed, "refreshed": refreshed, **(await self.status())}
 
-    async def _upsert(self, entries: Iterable[dict[str, str]]) -> int:
+    async def _upsert(self, entries: Iterable[dict[str, str]], authoritative: bool = False) -> int:
         stocks = {stock.ticker: stock for stock in (await self.session.scalars(select(Stock))).all()}
         changed = 0
         for entry in entries:
@@ -189,10 +191,12 @@ class EGXStockCatalog:
                 self.session.add(stock)
                 stocks[ticker] = stock
                 changed += 1
-            elif stock.name_en == stock.ticker and name_en and name_en != ticker:
+            elif name_en and name_en != ticker and (
+                authoritative or stock.name_en == stock.ticker
+            ) and stock.name_en != name_en:
                 stock.name_en = name_en
                 changed += 1
-            if name_ar and not stock.name_ar:
+            if name_ar and (authoritative or not stock.name_ar) and stock.name_ar != name_ar:
                 stock.name_ar = name_ar
                 changed += 1
             aliases = list(stock.aliases or [])
@@ -206,7 +210,7 @@ class EGXStockCatalog:
         return changed
 
     async def enrich_consolidated_output(self, payload: dict[str, Any]) -> None:
-        """Fill only missing model identities from the local EGX mapping."""
+        """Use an exact local ticker match, falling back to source identities safely."""
         stocks = (await self.session.scalars(select(Stock))).all()
         by_ticker = {stock.ticker: stock for stock in stocks}
         by_alias = {alias: stock for stock in stocks for alias in _stock_aliases(stock)}
@@ -233,7 +237,12 @@ class EGXStockCatalog:
                 continue
             if not ticker:
                 item["stock_code"] = stock.ticker
-            if not name_en and stock.name_en:
+            trusted_exact_match = bool(ticker and ticker in _TRUSTED_TICKERS)
+            if trusted_exact_match and stock.name_en and stock.name_en != stock.ticker:
                 item["stock_name_en"] = stock.name_en
-            if not name_ar and stock.name_ar:
+            elif not name_en and stock.name_en:
+                item["stock_name_en"] = stock.name_en
+            if trusted_exact_match and stock.name_ar:
+                item["stock_name_ar"] = stock.name_ar
+            elif not name_ar and stock.name_ar:
                 item["stock_name_ar"] = stock.name_ar

@@ -53,6 +53,8 @@ Requires an identifiable EGX stock and explicit actionable context such as `تو
 
 Current price, support, resistance, stop loss, targets, liquidity ranking, sector ranking, important-stock status, a ticker list, or general technical discussion alone is not a recommendation.
 
+`أهم الأسهم اليوم` is explicit recommendation context; extract every stock row from the table directly beneath it. This overrides the general important-stock exclusion.
+
 ### Watching
 
 Use `effective_date_basis: watching` only when the same source explicitly identifies that exact stock as `سهم تحت المراقبة`, `تحت المراقبة`, `سهم للمراقبة`, watching, under watch, stock to watch, or a clear semantic equivalent.

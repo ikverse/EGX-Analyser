@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.1.120
+- Recognized `أهم الأسهم اليوم` as explicit recommendation context and extracted every stock row in its following table while preserving the general important-stock exclusion elsewhere.
+- Merged complementary panels for the same stock and Telegram image into one source row without losing Watching, entry, TP1, TP2, return, stop, or evidence details.
+- Corrected the trusted ASCM identity and made catalog enrichment fall back safely to source-provided names if the local catalog is unavailable or untrusted.
+- Aligned displayed Buy, Sell, and Hold signals with explicit model recommendation types.
+- Reworked automatic and historical analysis windows around exact Cairo calendar boundaries, preserved selected weekend dates, and corrected the inclusive source-date label sent to the model.
+- Prevented background Telegram refreshes from invoking AI, restricted the app to one concurrent model analysis, and retained unsupported voice notes as pending rather than marking them processed.
+- Added accurate analyzed-input counts, paginated Results history, bounded startup retries, retry controls, and complete Qwen endpoint round-tripping in Settings.
+- Removed obsolete PDF, Streamlit, scheduler, Docker, and unused legacy interface paths while keeping existing saved Results compatible.
+- Added regression coverage, refreshed the architecture and user documentation, and made backend lint, backend tests, and the frontend build mandatory in the release workflow.
+
 ## v0.1.119
 - Rebuilt consolidated analysis around one canonical, versioned prompt with a strict same-source date gate and concise runtime context.
 - Prevented incompatible downloaded content-pack prompts from silently overriding the bundled prompt, while recording the selected prompt source and schema in each provider trace.

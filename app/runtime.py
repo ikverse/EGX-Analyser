@@ -21,6 +21,7 @@ def empty_collection_summary() -> dict[str, int]:
         "messages_analyzed": 0,
         "messages_reanalyzed": 0,
         "messages_already_saved": 0,
+        "audio_transcription_pending": 0,
     }
 
 
@@ -40,7 +41,7 @@ class LocalRuntime:
             await self._task
 
     async def collect_once(self, channel_ids: list[int] | None = None, since: datetime | None = None,
-                           analyze_messages: bool = True) -> dict[str, int]:
+                           analyze_messages: bool = False) -> dict[str, int]:
         if self._collection_lock.locked():
             raise RuntimeError("A Telegram collection is already running")
         async with self._collection_lock:
@@ -62,7 +63,7 @@ class LocalRuntime:
             active = [channel.handle for channel in (await session.scalars(statement)).all()]
             if not active:
                 return empty_collection_summary()
-            analyzer = AIAnalysisService(settings) if settings.ai_api_key else None
+            analyzer = AIAnalysisService(settings) if analyze_messages and settings.ai_api_key else None
             count = await TelegramCollector(settings).collect_once(
                 MessageService(session, analyzer), active, since, analyze_messages=analyze_messages
             )
@@ -72,19 +73,12 @@ class LocalRuntime:
     async def _run(self) -> None:
         while True:
             try:
-                summary = await self.collect_once()
+                summary = await self.collect_once(analyze_messages=False)
                 if summary["messages_in_window"]:
                     log.info("telegram_collection_complete", **summary)
             except Exception as error:
                 log.exception("telegram_collection_failed", error=str(error))
             await asyncio.sleep(60)
-
-
-def _last_egx_open_day(value: date) -> date:
-    """Resolve Egypt's Friday/Saturday weekly closure to the preceding Thursday."""
-    while value.weekday() in (4, 5):
-        value -= timedelta(days=1)
-    return value
 
 
 def _next_egx_open_day(value: date) -> date:
@@ -117,15 +111,14 @@ def next_day_analysis_window(now: datetime | None = None) -> tuple[datetime, dat
             thursday -= timedelta(days=1)
         start = datetime.combine(thursday, time.min, tzinfo=cairo).astimezone(timezone.utc)
     else:
-        start = (current - timedelta(days=1)).astimezone(timezone.utc)
+        start = datetime.combine(current.date() - timedelta(days=1), time.min, tzinfo=cairo).astimezone(timezone.utc)
     end = current.astimezone(timezone.utc)
     return start, end, target_date
 
 
 def selected_date_analysis_window(target_date: date, now: datetime | None = None) -> tuple[datetime, datetime, date]:
-    """Use the selected date's prior Cairo day through the Analyze press time."""
+    """Use the exact selected date and its preceding Cairo calendar day."""
     cairo = ZoneInfo("Africa/Cairo")
-    target_date = _last_egx_open_day(target_date)
     start = datetime.combine(target_date - timedelta(days=1), time.min, tzinfo=cairo).astimezone(timezone.utc)
-    end = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    end = datetime.combine(target_date + timedelta(days=1), time.min, tzinfo=cairo).astimezone(timezone.utc)
     return start, end, target_date

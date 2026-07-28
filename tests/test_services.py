@@ -36,7 +36,6 @@ from app.services import AnalyticsService, MessageService, SearchService
 from app.config_store import load_secrets_into_environment, update_config
 from app.content_updates import (
     ContentUpdateService,
-    generate_seed,
     prompt_schema_version,
     public_key_from_seed,
     sign_bytes,
@@ -503,9 +502,11 @@ class StockMentionOnlyAnalyzer:
 @pytest.fixture
 async def session():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as connection: await connection.run_sync(Base.metadata.create_all)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with factory() as current: yield current
+    async with factory() as current:
+        yield current
     await engine.dispose()
 
 
@@ -577,7 +578,7 @@ async def test_egx_catalog_fills_only_missing_model_identity(session):
     assert normalize_stock_name("إلـى البنك التجاري الدولي") == normalize_stock_name("الى البنك التجاري الدولي")
 
 
-async def test_egx_catalog_does_not_replace_model_identity(session):
+async def test_egx_catalog_replaces_conflicting_source_identity_for_exact_ticker(session):
     catalog = EGXStockCatalog(session, "https://catalog.invalid/stocks")
     await catalog._upsert([{
         "ticker": "COMI", "name_en": "Commercial International Bank Egypt", "name_ar": "CIB Arabic",
@@ -594,8 +595,32 @@ async def test_egx_catalog_does_not_replace_model_identity(session):
 
     stock = payload["top_consolidated_recommendations"][0]
     assert stock["stock_code"] == "COMI"
-    assert stock["stock_name_en"] == "Model Name"
-    assert stock["stock_name_ar"] == "Model Arabic"
+    assert stock["stock_name_en"] == "Commercial International Bank Egypt"
+    assert stock["stock_name_ar"] == "CIB Arabic"
+
+
+async def test_egx_catalog_preserves_source_identity_for_untrusted_catalog_ticker(session):
+    catalog = EGXStockCatalog(session, "https://catalog.invalid/stocks")
+    await catalog._upsert([{
+        "ticker": "TEST", "name_en": "Unverified Catalog Name", "name_ar": "اسم غير موثق",
+    }])
+    payload = {
+        "top_consolidated_recommendations": [{
+            "stock_code": "TEST",
+            "stock_name_en": "Name printed in source",
+            "stock_name_ar": "الاسم في المصدر",
+            "data_points": [],
+        }],
+        "achieved_targets": [],
+        "client_inquiry_responses": [],
+        "text_based_categories": {},
+    }
+
+    await catalog.enrich_consolidated_output(payload)
+
+    stock = payload["top_consolidated_recommendations"][0]
+    assert stock["stock_name_en"] == "Name printed in source"
+    assert stock["stock_name_ar"] == "الاسم في المصدر"
 
 
 async def test_egx_catalog_refresh_cache_waits_until_the_weekly_interval(session, tmp_path):
@@ -640,6 +665,7 @@ async def test_analysis_results_returns_only_batch_analysis_reports(session):
     assert results[0]["target_date"] == "2026-07-15"
     assert results[0]["stock_source_table"][0]["ticker"] == "COMI"
     assert results[0]["stock_source_table"][0]["target_date"] == "2026-07-15"
+    assert len(await api.analysis_results(session, limit=1, offset=0)) == 1
 
 
 def test_selected_analysis_requires_valid_content_types():
@@ -773,7 +799,7 @@ def test_internal_signal_is_derived_from_accepted_rows():
     ]) == "SELL"
     assert recommendation_signal([
         {"recommendation_type": "buy", "effective_date_basis": "watching"},
-    ]) == "HOLD"
+    ]) == "BUY"
     assert recommendation_signal([
         {"effective_date_basis": "under-watch"},
     ]) == "HOLD"
@@ -1106,6 +1132,10 @@ def test_canonical_consolidated_prompt_has_one_versioned_contract():
     assert "analysis_summary_ar" not in prompt
     assert "stock_mentions" not in prompt
     assert "image_observations" not in prompt
+    assert (
+        "`أهم الأسهم اليوم` is explicit recommendation context; extract every stock row "
+        "from the table directly beneath it."
+    ) in prompt
     assert prompt.count("## 2. Hard date gate") == 1
 
 
@@ -1151,6 +1181,7 @@ async def test_settings_returns_only_recent_prompt_history_with_total(monkeypatc
         telegram_session=str(tmp_path / "telegram"),
         openai_model="qwen3-vl-plus",
         ollama_model="qwen3-vl:4b",
+        qwen_base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
         ollama_base_url="http://127.0.0.1:11434",
     ))
 
@@ -1159,6 +1190,7 @@ async def test_settings_returns_only_recent_prompt_history_with_total(monkeypatc
     assert status["prompt_customization_history_total"] == 55
     assert len(status["prompt_customization_history"]) == 50
     assert status["prompt_customization_history"][0]["history_index"] == 5
+    assert status["qwen_base_url"] == "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
 
 
 @pytest.mark.asyncio
@@ -1294,7 +1326,7 @@ def test_next_day_analysis_window_uses_current_session_before_egx_opens():
     start, end, target_date = next_day_analysis_window(requested_at)
 
     assert target_date == date(2026, 7, 16)
-    assert start == requested_at - timedelta(days=1)
+    assert start == datetime(2026, 7, 14, 21, tzinfo=timezone.utc)
     assert end == requested_at
 
 
@@ -1325,13 +1357,13 @@ def test_next_day_analysis_window_uses_current_session_at_egx_close():
     assert target_date == date(2026, 7, 16)
 
 
-def test_selected_date_analysis_window_uses_prior_day_through_analyze_time():
+def test_selected_date_analysis_window_uses_exact_cairo_calendar_boundaries():
     requested_at = datetime(2026, 7, 15, 12, tzinfo=timezone.utc)
     start, end, target_date = selected_date_analysis_window(date(2026, 7, 10), requested_at)
 
-    assert start == datetime(2026, 7, 7, 21, tzinfo=timezone.utc)
-    assert end == requested_at
-    assert target_date == date(2026, 7, 9)
+    assert start == datetime(2026, 7, 8, 21, tzinfo=timezone.utc)
+    assert end == datetime(2026, 7, 10, 21, tzinfo=timezone.utc)
+    assert target_date == date(2026, 7, 10)
 
 
 def test_next_day_analysis_window_uses_sunday_after_thursday_market_close():
@@ -1389,11 +1421,14 @@ def test_next_day_analysis_window_keeps_thursday_coverage_on_saturday_for_sunday
     assert target_date == date(2026, 7, 19)
 
 
-def test_selected_date_analysis_window_resolves_egypt_weekend_to_thursday():
-    start, _, target_date = selected_date_analysis_window(date(2026, 7, 18), datetime(2026, 7, 20, tzinfo=timezone.utc))
+def test_selected_date_analysis_window_preserves_weekend_target_date():
+    start, end, target_date = selected_date_analysis_window(
+        date(2026, 7, 18), datetime(2026, 7, 20, tzinfo=timezone.utc),
+    )
 
-    assert start == datetime(2026, 7, 14, 21, tzinfo=timezone.utc)
-    assert target_date == date(2026, 7, 16)
+    assert start == datetime(2026, 7, 16, 21, tzinfo=timezone.utc)
+    assert end == datetime(2026, 7, 18, 21, tzinfo=timezone.utc)
+    assert target_date == date(2026, 7, 18)
 
 
 def test_minimal_validation_trusts_model_classification_for_known_telegram_ids():
@@ -1601,6 +1636,54 @@ def test_minimal_provenance_excludes_unknown_ids_and_restores_one_image_referenc
     assert stock["data_points"][0]["source_image_ref"] == 4
 
 
+def test_same_stock_panels_in_one_image_merge_without_losing_distinct_values():
+    messages = [{"source": "Ostoul", "telegram_message_id": 60311}]
+    references = {
+        13: {
+            "path": "combined.jpg",
+            "source": "Ostoul",
+            "source_message_id": "60311",
+            "image_index": "1",
+        },
+    }
+    payload = {"top_consolidated_recommendations": [{
+        "stock_code": "ASCM",
+        "mention_count": 2,
+        "data_points": [
+            {
+                "source_message_id": "60311",
+                "source_image_ref": 13,
+                "effective_date_basis": "watching",
+                "timing_evidence": "سهم المراقبة",
+                "target_1": 70.25,
+                "target_2": 73.0,
+            },
+            {
+                "source_message_id": "60311",
+                "source_image_ref": 13,
+                "effective_date_basis": "explicit_date",
+                "buy_price_low": 63.5,
+                "buy_price_high": 63.8,
+                "return_tp1_pct": 10.11,
+                "return_tp2_pct": 14.0,
+            },
+        ],
+    }]}
+
+    warnings = normalize_consolidated_output(payload, messages, references)
+
+    assert warnings == []
+    stock = payload["top_consolidated_recommendations"][0]
+    assert stock["mention_count"] == 2
+    assert len(stock["data_points"]) == 1
+    point = stock["data_points"][0]
+    assert point["effective_date_basis"] == "watching"
+    assert point["buy_price_low"] == 63.5
+    assert point["buy_price_high"] == 63.8
+    assert point["target_1"] == 70.25
+    assert point["return_tp2_pct"] == 14.0
+
+
 def test_explicit_date_guard_excludes_mismatch_and_keeps_target_date_and_watching():
     messages = [
         {"source": "CFI Egypt", "telegram_message_id": 60284},
@@ -1723,7 +1806,11 @@ async def test_selected_chat_report_marks_non_stock_context(session, tmp_path):
     session.add(StockMention(message_id=stock_message.id, stock_id=stock.id, ticker_raw="CIB", company_name_raw="Commercial International Bank", context="CIB row", table_data={"price": "92.5", "target": "100"}, confidence=.9))
     await session.flush()
     report = await ReportService(session, type("Settings", (), {"storage_root": tmp_path})()).generate_selected_chat_report(
-        [stock_message.channel_id, non_stock_message.channel_id], datetime.now(timezone.utc) - timedelta(days=3), datetime.now(timezone.utc) + timedelta(minutes=1), 3
+        [stock_message.channel_id, non_stock_message.channel_id],
+        datetime.now(timezone.utc) - timedelta(days=3),
+        datetime.now(timezone.utc) + timedelta(minutes=1),
+        3,
+        analyzed_message_count=1,
     )
     statuses = {item["channel"]: item["status"] for item in report.summary["channel_results"]}
     assert statuses["stocks"] == "recommendations_found"
@@ -1739,8 +1826,9 @@ async def test_selected_chat_report_marks_non_stock_context(session, tmp_path):
     assert details[0]["details"] == [{"price": "92.5", "target": "100", "context": "CIB row"}]
     assert "CIB row" in (details[0].get("notes") or "")
     raw_text_path = Path(report.summary["original_ai_response_text_path"])
-    raw_pdf_path = Path(report.summary["original_ai_response_pdf_path"])
-    assert raw_text_path.exists() and raw_pdf_path.exists()
+    assert raw_text_path.exists()
+    assert report.summary["message_count"] == 1
+    assert "- Messages analyzed: 1" in Path(report.markdown_path).read_text(encoding="utf-8")
     assert stock_message.ai_response_raw in raw_text_path.read_text(encoding="utf-8")
 
 
@@ -1908,6 +1996,31 @@ async def test_collection_lock_returns_409(monkeypatch):
     assert exc_info.value.status_code == 409
     assert "already running" in exc_info.value.detail.lower()
     locked_runtime._collection_lock.release()
+
+
+def test_background_collection_defaults_to_storage_only():
+    from app.collector.telegram import TelegramCollector
+    from app.runtime import LocalRuntime
+
+    assert LocalRuntime.collect_once.__defaults__[-1] is False
+    assert TelegramCollector.collect_once.__defaults__[-1] is False
+
+
+async def test_global_analysis_lock_rejects_a_second_model_request(session):
+    from app import api as api_module
+
+    await api_module._analysis_lock.acquire()
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            await api_module.analyze_selected_channels(
+                CollectionRequest(channel_ids=[999], content_types={"images"}),
+                session,
+            )
+    finally:
+        api_module._analysis_lock.release()
+
+    assert exc_info.value.status_code == 409
+    assert "another ai analysis" in exc_info.value.detail.lower()
 
 
 async def test_empty_selected_analysis_returns_422_instead_of_logging_error(session, tmp_path, monkeypatch):
