@@ -110,6 +110,12 @@ def test_results_ui_keeps_history_and_settings_compact():
     assert "All target dates" in app_source
     assert "All sources" in app_source
     assert "No recommendations found" in app_source
+    assert "expandedTargetGroups" not in app_source
+    assert "<strong>Recommendations table</strong>" in app_source
+    assert "<strong>Client inquiry replies</strong>" in app_source
+    assert 'const [expandedSection, setExpandedSection] = useState<"recommendations" | "inquiries" | null>("recommendations");' in app_source
+    assert "rankOrder={rankOrder}" in app_source
+    assert '<span className="consolidated-rank">#{displayRank}</span>' in app_source
     assert "AnalysisRunOverview" not in app_source
     assert "{percent(row.return_tp1_pct)}" in app_source
     assert "{percent(row.return_tp2_pct)}" in app_source
@@ -1711,10 +1717,14 @@ def test_same_stock_panels_in_one_image_merge_without_losing_distinct_values():
     assert len(stock["data_points"]) == 1
     point = stock["data_points"][0]
     assert point["effective_date_basis"] == "watching"
+    assert point["effective_date_bases"] == ["watching", "explicit_date"]
     assert point["buy_price_low"] == 63.5
     assert point["buy_price_high"] == 63.8
     assert point["target_1"] == 70.25
     assert point["return_tp2_pct"] == 14.0
+
+    row = _consolidated_source_table(payload)[0]
+    assert row["effective_date_bases"] == ["watching", "explicit_date"]
 
 
 def test_explicit_date_guard_excludes_mismatch_and_keeps_target_date_and_watching():

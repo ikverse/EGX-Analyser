@@ -596,6 +596,18 @@ def _consolidated_source_table(payload: dict) -> list[dict]:
             if not isinstance(point, dict):
                 continue
             source = str(point.get("source") or "Unspecified")
+            effective_date_bases: list[str] = []
+            seen_effective_date_bases: set[str] = set()
+            basis_candidates = point.get("effective_date_bases")
+            candidates = list(basis_candidates) if isinstance(basis_candidates, list) else []
+            if point.get("effective_date_basis"):
+                candidates.append(point["effective_date_basis"])
+            for value in candidates:
+                label = str(value or "").strip()
+                key = label.casefold().replace("-", "_").replace(" ", "_")
+                if label and key not in seen_effective_date_bases:
+                    seen_effective_date_bases.add(key)
+                    effective_date_bases.append(label)
             rows.append({
                 "rank": item.get("rank"),
                 "ticker": str(item["stock_code"]).upper(),
@@ -608,7 +620,7 @@ def _consolidated_source_table(payload: dict) -> list[dict]:
                 "source_entries": 1,
                 "source_dates": [str(point["date"])[:10]] if point.get("date") else [],
                 "latest_date": str(point["date"])[:10] if point.get("date") else None,
-                "effective_date_bases": [str(point["effective_date_basis"])] if point.get("effective_date_basis") else [],
+                "effective_date_bases": effective_date_bases,
                 "mention_count": int(item.get("mention_count") or 1),
                 "analysis_summary_ar": str(item.get("analysis_summary_ar") or ""),
                 "notes_summary": notes_summary,

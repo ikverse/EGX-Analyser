@@ -1016,27 +1016,21 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted, 
   onFocusHandled: () => void;
 }) {
   const [expandedAnalysis, setExpandedAnalysis] = useState<number | null>(null);
-  const [inquiriesOpen, setInquiriesOpen] = useState(false);
+  const [expandedSection, setExpandedSection] = useState<"recommendations" | "inquiries" | null>("recommendations");
   const [stockQuery, setStockQuery] = useState("");
   const [deleteCandidate, setDeleteCandidate] = useState<AnalysisResultHistory | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [targetFilter, setTargetFilter] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
   const [resultFilter, setResultFilter] = useState<"all" | "with-results" | "empty">("all");
-  const [expandedTargetGroups, setExpandedTargetGroups] = useState<Set<string>>(new Set());
   const rowRefs = useRef(new Map<number, HTMLTableRowElement>());
 
   useEffect(() => {
     const focusedItem = items.find((item) => item.id === focusedResultId);
     if (focusedResultId === null || !focusedItem) return;
     setExpandedAnalysis(focusedResultId);
-    setInquiriesOpen(false);
+    setExpandedSection("recommendations");
     setStockQuery("");
-    setExpandedTargetGroups((current) => {
-      const next = new Set(current);
-      next.add(focusedItem.target_date || "no-target");
-      return next;
-    });
     const frame = window.requestAnimationFrame(() => {
       rowRefs.current.get(focusedResultId)?.scrollIntoView({ behavior: "smooth", block: "center" });
     });
@@ -1054,7 +1048,7 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted, 
       .then(() => {
         if (expandedAnalysis === deleteCandidate.id) {
           setExpandedAnalysis(null);
-          setInquiriesOpen(false);
+          setExpandedSection("recommendations");
         }
         onDeleted(deleteCandidate.id);
         setDeleteCandidate(null);
@@ -1067,11 +1061,11 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted, 
   const toggleAnalysis = (id: number) => {
     if (expandedAnalysis === id) {
       setExpandedAnalysis(null);
-      setInquiriesOpen(false);
+      setExpandedSection("recommendations");
       return;
     }
     setExpandedAnalysis(id);
-    setInquiriesOpen(false);
+    setExpandedSection("recommendations");
     setStockQuery("");
   };
 
@@ -1087,11 +1081,6 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted, 
     return (!targetFilter || item.target_date === targetFilter)
       && (!sourceFilter || resultSources(item).includes(sourceFilter))
       && (resultFilter === "all" || (resultFilter === "with-results" ? hasResults : !hasResults));
-  });
-  const groupedResults = new Map<string, AnalysisResultHistory[]>();
-  filteredItems.forEach((item) => {
-    const key = item.target_date || "no-target";
-    groupedResults.set(key, [...(groupedResults.get(key) || []), item]);
   });
 
   return (
@@ -1130,28 +1119,12 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted, 
             <tr><th>Result</th><th>Generated</th><th>Sources</th><th>Findings</th><th className="analysis-history-actions-heading">Actions</th></tr>
           </thead>
           <tbody>
-            {[...groupedResults.entries()].map(([targetKey, groupItems]) => {
-              const groupOpen = expandedTargetGroups.has(targetKey);
-              const visibleItems = groupOpen ? groupItems : groupItems.slice(0, 1);
-              return <Fragment key={`target-${targetKey}`}>
-                {groupItems.length > 1 && <tr className="analysis-history-target-group">
-                  <td colSpan={5}>
-                    <button type="button" onClick={() => setExpandedTargetGroups((current) => {
-                      const next = new Set(current);
-                      if (next.has(targetKey)) next.delete(targetKey);
-                      else next.add(targetKey);
-                      return next;
-                    })}>
-                      <span><strong>Target {formatTargetDate(targetKey === "no-target" ? null : targetKey)}</strong><small>{groupItems.length} saved runs</small></span>
-                      <span>{groupOpen ? "Hide older runs" : `Show ${groupItems.length - 1} older run${groupItems.length === 2 ? "" : "s"}`}</span>
-                    </button>
-                  </td>
-                </tr>}
-                {visibleItems.map((item) => {
+            {filteredItems.map((item) => {
                   const analysisOpen = expandedAnalysis === item.id;
                   const stockCount = new Set(item.stock_source_table.map((row) => row.ticker)).size;
                   const sources = resultSources(item);
                   const hasRecommendations = item.stock_source_table.length > 0;
+                  const rankOrder = [...new Set(item.stock_source_table.map((row) => row.ticker))];
                   return <Fragment key={item.id}>
                     <tr
                       className={[
@@ -1205,32 +1178,42 @@ function AnalysisResultHistoryTable({ items, api, notify, showError, onDeleted, 
                     {analysisOpen && (
                       <tr className="analysis-history-expanded">
                         <td colSpan={5}>
-                          <div className="analysis-expanded-meta">
-                            <span>{contentTypeLabel(item.content_types)} analyzed</span>
-                            {item.audio_transcription_pending > 0 && <span>{item.audio_transcription_pending} voice note{item.audio_transcription_pending === 1 ? "" : "s"} pending</span>}
-                          </div>
-                          {hasRecommendations && <label className="analysis-result-search">
-                            Find stock code or name
-                            <input
-                              value={stockQuery}
-                              onChange={(event) => setStockQuery(event.target.value)}
-                              placeholder="COMI, Commercial International Bank, البنك التجاري…"
-                            />
-                          </label>}
-                          <ConsolidatedStockTable rows={item.stock_source_table.filter((row) => matchesStockQuery(row, stockQuery))} />
-                          {item.client_inquiry_responses.length > 0 && <>
-                            <button type="button" className="analysis-section-row analysis-section-reference" onClick={() => setInquiriesOpen((current) => !current)} aria-expanded={inquiriesOpen}>
-                              <span><strong>Client inquiry replies</strong><small>Reference only - excluded from recommendations</small></span>
-                              <span>{item.client_inquiry_responses.length} {inquiriesOpen ? "· Collapse" : "· View"}</span>
+                          <div className="analysis-section-list">
+                            <button type="button" className="analysis-section-row" onClick={() => setExpandedSection((current) => current === "recommendations" ? null : "recommendations")} aria-expanded={expandedSection === "recommendations"}>
+                              <span>
+                                <strong>Recommendations table</strong>
+                                <small>{contentTypeLabel(item.content_types)} analyzed · One row for each dated source recommendation</small>
+                              </span>
+                              <span>{item.stock_source_table.length} row{item.stock_source_table.length === 1 ? "" : "s"} · {expandedSection === "recommendations" ? "Hide" : "View"}</span>
                             </button>
-                            {inquiriesOpen && <div className="analysis-section-content"><ClientInquiryResponses rows={item.client_inquiry_responses} /></div>}
-                          </>}
+                            {expandedSection === "recommendations" && <div className="analysis-section-content">
+                              {hasRecommendations && <label className="analysis-result-search">
+                                Find stock code or name
+                                <input
+                                  value={stockQuery}
+                                  onChange={(event) => setStockQuery(event.target.value)}
+                                  placeholder="COMI, Commercial International Bank, البنك التجاري…"
+                                />
+                              </label>}
+                              <ConsolidatedStockTable
+                                rows={item.stock_source_table.filter((row) => matchesStockQuery(row, stockQuery))}
+                                rankOrder={rankOrder}
+                              />
+                            </div>}
+                            <button type="button" className="analysis-section-row analysis-section-reference" onClick={() => setExpandedSection((current) => current === "inquiries" ? null : "inquiries")} aria-expanded={expandedSection === "inquiries"}>
+                              <span><strong>Client inquiry replies</strong><small>Reference only - excluded from recommendations</small></span>
+                              <span>{item.client_inquiry_responses.length} repl{item.client_inquiry_responses.length === 1 ? "y" : "ies"} · {expandedSection === "inquiries" ? "Hide" : "View"}</span>
+                            </button>
+                            {expandedSection === "inquiries" && <div className="analysis-section-content">
+                              {item.client_inquiry_responses.length
+                                ? <ClientInquiryResponses rows={item.client_inquiry_responses} />
+                                : <p className="analysis-section-empty">No client inquiry replies were returned for this run.</p>}
+                            </div>}
+                          </div>
                         </td>
                       </tr>
                     )}
                   </Fragment>;
-                })}
-              </Fragment>;
             })}
           </tbody>
         </table>
@@ -1329,7 +1312,7 @@ function SuccessModal({ message, onClose, onOpenResult }: { message: string; onC
   );
 }
 
-function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
+function ConsolidatedStockTable({ rows, rankOrder }: { rows: StockSourceTableRow[]; rankOrder?: string[] }) {
   const [sourceImages, setSourceImages] = useState<{ paths: string[]; title: string } | null>(null);
   const grouped = new Map<string, StockSourceTableRow[]>();
   rows.forEach((row) => {
@@ -1376,11 +1359,13 @@ function ConsolidatedStockTable({ rows }: { rows: StockSourceTableRow[] }) {
           </tr></thead>
           {[...grouped.entries()].map(([ticker, stockRows]) => {
             const first = stockRows[0];
+            const orderedRank = rankOrder?.indexOf(ticker) ?? -1;
+            const displayRank = orderedRank >= 0 ? orderedRank + 1 : [...grouped.keys()].indexOf(ticker) + 1;
             return (
               <tbody key={ticker}>
                 <tr className="consolidated-stock-group"><td colSpan={15}>
                   <div className="consolidated-stock-group-content">
-                    <span className="consolidated-rank">#{first.rank ?? "—"}</span>
+                    <span className="consolidated-rank">#{displayRank}</span>
                     <strong>{first.ticker}</strong>
                     <span>{first.company}</span>
                     {first.company_ar && <span className="consolidated-company-ar">{first.company_ar}</span>}
@@ -2086,17 +2071,21 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
     <div className="settings">
 
       <div className="settings-overview" aria-label="Current configuration">
-        <button type="button" onClick={() => navigateToSection("ai")} aria-controls="settings-section-ai">
-          <strong>AI</strong><span className="settings-overview-value" title={`${providerDetails[provider].label} · ${configuredModel || "No model selected"}`}>{providerDetails[provider].label} · {configuredModel || "No model selected"}</span>
+        <button type="button" className={openSection === "ai" ? "is-active" : ""} onClick={() => navigateToSection("ai")} aria-controls="settings-section-ai" aria-expanded={openSection === "ai"}>
+          <span><strong>AI</strong><span className="settings-overview-value" title={`${providerDetails[provider].label} · ${configuredModel || "No model selected"}`}>{providerDetails[provider].label} · {configuredModel || "No model selected"}</span></span>
+          <Icon name="chevron-right" size={16} />
         </button>
-        <button type="button" onClick={() => navigateToSection("telegram")} aria-controls="settings-section-telegram">
-          <strong>Telegram</strong><span className="settings-overview-value">{status?.telegram_authorized ? "Connected" : "Not connected"}</span>
+        <button type="button" className={openSection === "telegram" ? "is-active" : ""} onClick={() => navigateToSection("telegram")} aria-controls="settings-section-telegram" aria-expanded={openSection === "telegram"}>
+          <span><strong>Telegram</strong><span className="settings-overview-value">{status?.telegram_authorized ? "Connected" : "Not connected"}</span></span>
+          <Icon name="chevron-right" size={16} />
         </button>
-        <button type="button" onClick={() => navigateToSection("catalog")} aria-controls="settings-section-catalog">
-          <strong>Catalog</strong><span className="settings-overview-value">{catalogStatus ? `${catalogStatus.stock_count} stocks` : "Loading"}</span>
+        <button type="button" className={openSection === "catalog" ? "is-active" : ""} onClick={() => navigateToSection("catalog")} aria-controls="settings-section-catalog" aria-expanded={openSection === "catalog"}>
+          <span><strong>Catalog</strong><span className="settings-overview-value">{catalogStatus ? `${catalogStatus.stock_count} stocks` : "Loading"}</span></span>
+          <Icon name="chevron-right" size={16} />
         </button>
-        <button type="button" onClick={() => navigateToSection("application")} aria-controls="settings-section-application">
-          <strong>App</strong><span className="settings-overview-value">v{appVersion || "..."}</span>
+        <button type="button" className={openSection === "application" ? "is-active" : ""} onClick={() => navigateToSection("application")} aria-controls="settings-section-application" aria-expanded={openSection === "application"}>
+          <span><strong>App</strong><span className="settings-overview-value">v{appVersion || "..."}</span></span>
+          <Icon name="chevron-right" size={16} />
         </button>
       </div>
 

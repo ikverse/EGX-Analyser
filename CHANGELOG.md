@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.122
+- Restored chronological Results history with every saved run directly visible, while retaining compact target-date, source, and result filters.
+- Restored the clickable Recommendations table and Client inquiry replies sections, opened recommendations by default, and kept the inquiry section visible even when no replies were returned.
+- Preserved both Explicit date and Watching timing meanings when complementary panels for one stock and image are merged instead of silently preferring one meaning.
+- Renumbered displayed stock groups consecutively after exclusions so every result begins at `#1` without changing stored model ranks.
+- Rebalanced Results and Settings spacing, improved light-theme source contrast, restored readable section hierarchy, and added clearer active navigation cues to Settings summary cards.
+- Added regression coverage for timing preservation, restored result sections, chronological history, and consecutive displayed ranks; verified the complete backend suite and production frontend build.
+
 ## v0.1.121
 - Redesigned Results history with compact rows, target-date grouping, source and result filters, a latest-run indicator, clear empty-result states, and less prominent destructive actions.
 - Opened recommendation details immediately from each clickable, keyboard-accessible result row, kept only one run expanded, and hid empty inquiry sections and duplicated run summaries.

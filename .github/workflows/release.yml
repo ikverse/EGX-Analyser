@@ -1,5 +1,5 @@
 name: Publish desktop update
-run-name: ${{ github.ref_name }} - Compact results history, clearer recommendation tables, and settings navigation
+run-name: ${{ github.ref_name }} - Restore result sections, complete timing context, and readable settings
 
 on:
   push:

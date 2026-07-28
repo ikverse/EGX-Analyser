@@ -33,6 +33,22 @@ _MERGED_TEXT_FIELDS = {
 }
 
 
+def _effective_date_bases(point: dict[str, Any]) -> list[str]:
+    values = point.get("effective_date_bases")
+    candidates = list(values) if isinstance(values, list) else []
+    if point.get("effective_date_basis"):
+        candidates.append(point["effective_date_basis"])
+    bases: list[str] = []
+    seen: set[str] = set()
+    for value in candidates:
+        label = str(value or "").strip()
+        key = label.casefold().replace("-", "_").replace(" ", "_")
+        if label and key not in seen:
+            seen.add(key)
+            bases.append(label)
+    return bases
+
+
 def _merge_same_source_points(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Merge repeated same-stock panels from one Telegram image into one result row."""
     merged: list[dict[str, Any]] = []
@@ -46,14 +62,17 @@ def _merge_same_source_points(points: list[dict[str, Any]]) -> list[dict[str, An
         existing = by_source.get(key)
         if existing is None:
             existing = dict(point)
+            existing["effective_date_bases"] = _effective_date_bases(existing)
             by_source[key] = existing
             merged.append(existing)
             continue
 
-        existing_basis = str(existing.get("effective_date_basis") or "").casefold()
-        incoming_basis = str(point.get("effective_date_basis") or "").casefold()
-        if "watch" in incoming_basis and "watch" not in existing_basis:
-            existing["effective_date_basis"] = point.get("effective_date_basis")
+        existing["effective_date_bases"] = _effective_date_bases({
+            "effective_date_bases": [
+                *_effective_date_bases(existing),
+                *_effective_date_bases(point),
+            ],
+        })
 
         for field, value in point.items():
             if value is None or value == "":
