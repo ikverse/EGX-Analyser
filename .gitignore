@@ -18,5 +18,6 @@ desktop-build.log
 desktop/node_modules/
 desktop/dist/
 desktop/src-tauri/target/
+desktop/src-tauri/sidecar/
 desktop/.tauri/
 release/

@@ -35,7 +35,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="EGX Stock Intelligence", version="0.1.124", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://tauri.localhost", "https://tauri.localhost"],
+    # Packaged builds serve the UI from tauri.localhost; `tauri dev` serves it
+    # from the Vite dev server instead.
+    allow_origins=["http://tauri.localhost", "https://tauri.localhost", "http://localhost:1420"],
     allow_methods=["*"],
     allow_headers=["*"],
 )

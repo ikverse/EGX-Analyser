@@ -72,9 +72,13 @@ try {
     if (Test-Path $sidecarsDir) { Remove-Item $sidecarsDir -Recurse -Force }
     Copy-Item "dist\egx-intelligence-api" $sidecarsDir -Recurse -Force
     $sidecarExe = Join-Path $sidecarsDir "egx-intelligence-api.exe"
-    $pythonDll = Join-Path $sidecarsDir "_internal\python312.dll"
+    # Match whichever CPython the build used (python313.dll, python314.dll, ...)
+    # rather than the version-less python3.dll stable-ABI forwarder.
+    $internalDir = Join-Path $sidecarsDir "_internal"
+    $pythonDll = Get-ChildItem $internalDir -Filter "python3*.dll" -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^python3\d+\.dll$' } | Select-Object -First 1
     if (-not (Test-Path $sidecarExe)) { throw "Sidecar executable was not produced: $sidecarExe" }
-    if (-not (Test-Path $pythonDll)) { throw "PyInstaller sidecar is missing python312.dll: $pythonDll" }
+    if (-not $pythonDll) { throw "PyInstaller sidecar is missing its CPython runtime DLL in $internalDir" }
     Write-Host "Sidecar folder copied to $sidecarsDir" -ForegroundColor Green
     Write-BuildTiming -Stage "Python sidecar packaging" -StartedAt $sidecarStartedAt
     Push-Location "desktop\src-tauri"
