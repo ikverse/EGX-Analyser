@@ -3,17 +3,25 @@ import base64
 import hashlib
 import json
 from pathlib import Path
+import shutil
 import sys
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from app.content_updates import generate_seed, public_key_from_seed, sign_manifest
+from app.content_updates import (
+    generate_seed,
+    prompt_schema_version,
+    public_key_from_seed,
+    sign_manifest,
+)
 
 PRIVATE_KEY_PATH = ROOT / ".content-update-private.key"
 PUBLIC_KEY_PATH = ROOT / "app" / "content_pack_public_key.txt"
 SOURCE_PATH = ROOT / "remote-content" / "source"
+PROMPT_PATH = ROOT / "app" / "ai" / "prompts"
+PROMPT_FILES = ("recommendation.md", "consolidated_recommendation.md")
 ARCHIVE_PATH = ROOT / "remote-content" / "content-pack.zip"
 MANIFEST_PATH = ROOT / "remote-content" / "content-pack.json"
 ARCHIVE_URL = "https://raw.githubusercontent.com/ikverse/EGX-Analyser/main/remote-content/content-pack.zip"
@@ -37,10 +45,30 @@ def initialize() -> None:
     print("Back up the private key securely. Never commit or share it.")
 
 
+def stage_prompts() -> None:
+    """Copy the bundled prompts into the pack source.
+
+    app/ai/prompts holds the prompts the application falls back to, so they are
+    the canonical copies. Staging them here keeps a published pack from drifting
+    away from the fallback, and rejects a prompt the app would refuse to load:
+    select_prompt() only accepts a packaged prompt whose schema marker matches
+    the bundled one, so an unmarked prompt would ship an inert pack.
+    """
+    SOURCE_PATH.mkdir(parents=True, exist_ok=True)
+    for name in PROMPT_FILES:
+        bundled = PROMPT_PATH / name
+        if not bundled.exists():
+            continue
+        if prompt_schema_version(bundled) is None:
+            raise SystemExit(f"{name} is missing its EGX_PROMPT_SCHEMA marker.")
+        shutil.copyfile(bundled, SOURCE_PATH / name)
+
+
 def build(version: str) -> None:
     seed = read_seed()
     if not PUBLIC_KEY_PATH.exists():
         raise SystemExit("The public verification key is missing.")
+    stage_prompts()
     allowed_files = {
         "recommendation.md",
         "consolidated_recommendation.md",
@@ -65,14 +93,19 @@ def build(version: str) -> None:
     print(f"Built signed content pack {version}.")
 
 
-parser = argparse.ArgumentParser(description="Create and sign EGX Intelligence content packs.")
-subcommands = parser.add_subparsers(dest="command", required=True)
-subcommands.add_parser("init")
-build_parser = subcommands.add_parser("build")
-build_parser.add_argument("--version", required=True)
-arguments = parser.parse_args()
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Create and sign EGX Intelligence content packs.")
+    subcommands = parser.add_subparsers(dest="command", required=True)
+    subcommands.add_parser("init")
+    build_parser = subcommands.add_parser("build")
+    build_parser.add_argument("--version", required=True)
+    arguments = parser.parse_args()
 
-if arguments.command == "init":
-    initialize()
-else:
-    build(arguments.version)
+    if arguments.command == "init":
+        initialize()
+    else:
+        build(arguments.version)
+
+
+if __name__ == "__main__":
+    main()

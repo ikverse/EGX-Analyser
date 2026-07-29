@@ -5,6 +5,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
@@ -1317,6 +1318,72 @@ def test_content_pack_installs_prompt_and_aliases(tmp_path):
     assert manager.active_version() == "1.0.0"
     assert manager.file_path("recommendation.md").read_text(encoding="utf-8") == "Updated prompt"
     assert manager.stock_aliases()["cib arabic"] == "CIB"
+
+
+def test_published_content_pack_ships_every_prompt_at_the_bundled_schema():
+    """The published pack must carry prompts the app will actually accept.
+
+    select_prompt() ignores a packaged prompt whose schema marker does not match
+    the bundled one, so a pack missing a prompt - or carrying an unmarked one -
+    silently delivers nothing.
+    """
+    import zipfile
+
+    from app.content_updates import _ALLOWED_FILES, prompt_schema_version
+
+    root = Path(__file__).resolve().parents[1]
+    prompt_directory = root / "app" / "ai" / "prompts"
+    with zipfile.ZipFile(root / "remote-content" / "content-pack.zip") as archive:
+        packaged = set(archive.namelist())
+        assert packaged <= _ALLOWED_FILES, f"pack carries unsupported files: {packaged - _ALLOWED_FILES}"
+        for bundled in sorted(prompt_directory.glob("*.md")):
+            assert bundled.name in packaged, f"{bundled.name} is missing from the published pack"
+            packaged_text = archive.read(bundled.name).decode("utf-8")
+            assert _prompt_schema_of(packaged_text) == prompt_schema_version(bundled)
+
+
+def _prompt_schema_of(text: str) -> int | None:
+    match = re.search(r"<!--\s*EGX_PROMPT_SCHEMA:\s*(\d+)\s*-->", text[:512])
+    return int(match.group(1)) if match else None
+
+
+def test_content_pack_build_rejects_a_prompt_without_a_schema_marker(tmp_path, monkeypatch):
+    content_pack = _load_content_pack_script()
+    prompt_directory = tmp_path / "prompts"
+    prompt_directory.mkdir()
+    (prompt_directory / "recommendation.md").write_text("No marker here", encoding="utf-8")
+    monkeypatch.setattr(content_pack, "PROMPT_PATH", prompt_directory)
+    monkeypatch.setattr(content_pack, "SOURCE_PATH", tmp_path / "source")
+
+    with pytest.raises(SystemExit, match="EGX_PROMPT_SCHEMA"):
+        content_pack.stage_prompts()
+
+
+def test_content_pack_build_stages_bundled_prompts_into_the_pack_source(tmp_path, monkeypatch):
+    content_pack = _load_content_pack_script()
+    prompt_directory = tmp_path / "prompts"
+    prompt_directory.mkdir()
+    (prompt_directory / "recommendation.md").write_text(
+        "<!-- EGX_PROMPT_SCHEMA: 7 -->\nCanonical", encoding="utf-8",
+    )
+    source_directory = tmp_path / "source"
+    monkeypatch.setattr(content_pack, "PROMPT_PATH", prompt_directory)
+    monkeypatch.setattr(content_pack, "SOURCE_PATH", source_directory)
+
+    content_pack.stage_prompts()
+
+    staged = (source_directory / "recommendation.md").read_text(encoding="utf-8")
+    assert staged == "<!-- EGX_PROMPT_SCHEMA: 7 -->\nCanonical"
+
+
+def _load_content_pack_script():
+    import importlib.util
+
+    path = Path(__file__).resolve().parents[1] / "scripts" / "content_pack.py"
+    spec = importlib.util.spec_from_file_location("egx_content_pack_script", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def test_incompatible_content_pack_prompt_falls_back_to_bundled_prompt(tmp_path):
