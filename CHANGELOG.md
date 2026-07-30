@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.1.126
+- Stopped discarding recommendations whose printed source date differs from the analysed session, which had been deleting whole cards published during one session for the next one.
+- Recovered every stock from `T+1` and `T+2` cards, where the date printed on the image is deliberately the previous session; the last saved run kept four of the nine stocks the model returned.
+- Left the decision of which session a recommendation belongs to with the model, since the source window already limits which messages reach it.
+- Brought the desktop into line with Android, which has never applied this filter and reports these cards correctly.
+- Kept provenance enforcement unchanged: a row whose Telegram message the local sources cannot account for is still excluded.
+- Removed the Arabic-digit table, month map, and source-date parser that existed only to serve the deleted rule.
+- Replaced the tests that asserted the old behaviour with coverage for a kept `T+1` card and a still-excluded unknown message.
+
 ## v0.1.125
 - Added an Insights page that scores every saved recommendation against what the market actually did, separating the calls that could be judged from those that could not.
 - Ranked each Telegram source by its own record: hit rate, average return, median sessions to target, stops taken, and calls whose entry never traded.
