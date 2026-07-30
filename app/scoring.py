@@ -3,8 +3,9 @@
 Outcomes are decided by comparing target and stop levels to the session high and low, which is
 arithmetic rather than judgement, so no model is involved.
 """
+import asyncio
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timezone
 from enum import StrEnum
 
 import httpx
@@ -17,6 +18,12 @@ from app.models import DailyPrice
 # the weekend, so counting those would shorten every window by two days in five.
 MIN_WINDOW_SESSIONS = 1
 MAX_WINDOW_SESSIONS = 30
+
+# History comes from the same provider the quote feed proxies, addressed directly because that
+# feed reports only the current session. A month of calendar days is requested to be sure of
+# covering the sessions wanted once weekends and holidays are removed.
+YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}.CA"
+_BACKFILL_CONCURRENCY = 4
 
 
 class Outcome(StrEnum):
@@ -44,40 +51,28 @@ def clamp_window(sessions: int) -> int:
     return max(MIN_WINDOW_SESSIONS, min(MAX_WINDOW_SESSIONS, sessions))
 
 
-async def fetch_daily_quotes(url: str) -> list[dict[str, object]]:
-    """One request returns every symbol's session high and low."""
+async def latest_quotes(url: str) -> dict[str, dict[str, object]]:
+    """
+    Current prices, keyed by ticker.
+
+    Used to show where a stock is trading now. Deliberately not written into daily_prices: this
+    feed reports no session date - its timestamp is when the request was served - so storing it
+    against a calendar date invents a session on any day the market did not trade, and
+    double-counts one it did.
+    """
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         response = await client.get(url)
         response.raise_for_status()
         payload = response.json()
     rows = payload if isinstance(payload, list) else payload.get("results") or payload.get("quotes")
-    return [row for row in (rows or []) if isinstance(row, dict) and row.get("symbol")]
-
-
-async def store_quotes(
-    session: AsyncSession, quotes: list[dict[str, object]], session_date: date,
-) -> int:
-    """Upserts one session per ticker, so re-running a day corrects it rather than duplicating."""
-    stored = 0
-    for quote in quotes:
-        ticker = str(quote.get("symbol") or "").strip().upper().removesuffix(".CA")
-        if not ticker:
+    quotes: dict[str, dict[str, object]] = {}
+    for row in rows or []:
+        if not isinstance(row, dict):
             continue
-        existing = await session.scalar(
-            select(DailyPrice).where(
-                DailyPrice.ticker == ticker, DailyPrice.session_date == session_date,
-            ),
-        )
-        row = existing or DailyPrice(ticker=ticker, session_date=session_date)
-        row.high = _number(quote.get("high"))
-        row.low = _number(quote.get("low"))
-        row.close = _number(quote.get("price") or quote.get("close"))
-        row.volume = _number(quote.get("volume"))
-        row.source = str(quote.get("source") or "")[:60] or None
-        if existing is None:
-            session.add(row)
-        stored += 1
-    return stored
+        ticker = str(row.get("symbol") or "").strip().upper().removesuffix(".CA")
+        if ticker:
+            quotes[ticker] = row
+    return quotes
 
 
 def score(
@@ -157,3 +152,83 @@ def _number(value: object) -> float | None:
         return float(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
+
+
+async def backfill_sessions(
+    session: AsyncSession,
+    tickers: list[str],
+    sessions: int = MAX_WINDOW_SESSIONS,
+    url_template: str = YAHOO_CHART_URL,
+) -> dict[str, int]:
+    """
+    Fills in recent sessions for the given tickers.
+
+    Requests are made a few at a time rather than all at once: this is an undocumented public
+    endpoint and hammering it would be both rude and likely to get throttled. A ticker that fails
+    is skipped rather than aborting the run, since one delisted symbol should not cost the rest.
+    """
+    wanted = min(max(sessions, MIN_WINDOW_SESSIONS), MAX_WINDOW_SESSIONS)
+    limit = asyncio.Semaphore(_BACKFILL_CONCURRENCY)
+    stored: dict[str, int] = {}
+
+    async with httpx.AsyncClient(
+        timeout=30,
+        follow_redirects=True,
+        headers={"User-Agent": "Mozilla/5.0 (compatible; EGX-Analyzer)"},
+    ) as client:
+        async def one(ticker: str) -> tuple[str, list[dict[str, object]]]:
+            async with limit:
+                try:
+                    response = await client.get(
+                        url_template.format(symbol=ticker),
+                        params={"interval": "1d", "range": "1mo"},
+                    )
+                    response.raise_for_status()
+                    return ticker, _chart_sessions(response.json(), wanted)
+                except (httpx.HTTPError, ValueError, KeyError, TypeError, IndexError):
+                    return ticker, []
+
+        for ticker, days in await asyncio.gather(*(one(t) for t in tickers)):
+            for day in days:
+                await _upsert(session, ticker, day)
+            if days:
+                stored[ticker] = len(days)
+    return stored
+
+
+def _chart_sessions(payload: object, wanted: int) -> list[dict[str, object]]:
+    result = payload["chart"]["result"][0]  # type: ignore[index]
+    quote = result["indicators"]["quote"][0]
+    rows: list[dict[str, object]] = []
+    for stamp, high, low, close, volume in zip(
+        result["timestamp"], quote["high"], quote["low"], quote["close"], quote["volume"],
+    ):
+        # A session still open reports nulls; it is not history yet.
+        if high is None or low is None:
+            continue
+        rows.append({
+            "session_date": datetime.fromtimestamp(stamp, tz=timezone.utc).date(),
+            "high": high,
+            "low": low,
+            "close": close,
+            "volume": volume,
+            "source": "Yahoo Finance",
+        })
+    return rows[-wanted:]
+
+
+async def _upsert(session: AsyncSession, ticker: str, day: dict[str, object]) -> None:
+    session_date = day["session_date"]
+    existing = await session.scalar(
+        select(DailyPrice).where(
+            DailyPrice.ticker == ticker, DailyPrice.session_date == session_date,
+        ),
+    )
+    row = existing or DailyPrice(ticker=ticker, session_date=session_date)  # type: ignore[arg-type]
+    row.high = _number(day.get("high"))
+    row.low = _number(day.get("low"))
+    row.close = _number(day.get("close"))
+    row.volume = _number(day.get("volume"))
+    row.source = str(day.get("source") or "")[:60] or None
+    if existing is None:
+        session.add(row)

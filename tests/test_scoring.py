@@ -111,3 +111,35 @@ def test_peak_high_reports_how_close_a_missed_call_came():
 
     assert result.outcome is Outcome.EXPIRED
     assert result.peak_high == 10.8
+
+
+def test_repeating_a_session_corrects_it_rather_than_adding_a_second():
+    """
+    Yahoo dates each session, so re-running a backfill overwrites rather than duplicating.
+
+    A duplicated session would let one day's high count twice and would shift every later session
+    inside the window, so this is the property the whole scorecard rests on.
+    """
+    import asyncio
+
+    from app.scoring import _upsert
+
+    class FakeSession:
+        def __init__(self) -> None:
+            self.rows: list[DailyPrice] = []
+
+        async def scalar(self, _statement):
+            return self.rows[0] if self.rows else None
+
+        def add(self, row):
+            self.rows.append(row)
+
+    fake = FakeSession()
+    day = {"session_date": date(2026, 7, 28), "high": 10.0, "low": 9.0, "close": 9.5,
+           "volume": 100, "source": "Yahoo Finance"}
+
+    asyncio.run(_upsert(fake, "TEST", day))
+    asyncio.run(_upsert(fake, "TEST", {**day, "high": 11.0}))
+
+    assert len(fake.rows) == 1
+    assert fake.rows[0].high == 11.0
