@@ -1,5 +1,5 @@
 name: Publish desktop update
-run-name: ${{ github.ref_name }} - Complete composite-image recommendation extraction
+run-name: ${{ github.ref_name }} - Recommendation outcome scoring and source performance
 
 on:
   push:

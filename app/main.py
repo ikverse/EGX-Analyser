@@ -32,7 +32,7 @@ async def lifespan(app: FastAPI):
     await runtime.stop()
 
 
-app = FastAPI(title="EGX Stock Intelligence", version="0.1.124", lifespan=lifespan)
+app = FastAPI(title="EGX Stock Intelligence", version="0.1.125", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     # Packaged builds serve the UI from tauri.localhost; `tauri dev` serves it

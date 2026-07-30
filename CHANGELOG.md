@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.1.125
+- Added an Insights page that scores every saved recommendation against what the market actually did, separating the calls that could be judged from those that could not.
+- Ranked each Telegram source by its own record: hit rate, average return, median sessions to target, stops taken, and calls whose entry never traded.
+- Stored daily highs and lows per stock per trading session from the dated price feed, so a target or stop is settled by the session that reached it rather than by a single current quote.
+- Reported a session that reaches both the target and the stop as ambiguous, because daily figures cannot say which came first.
+- Made the scoring window adjustable from 1 to 30 trading sessions on both the Insights page and Settings, re-scoring every saved analysis when it changes.
+- Counted each recommendation once per stock, source, and date, so re-running an analysis on the same day no longer multiplies every total.
+- Read the EGX stock catalog under the key the endpoint actually returns, restoring correct Arabic and English company names.
+- Published the canonical analysis prompts through the content pack again, so prompt updates reach installed copies without a new release.
+- Corrected dev-mode startup and made the packaged sidecar check independent of the bundled Python version.
+- Added regression coverage for outcome scoring, the ambiguous session, window changes, and duplicate call collapsing.
+
 ## v0.1.124
 - Completed composite-image recommendation extraction by scanning every image from top to bottom instead of stopping after the first panel.
 - Recognized the exact `سهم المراقبة` heading as Watching context while retaining the strict target-date requirement.

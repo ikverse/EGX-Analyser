@@ -1,6 +1,6 @@
 [project]
 name = "egx-stock-intelligence"
-version = "0.1.124"
+version = "0.1.125"
 description = "Multimodal Egyptian stock-market intelligence platform"
 requires-python = ">=3.12"
 dependencies = [
@@ -27,3 +27,10 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+
+[tool.ruff.lint]
+# Stated explicitly rather than left to whatever ruff defaults to. The project has always linted
+# with ruff's original default set; 0.16 widened that default, which turned a passing release build
+# into 135 findings - most of them stylistic, and twenty of them FastAPI Depends() arguments that
+# are meant to be call defaults.
+select = ["E4", "E7", "E9", "F"]
