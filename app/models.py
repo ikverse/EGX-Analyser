@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 try:
@@ -41,6 +41,21 @@ class Stock(Base):
     name_en: Mapped[str] = mapped_column(String(255))
     name_ar: Mapped[str | None] = mapped_column(String(255))
     aliases: Mapped[list[str]] = mapped_column(JSON, default=list)
+
+
+class DailyPrice(Base):
+    """One trading session for one ticker, as reported after the close."""
+
+    __tablename__ = "daily_prices"
+    __table_args__ = (UniqueConstraint("ticker", "session_date", name="uq_daily_price"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ticker: Mapped[str] = mapped_column(String(30), index=True)
+    session_date: Mapped[date] = mapped_column(Date, index=True)
+    high: Mapped[float | None] = mapped_column(Float)
+    low: Mapped[float | None] = mapped_column(Float)
+    close: Mapped[float | None] = mapped_column(Float)
+    volume: Mapped[float | None] = mapped_column(Float)
+    source: Mapped[str | None] = mapped_column(String(60))
 
 
 class Message(Base):
