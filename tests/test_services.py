@@ -1231,6 +1231,7 @@ async def test_settings_returns_only_recent_prompt_history_with_total(monkeypatc
         ollama_model="qwen3-vl:4b",
         qwen_base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
         ollama_base_url="http://127.0.0.1:11434",
+        scoring_window_sessions=10,
     ))
 
     status = await api.settings_status()

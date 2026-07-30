@@ -92,6 +92,7 @@ class SettingsUpdate(BaseModel):
     telegram_api_id: int | None = None
     telegram_api_hash: str | None = None
     telegram_session: str | None = None
+    scoring_window_sessions: int | None = Field(default=None, ge=1, le=30)
 
 
 class TelegramCodeRequest(BaseModel):

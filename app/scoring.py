@@ -5,7 +5,7 @@ arithmetic rather than judgement, so no model is involved.
 """
 import asyncio
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from enum import StrEnum
 
 import httpx
@@ -207,7 +207,7 @@ def _chart_sessions(payload: object, wanted: int) -> list[dict[str, object]]:
         if high is None or low is None:
             continue
         rows.append({
-            "session_date": datetime.fromtimestamp(stamp, tz=timezone.utc).date(),
+            "session_date": datetime.fromtimestamp(stamp, tz=UTC).date(),
             "high": high,
             "low": low,
             "close": close,

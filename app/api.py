@@ -24,9 +24,11 @@ from app.prompt_customization import (
 from app.content_updates import ContentUpdateError, ContentUpdateService
 from app.database import get_session
 from app.diagnostics import diagnostics_path, logger, recent_entries
+from app.insights import performance
 from app.models import Channel, Image, Media, Message, Recommendation, Report, Stock
 from app.reports import ReportService, _attach_source_images, bind_source_image_references, ensure_stock_notes_summaries
 from app.stock_catalog import EGXStockCatalog
+from app.scoring import MAX_WINDOW_SESSIONS, backfill_sessions, latest_quotes
 from app.schemas import (ChannelUpdate, CollectionRequest, DailyReportRequest, MessageCreate, SearchRequest, SettingsUpdate, TelegramChatSelect,
                          TelegramCodeRequest, TelegramCodeVerification)
 from app.services import AnalyticsService, MessageService, SearchService
@@ -148,6 +150,7 @@ async def settings_status() -> dict[str, object]:
             "ai_provider": settings.ai_provider,
             "telegram_configured": bool(settings.telegram_api_id and settings.telegram_api_hash),
             "telegram_authorized": Path(session_path).exists(),
+            "scoring_window_sessions": settings.scoring_window_sessions,
             "openai_model": settings.openai_model, "ollama_model": settings.ollama_model,
             "qwen_base_url": settings.qwen_base_url,
             "ollama_base_url": settings.ollama_base_url, "telegram_session": settings.telegram_session,
@@ -668,6 +671,61 @@ async def list_recommendations(session: AsyncSession = Depends(get_session)) -> 
 
 @router.get("/analytics/consensus")
 async def consensus(session: AsyncSession = Depends(get_session)) -> list[dict]: return await AnalyticsService(session).consensus()
+
+
+@router.get("/insights/performance")
+async def insights_performance(
+    window_sessions: int | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Recommendation outcomes and per-channel records over the configured window."""
+    settings = get_settings()
+    return await performance(session, window_sessions or settings.scoring_window_sessions)
+
+
+@router.post("/insights/prices/refresh")
+async def refresh_prices(
+    sessions: int | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """
+    Fills in recent sessions for every ticker that has a recommendation.
+
+    Only those tickers are fetched: the rest cannot be scored, and each one costs a request to an
+    undocumented endpoint.
+    """
+    settings = get_settings()
+    tickers = sorted({
+        (value or "").strip().upper()
+        for value in (await session.scalars(select(Recommendation.ticker_raw))).all()
+        if (value or "").strip()
+    })
+    if not tickers:
+        return {"tickers": 0, "stored": {}, "message": "No saved recommendations to price yet."}
+    wanted = min(sessions or settings.scoring_window_sessions, MAX_WINDOW_SESSIONS)
+    stored = await backfill_sessions(session, tickers, sessions=wanted)
+    await session.commit()
+    missing = [ticker for ticker in tickers if ticker not in stored]
+    return {
+        "tickers": len(tickers),
+        "priced": len(stored),
+        "sessions_requested": wanted,
+        "stored": stored,
+        # Named rather than hidden: a ticker with no history can never be scored, and that is worth
+        # knowing rather than looking like a run of misses.
+        "unpriced": missing,
+    }
+
+
+@router.get("/insights/quotes")
+async def insights_quotes() -> dict:
+    """Current prices, for showing where a stock is trading now."""
+    try:
+        quotes = await latest_quotes(get_settings().egx_quotes_url)
+    except (httpx.HTTPError, ValueError) as error:
+        logger().warning("quote_feed_unavailable", extra={"error_type": type(error).__name__})
+        raise HTTPException(503, "The quote feed is unavailable. Try again shortly.") from error
+    return {"count": len(quotes), "quotes": quotes}
 
 
 @router.post("/reports/daily")
