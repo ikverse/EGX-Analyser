@@ -29,40 +29,25 @@ async def performance(session: AsyncSession, window_sessions: int) -> dict[str, 
     scored: list[dict[str, object]] = []
     by_channel: dict[str, list[Scored]] = defaultdict(list)
 
-    if since is not None:
-        for report in await _reports_since(session, since):
-            for row in _recommendation_rows(report):
-                opened_on = _opened_on(row)
-                ticker = normalize_ticker(row.get("ticker"))
-                if not ticker or opened_on is None or opened_on < since:
-                    continue
-                sessions = await _sessions_from(session, ticker, opened_on)
-                result = score(
-                    sessions,
-                    entry_low=_number(row.get("buy_price_low")) or _number(row.get("buy_price")),
-                    entry_high=_number(row.get("buy_price_high")) or _number(row.get("buy_price")),
-                    target_1=_number(row.get("target_1")),
-                    target_2=_number(row.get("target_2")),
-                    stop_loss=_number(row.get("stop_loss")),
-                    window_sessions=window,
-                )
-                channel = str(row.get("source") or "Unknown").strip() or "Unknown"
-                by_channel[channel].append(result)
-                scored.append({
-                    "ticker": ticker,
-                    "company": row.get("company") or ticker,
-                    "company_ar": row.get("company_ar"),
-                    "channel": channel,
-                    "opened_on": opened_on.isoformat(),
-                    "entry_low": _number(row.get("buy_price_low")) or _number(row.get("buy_price")),
-                    "entry_high": _number(row.get("buy_price_high")) or _number(row.get("buy_price")),
-                    "target": _number(row.get("target_1")),
-                    "target_2": _number(row.get("target_2")),
-                    "stop_loss": _number(row.get("stop_loss")),
-                    **{key: (value.isoformat() if isinstance(value, date) else value)
-                       for key, value in asdict(result).items()},
-                    "outcome": result.outcome.value,
-                })
+    for call in await _unique_calls(session, since):
+        sessions = await _sessions_from(session, call["ticker"], call["opened_on"])
+        result = score(
+            sessions,
+            entry_low=call["entry_low"],
+            entry_high=call["entry_high"],
+            target_1=call["target"],
+            target_2=call["target_2"],
+            stop_loss=call["stop_loss"],
+            window_sessions=window,
+        )
+        by_channel[str(call["channel"])].append(result)
+        scored.append({
+            **call,
+            "opened_on": call["opened_on"].isoformat(),
+            **{key: (value.isoformat() if isinstance(value, date) else _rounded(value))
+               for key, value in asdict(result).items()},
+            "outcome": result.outcome.value,
+        })
 
     return {
         "window_sessions": window,
@@ -71,6 +56,48 @@ async def performance(session: AsyncSession, window_sessions: int) -> dict[str, 
         "channels": _channel_scores(by_channel),
         "recommendations": sorted(scored, key=lambda item: item["opened_on"], reverse=True),
     }
+
+
+async def _unique_calls(session: AsyncSession, since: date | None) -> list[dict[str, object]]:
+    """
+    One entry per call, not per time a call was written down.
+
+    Re-running the analysis on the same day saves another report listing the same recommendations,
+    so the raw rows count a single call once per run. Left alone that inflates every total and
+    quietly gives extra weight to whichever channel happened to be analysed most often. Calls are
+    therefore keyed by stock, channel and date, keeping whichever copy states the most price
+    levels, since runs differ mainly in how much of the message the model managed to read.
+    """
+    if since is None:
+        return []
+    best: dict[tuple[str, str, date], tuple[int, dict[str, object]]] = {}
+    for report in await _reports_since(session, since):
+        for row in _recommendation_rows(report):
+            ticker = normalize_ticker(row.get("ticker"))
+            opened_on = _opened_on(row)
+            if not ticker or opened_on is None or opened_on < since:
+                continue
+            channel = str(row.get("source") or "Unknown").strip() or "Unknown"
+            call = {
+                "ticker": ticker,
+                "company": row.get("company") or ticker,
+                "company_ar": row.get("company_ar"),
+                "channel": channel,
+                "opened_on": opened_on,
+                "entry_low": _price(row.get("buy_price_low")) or _price(row.get("buy_price")),
+                "entry_high": _price(row.get("buy_price_high")) or _price(row.get("buy_price")),
+                "target": _price(row.get("target_1")),
+                "target_2": _price(row.get("target_2")),
+                "stop_loss": _price(row.get("stop_loss")),
+            }
+            levels = sum(
+                call[key] is not None
+                for key in ("entry_low", "entry_high", "target", "target_2", "stop_loss")
+            )
+            key = (ticker, channel, opened_on)
+            if key not in best or levels > best[key][0]:
+                best[key] = (levels, call)
+    return [call for _, call in best.values()]
 
 
 async def _scoring_since(session: AsyncSession) -> date | None:
@@ -194,6 +221,15 @@ def _number(value: object) -> float | None:
         return float(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
+
+
+def _price(value: object) -> float | None:
+    """A price as it is quoted. The feed returns full float precision, which reads as noise."""
+    return _rounded(_number(value))
+
+
+def _rounded(value: object) -> object:
+    return round(value, 2) if isinstance(value, float) else value
 
 
 async def recommended_tickers(session: AsyncSession) -> set[str]:

@@ -14,8 +14,8 @@ export type PromptCustomizationHistoryEntry = {
   restored_from_timestamp?: string;
   recovered_corrupt_file?: string;
 };
-export type SettingsStatus = { openai_configured: boolean; ai_configured: boolean; ai_provider: AiProvider; telegram_configured: boolean; telegram_authorized: boolean; openai_model: string; ollama_model: string; qwen_base_url: string; ollama_base_url: string; telegram_session: string; audio_transcription_available: boolean; audio_transcription_status: string; analysis_include_phrases: string; analysis_exclude_phrases: string; prompt_customization_history: PromptCustomizationHistoryEntry[]; prompt_customization_history_total: number; prompt_customization_error?: string | null };
-export type SettingsInput = { ai_provider?: AiProvider; openai_api_key?: string; openrouter_api_key?: string; huggingface_api_key?: string; qwen_api_key?: string; qwen_base_url?: string; ollama_base_url?: string; ollama_model?: string; openai_model?: string; analysis_include_phrases?: string; analysis_exclude_phrases?: string; telegram_api_id?: number; telegram_api_hash?: string; telegram_session?: string };
+export type SettingsStatus = { openai_configured: boolean; ai_configured: boolean; ai_provider: AiProvider; telegram_configured: boolean; telegram_authorized: boolean; openai_model: string; ollama_model: string; qwen_base_url: string; ollama_base_url: string; telegram_session: string; audio_transcription_available: boolean; audio_transcription_status: string; analysis_include_phrases: string; analysis_exclude_phrases: string; prompt_customization_history: PromptCustomizationHistoryEntry[]; prompt_customization_history_total: number; prompt_customization_error?: string | null; scoring_window_sessions?: number };
+export type SettingsInput = { ai_provider?: AiProvider; openai_api_key?: string; openrouter_api_key?: string; huggingface_api_key?: string; qwen_api_key?: string; qwen_base_url?: string; ollama_base_url?: string; ollama_model?: string; openai_model?: string; analysis_include_phrases?: string; analysis_exclude_phrases?: string; telegram_api_id?: number; telegram_api_hash?: string; telegram_session?: string; scoring_window_sessions?: number };
 export type TelegramChat = { id: string; title: string; username: string; kind: string };
 export type DiagnosticEntry = { timestamp?: string; level: string; event: string; request_id?: string; method?: string; path?: string; status_code?: number; duration_ms?: number; error_type?: string };
 export type ContentUpdateStatus = { enabled: boolean; version: string | null; source: string };
@@ -174,6 +174,57 @@ async function responseError(path: string, response: Response): Promise<ApiError
   return new ApiError(`${path} returned ${response.status}: ${detail}.${reference}`, response.status, requestId);
 }
 
+export type ScoredRecommendation = {
+  ticker: string;
+  company: string;
+  company_ar?: string | null;
+  channel: string;
+  opened_on: string;
+  entry_low?: number | null;
+  entry_high?: number | null;
+  target?: number | null;
+  target_2?: number | null;
+  stop_loss?: number | null;
+  outcome: string;
+  settled_on?: string | null;
+  sessions_elapsed: number;
+  peak_high?: number | null;
+  return_pct?: number | null;
+};
+export type ChannelScore = {
+  channel: string;
+  calls: number;
+  judged: number;
+  hits: number;
+  stopped: number;
+  expired: number;
+  entry_not_reached: number;
+  unpriced: number;
+  hit_rate?: number | null;
+  average_return?: number | null;
+  median_sessions_to_hit?: number | null;
+};
+export type Performance = {
+  window_sessions: number;
+  scoring_since?: string | null;
+  totals: {
+    tracked: number;
+    judged: number;
+    hits: number;
+    hit_rate?: number | null;
+    by_outcome: Record<string, number>;
+  };
+  channels: ChannelScore[];
+  recommendations: ScoredRecommendation[];
+};
+export type PriceRefresh = {
+  tickers: number;
+  priced?: number;
+  sessions_requested?: number;
+  unpriced?: string[];
+  message?: string;
+};
+
 export class ApiClient {
   async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     let response: Response;
@@ -199,6 +250,14 @@ export class ApiClient {
   diagnostics() { return this.request<{ path: string; entries: DiagnosticEntry[] }>("/diagnostics/recent"); }
   contentUpdates() { return this.request<ContentUpdateStatus>("/content-updates"); }
   checkContentUpdates() { return this.request<{ updated: boolean; version: string }>("/content-updates/check", { method: "POST" }); }
+  performance(windowSessions?: number) {
+    const query = windowSessions ? `?window_sessions=${windowSessions}` : "";
+    return this.request<Performance>(`/insights/performance${query}`);
+  }
+  refreshPrices(sessions?: number) {
+    const query = sessions ? `?sessions=${sessions}` : "";
+    return this.request<PriceRefresh>(`/insights/prices/refresh${query}`, { method: "POST" });
+  }
   egxCatalog() { return this.request<EgxCatalogStatus>("/egx-catalog"); }
   refreshEgxCatalog() { return this.request<EgxCatalogStatus>("/egx-catalog/refresh", { method: "POST" }); }
   selectTelegramChat(chat: TelegramChat) { return this.request<Channel>("/telegram/chats/select", { method: "POST", body: JSON.stringify(chat) }); }

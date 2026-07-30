@@ -1,6 +1,7 @@
 import { FormEvent, Fragment, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import { createPortal } from "react-dom";
+import { Insights } from "./Insights";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { check } from "@tauri-apps/plugin-updater";
@@ -12,7 +13,7 @@ import {
 } from "./api";
 import { cairoDateInputValue, formatCairoDateTime } from "./time";
 
-type Page = "Channels" | "Results" | "Settings";
+type Page = "Channels" | "Results" | "Insights" | "Settings";
 type ThemeMode = "light" | "dark";
 type ToastKind = "success" | "warning" | "error";
 type ToastMessage = { id: number; kind: ToastKind; text: string };
@@ -29,12 +30,13 @@ type UpdateCandidate = {
   downloadAndInstall: (onEvent: (event: { event: string; data: { contentLength?: number; chunkLength?: number } }) => void) => Promise<void>;
 };
 
-const pages: Page[] = ["Channels", "Results", "Settings"];
-type IconName = "channels" | "results" | "settings" | "sidebar" | "refresh" | "copy" | "check" | "plus" | "download" | "users" | "clear" | "play" | "eye" | "trash" | "image" | "warning" | "info" | "history" | "chevron-right" | "chevron-down";
+const pages: Page[] = ["Channels", "Results", "Insights", "Settings"];
+type IconName = "channels" | "results" | "settings" | "sidebar" | "refresh" | "copy" | "check" | "plus" | "download" | "users" | "clear" | "play" | "eye" | "trash" | "image" | "warning" | "info" | "history" | "chevron-right" | "chevron-down" | "insights";
 
 const PAGE_ICONS: Record<Page, IconName> = {
   Channels: "channels",
   Results: "results",
+  Insights: "insights",
   Settings: "settings",
 };
 
@@ -42,6 +44,7 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
   const common = { fill: "none", stroke: "currentColor", strokeWidth: 1.9, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   const paths = (() => {
     switch (name) {
+      case "insights": return <><path {...common} d="M3 3v18h18" /><path {...common} d="m7 14 4-4 3 3 5-6" /><circle {...common} cx="11" cy="10" r="1" /></>;
       case "channels": return <><path {...common} d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle {...common} cx="9" cy="7" r="4" /><path {...common} d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></>;
       case "results": return <><path {...common} d="M4 19V5M4 19h16" /><path {...common} d="m7 15 4-4 3 2 5-6" /><path {...common} d="M16 7h3v3" /></>;
       case "settings": return <><circle {...common} cx="12" cy="12" r="3" /><path {...common} d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.1 2.1-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V20.3h-3v-.1A1.7 1.7 0 0 0 10.7 18.64a1.7 1.7 0 0 0-1.88.34l-.06.06-2.1-2.1.06-.06A1.7 1.7 0 0 0 7.06 15a1.7 1.7 0 0 0-1.56-1.03h-.1v-3h.1A1.7 1.7 0 0 0 7.06 9.94a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.1-2.1.06.06a1.7 1.7 0 0 0 1.88.34 1.7 1.7 0 0 0 1.03-1.56v-.1h3v.1a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.1 2.1-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.56 1.03h.1v3H21a1.7 1.7 0 0 0-1.6 1.03Z" /></>;
@@ -198,6 +201,7 @@ export default function App() {
   const [sidebarExpanded, setSidebarExpanded] = useState(loadSidebarExpanded);
   const [connected, setConnected] = useState(false);
   const [page, setPage] = useState<Page>("Channels");
+  const [scoringWindow, setScoringWindow] = useState(10);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [analysisResults, setAnalysisResults] = useState<AnalysisResultHistory[]>([]);
   const [analysisHistoryHasMore, setAnalysisHistoryHasMore] = useState(false);
@@ -262,6 +266,8 @@ export default function App() {
       ]);
       setChannels(nextChannels);
       setSettings(nextSettings);
+      // The stored window drives the slider, so it survives a restart.
+      if (nextSettings.scoring_window_sessions) setScoringWindow(nextSettings.scoring_window_sessions);
       setConnected(true);
       setEngineStarting(false);
       setEngineFailure(null);
@@ -587,6 +593,22 @@ export default function App() {
               onAnalysisDeleted={(id) => setAnalysisResults((current) => current.filter((item) => item.id !== id))}
               focusedResultId={focusedResultId}
               onFocusHandled={() => setFocusedResultId(null)}
+            />
+          )}
+          {page === "Insights" && (
+            <Insights
+              api={api}
+              showError={showError}
+              notify={notify}
+              windowSessions={scoringWindow}
+              onWindowChange={(sessions) => {
+                setScoringWindow(sessions);
+                // Persisted so the next analysis and the next launch use the same window.
+                void api
+                  .saveSettings({ scoring_window_sessions: sessions })
+                  .catch((error) => showError(error instanceof Error ? error.message : String(error)));
+              }}
+              icon={(name) => <Icon name={name} />}
             />
           )}
           {page === "Settings" && (

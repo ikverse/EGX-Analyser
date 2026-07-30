@@ -3141,3 +3141,49 @@ section {
   }
 
 }
+
+/* Insights: recommendation outcomes and per-channel records. */
+.insights-toolbar {
+  display: flex;
+  gap: 18px;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.insights-window { display: flex; flex-direction: column; gap: 6px; min-width: 320px; flex: 1; }
+.insights-window label { display: flex; gap: 10px; align-items: baseline; font-size: .9rem; }
+.insights-window input[type="range"] { width: 100%; }
+.insights-hint { font-size: .82rem; opacity: .72; line-height: 1.45; }
+.insights-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.insight-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--surface-2, rgba(255, 255, 255, .04));
+}
+.insight-value { font-size: 1.6rem; font-weight: 700; line-height: 1.1; }
+.insight-label { font-size: .74rem; letter-spacing: .06em; text-transform: uppercase; opacity: .7; }
+.insights-outcomes { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 4px; }
+.outcome-chip {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: .78rem;
+  background: rgba(127, 127, 127, .16);
+}
+/* Outcome colours carry meaning here, so they stay distinct from the accent. */
+.outcome-chip.good { background: rgba(46, 160, 87, .18); color: #4ade80; }
+.outcome-chip.bad { background: rgba(220, 68, 68, .16); color: #f87171; }
+.outcome-chip.warn { background: rgba(217, 155, 44, .18); color: #fbbf24; }
+.outcome-chip.muted { opacity: .8; }
+.insights .ar { opacity: .75; font-size: .86em; }

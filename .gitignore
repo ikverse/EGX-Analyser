@@ -8,6 +8,8 @@ __pycache__/
 /outputs/
 /.test-app-data/
 /.test-tmp/
+# Downloaded content packs and report files, written at runtime.
+/storage/
 /.content-update-private.key
 /github-upload/
 *.egg-info/
