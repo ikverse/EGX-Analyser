@@ -248,6 +248,15 @@ export default function App() {
   }, [notify]);
   const showSuccess = useCallback((message: string, resultId?: number) => setSuccessModal({ message, resultId }), []);
 
+  // Shared by the Insights page and the Settings page so the two controls cannot disagree.
+  const changeScoringWindow = useCallback((sessions: number) => {
+    setScoringWindow(sessions);
+    // Persisted so the next analysis and the next launch use the same window.
+    void api
+      .saveSettings({ scoring_window_sessions: sessions })
+      .catch((error) => showError(error instanceof Error ? error.message : String(error)));
+  }, [api, showError]);
+
   const updateAnalysisConfig = useCallback((updater: (current: ChannelAnalysisConfig) => ChannelAnalysisConfig) => {
     setAnalysisConfig((current) => {
       const next = updater(current);
@@ -601,13 +610,7 @@ export default function App() {
               showError={showError}
               notify={notify}
               windowSessions={scoringWindow}
-              onWindowChange={(sessions) => {
-                setScoringWindow(sessions);
-                // Persisted so the next analysis and the next launch use the same window.
-                void api
-                  .saveSettings({ scoring_window_sessions: sessions })
-                  .catch((error) => showError(error instanceof Error ? error.message : String(error)));
-              }}
+              onWindowChange={changeScoringWindow}
               icon={(name) => <Icon name={name} />}
             />
           )}
@@ -622,6 +625,8 @@ export default function App() {
               checkingUpdate={checkingUpdate}
               onCheckForUpdates={() => void checkForUpdates(true)}
               analysisResults={analysisResults}
+              scoringWindow={scoringWindow}
+              onScoringWindowChange={changeScoringWindow}
             />
           )}
         </section>
@@ -1927,11 +1932,12 @@ function samePromptPhrases(first: string[], second: string[]): boolean {
     && first.every((phrase, index) => phrase.toLocaleLowerCase() === second[index]?.toLocaleLowerCase());
 }
 
-function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showError, checkingUpdate, onCheckForUpdates, analysisResults }: {
+function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showError, checkingUpdate, onCheckForUpdates, analysisResults, scoringWindow, onScoringWindowChange }: {
   api: ApiClient; status: SettingsStatus | null; onSaved: () => Promise<boolean>;
   onRunTelegramCheck: () => Promise<boolean>;
   notify: Notify; showError: ShowError; checkingUpdate: boolean; onCheckForUpdates: () => void;
   analysisResults: AnalysisResultHistory[];
+  scoringWindow: number; onScoringWindowChange: (sessions: number) => void;
 }) {
   const [values, setValues] = useState<SettingsInput>({
     ai_provider: status?.ai_provider || "qwen",
@@ -2438,6 +2444,29 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
           }}>
             {refreshingCatalog ? "Refreshing catalog…" : "Refresh EGX catalog now"}
           </button>
+        </div>
+      </SettingsSection>
+
+      <SettingsSection id="scoring" title="Scoring"
+        description={`Recommendations stay open for ${scoringWindow} trading ${scoringWindow === 1 ? "session" : "sessions"}`}
+        help="Sets how long a recommendation is given to reach its target before Insights counts it as expired rather than missed. Measured in trading sessions, so weekends and market holidays do not shorten it."
+        open={openSection === "scoring"} onToggle={() => toggleSection("scoring")}
+        openInfoId={openInfoId} setOpenInfoId={setOpenInfoId}>
+        <div className="settings-subsection">
+          <span className="settings-inline-heading">
+            <strong>Scoring window</strong>
+            <SettingsInfo id="scoring-window" title="Scoring window"
+              text="A recommendation is scored over this many trading sessions from the day it was made. Within the window it can reach a target or hit its stop; past it, the call expires. Changing this re-scores everything already saved."
+              openInfoId={openInfoId} setOpenInfoId={setOpenInfoId} />
+          </span>
+          <label className="settings-range" htmlFor="settings-scoring-window">
+            <input id="settings-scoring-window" type="range" min={1} max={30}
+              value={scoringWindow} onChange={(event) => onScoringWindowChange(Number(event.target.value))} />
+            <strong>{scoringWindow} trading {scoringWindow === 1 ? "session" : "sessions"}</strong>
+          </label>
+          <p className="credential-note">
+            The same control sits on the Insights page, where the effect of changing it is visible straight away.
+          </p>
         </div>
       </SettingsSection>
 

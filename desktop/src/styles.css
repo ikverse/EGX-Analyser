@@ -3187,3 +3187,22 @@ section {
 .outcome-chip.warn { background: rgba(217, 155, 44, .18); color: #fbbf24; }
 .outcome-chip.muted { opacity: .8; }
 .insights .ar { opacity: .75; font-size: .86em; }
+
+/* Scoring window control on the Settings page. */
+.settings-range {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 6px 0 2px;
+}
+
+.settings-range input[type="range"] {
+  flex: 1;
+  max-width: 320px;
+  accent-color: var(--accent);
+}
+
+.settings-range strong {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
