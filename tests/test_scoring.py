@@ -143,3 +143,16 @@ def test_repeating_a_session_corrects_it_rather_than_adding_a_second():
 
     assert len(fake.rows) == 1
     assert fake.rows[0].high == 11.0
+
+
+def test_the_same_stock_quoted_two_ways_is_one_ticker():
+    """
+    Sources write both AMOC and AMOC.CA. Treating those as two stocks splits a channel's record
+    and leaves one half unpriced, so every rate built on it is wrong.
+    """
+    from app.scoring import normalize_ticker
+
+    assert normalize_ticker("AMOC.CA") == "AMOC"
+    assert normalize_ticker(" amoc.ca ") == "AMOC"
+    assert normalize_ticker("AMOC") == "AMOC"
+    assert normalize_ticker(None) == ""

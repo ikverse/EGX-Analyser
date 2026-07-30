@@ -24,7 +24,7 @@ from app.prompt_customization import (
 from app.content_updates import ContentUpdateError, ContentUpdateService
 from app.database import get_session
 from app.diagnostics import diagnostics_path, logger, recent_entries
-from app.insights import performance
+from app.insights import performance, recommended_tickers
 from app.models import Channel, Image, Media, Message, Recommendation, Report, Stock
 from app.reports import ReportService, _attach_source_images, bind_source_image_references, ensure_stock_notes_summaries
 from app.stock_catalog import EGXStockCatalog
@@ -695,11 +695,7 @@ async def refresh_prices(
     undocumented endpoint.
     """
     settings = get_settings()
-    tickers = sorted({
-        (value or "").strip().upper()
-        for value in (await session.scalars(select(Recommendation.ticker_raw))).all()
-        if (value or "").strip()
-    })
+    tickers = sorted(await recommended_tickers(session))
     if not tickers:
         return {"tickers": 0, "stored": {}, "message": "No saved recommendations to price yet."}
     wanted = min(sessions or settings.scoring_window_sessions, MAX_WINDOW_SESSIONS)

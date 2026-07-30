@@ -47,6 +47,16 @@ class Scored:
     return_pct: float | None
 
 
+def normalize_ticker(value: object) -> str:
+    """
+    One spelling per stock.
+
+    Sources quote the same company as both AMOC and AMOC.CA, and treating those as two stocks
+    splits a channel's record in half and prices only one of them.
+    """
+    return str(value or "").strip().upper().removesuffix(".CA")
+
+
 def clamp_window(sessions: int) -> int:
     return max(MIN_WINDOW_SESSIONS, min(MAX_WINDOW_SESSIONS, sessions))
 
@@ -69,7 +79,7 @@ async def latest_quotes(url: str) -> dict[str, dict[str, object]]:
     for row in rows or []:
         if not isinstance(row, dict):
             continue
-        ticker = str(row.get("symbol") or "").strip().upper().removesuffix(".CA")
+        ticker = normalize_ticker(row.get("symbol"))
         if ticker:
             quotes[ticker] = row
     return quotes
