@@ -83,7 +83,15 @@ def _match_stock(value: str, aliases: dict[str, Stock]) -> Stock | None:
 def _remote_entries(payload: object) -> list[dict[str, str]]:
     values: object = payload
     if isinstance(payload, dict):
-        values = payload.get("stocks") or payload.get("data") or payload.get("results") or []
+        # "symbols" is what the configured catalog actually returns; without it every refresh
+        # parsed nothing and the app silently fell back to its seed list.
+        values = (
+            payload.get("symbols")
+            or payload.get("stocks")
+            or payload.get("data")
+            or payload.get("results")
+            or []
+        )
     if not isinstance(values, list):
         return []
     entries: list[dict[str, str]] = []
