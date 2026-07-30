@@ -23,3 +23,7 @@ desktop/src-tauri/target/
 desktop/src-tauri/sidecar/
 desktop/.tauri/
 release/
+# Written by the config store when the backend runs from the repo root instead of the app's
+# data directory. secrets.json holds encrypted provider and Telegram credentials.
+/secrets.json
+/prompt-customization.json

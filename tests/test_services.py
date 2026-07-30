@@ -1671,7 +1671,7 @@ async def test_consolidated_analysis_uses_one_model_request():
 
 
 @pytest.mark.asyncio
-async def test_consolidated_analysis_filters_mismatched_date_without_retry():
+async def test_consolidated_analysis_keeps_a_source_dated_before_the_target():
     payload = {
         "analysis_period": "test",
         "top_consolidated_recommendations": [{
@@ -1712,13 +1712,13 @@ async def test_consolidated_analysis_filters_mismatched_date_without_retry():
         "2026-07-28",
     )
 
+    # A card printed with an earlier date is kept: which session a recommendation belongs to is
+    # the model's call, and the source window already limits which messages reach it.
     assert requests == 1
     assert outcome.correction_attempted is False
-    assert outcome.validation_warnings == [
-        "Excluded TMGH message 60284: source date 27/07/2026 "
-        "does not match target date 2026-07-28.",
-    ]
-    assert json.loads(outcome.raw_response)["top_consolidated_recommendations"] == []
+    assert outcome.validation_warnings == []
+    kept = json.loads(outcome.raw_response)["top_consolidated_recommendations"]
+    assert [stock["stock_code"] for stock in kept] == ["TMGH"]
 
 
 def test_minimal_provenance_excludes_unknown_ids_and_restores_one_image_reference():
@@ -1862,18 +1862,12 @@ def test_same_image_merge_prioritizes_watching_and_cleans_final_metadata():
         },
     }
 
-    warnings = normalize_consolidated_output(
-        payload,
-        messages,
-        references,
-        target_date="2026-07-29",
-    )
+    warnings = normalize_consolidated_output(payload, messages, references)
 
-    assert warnings == [
-        "Excluded OLD message 60398: source date 28 JULY 2026 "
-        "does not match target date 2026-07-29.",
-    ]
-    assert len(payload["top_consolidated_recommendations"]) == 1
+    # The date printed on a source no longer decides whether its row survives, so OLD is kept
+    # alongside SCEM and only MISSING - which no message accounts for - is dropped.
+    assert warnings == []
+    assert len(payload["top_consolidated_recommendations"]) == 2
     stock = payload["top_consolidated_recommendations"][0]
     assert stock["rank"] == 1
     assert stock["mention_count"] == 1
@@ -1884,70 +1878,73 @@ def test_same_image_merge_prioritizes_watching_and_cleans_final_metadata():
     assert point["buy_price_low"] == 86.0
     assert point["target_1"] == 91.0
     assert payload["text_based_categories"] == {
-        "most_important_stocks": ["SCEM"],
-        "trading_stocks": ["SCEM"],
-        "watchlist_stocks": ["SCEM"],
+        "most_important_stocks": ["SCEM", "OLD"],
+        "trading_stocks": ["OLD", "SCEM"],
+        "watchlist_stocks": ["SCEM", "OLD"],
     }
 
 
-def test_date_guard_excludes_mismatched_main_and_watching_rows():
+def test_rows_survive_a_source_date_that_differs_from_the_target():
+    """
+    The date printed on a source no longer decides whether its recommendation is kept.
+
+    Ostoul publishes cards during one session for the next one - `توصية شراء ( T+1 / T+2 )` and
+    `اسهم مرشحه T+1` - so the printed date is deliberately the previous session. Discarding those
+    threw away most of that channel's calls and made its record meaningless.
+    """
     messages = [
-        {"source": "CFI Egypt", "telegram_message_id": 60284},
-        {"source": "CFI Egypt", "telegram_message_id": 60310},
-        {"source": "CFI Egypt", "telegram_message_id": 60311},
+        {"source": "Ostoul Capital", "telegram_message_id": 60452},
+        {"source": "Ostoul Capital", "telegram_message_id": 60469},
+        {"source": "CFI Egypt", "telegram_message_id": 60481},
     ]
     payload = {"top_consolidated_recommendations": [
         {
-            "stock_code": "TMGH",
+            "stock_code": "MPRC",
             "mention_count": 1,
             "data_points": [{
-                "source_message_id": "60284",
+                "source_message_id": "60452",
                 "effective_date_basis": "explicit_date",
-                "visible_source_date": "27/07/2026",
+                "date": "2026-07-30",
+                "visible_source_date": "29/07/2026",
+                "recommendation_evidence": "توصية شراء ( T+2 / T+1 )",
             }],
         },
         {
-            "stock_code": "COMI",
+            "stock_code": "NIPH",
             "mention_count": 1,
             "data_points": [{
-                "source_message_id": "60310",
+                "source_message_id": "60469",
                 "effective_date_basis": "explicit_date",
-                "visible_source_date": "28-JULY-2026",
+                "date": "2026-07-30",
+                "visible_source_date": "29 July 2026",
+                "recommendation_evidence": "أسهم مرشحة للمتاجرة T+1",
             }],
         },
         {
-            "stock_code": "ASCM",
+            "stock_code": "AMOC",
             "mention_count": 1,
             "data_points": [{
-                "source_message_id": "60311",
-                "effective_date_basis": "watching",
-                "visible_source_date": "27 يوليو 2026",
+                "source_message_id": "60481",
+                "effective_date_basis": "explicit_date",
+                "date": "2026-07-30",
+                "visible_source_date": "30 JULY 2026",
             }],
         },
     ]}
 
-    warnings = normalize_consolidated_output(
-        payload,
-        messages,
-        target_date="2026-07-28",
-    )
+    warnings = normalize_consolidated_output(payload, messages)
 
-    assert warnings == [
-        "Excluded TMGH message 60284: source date 27/07/2026 "
-        "does not match target date 2026-07-28.",
-        "Excluded ASCM message 60311: source date 27 يوليو 2026 "
-        "does not match target date 2026-07-28.",
-    ]
+    assert warnings == []
     stocks = payload["top_consolidated_recommendations"]
-    assert [stock["stock_code"] for stock in stocks] == ["COMI"]
-    assert stocks[0]["data_points"][0]["visible_source_date"] == "28-JULY-2026"
-
-
-def test_explicit_date_guard_understands_arabic_digits_and_rejects_missing_dates():
-    messages = [
-        {"source": "إسأل فني", "telegram_message_id": 1},
-        {"source": "إسأل فني", "telegram_message_id": 2},
+    assert [stock["stock_code"] for stock in stocks] == ["MPRC", "NIPH", "AMOC"]
+    assert [stock["data_points"][0]["visible_source_date"] for stock in stocks] == [
+        "29/07/2026", "29 July 2026", "30 JULY 2026",
     ]
+
+
+def test_rows_without_a_known_telegram_message_are_still_excluded():
+    """Provenance is still enforced: a row the local sources cannot account for is dropped."""
+    messages = [{"source": "إسأل فني", "telegram_message_id": 1}]
     payload = {"top_consolidated_recommendations": [{
         "stock_code": "COMI",
         "mention_count": 2,
@@ -1958,22 +1955,19 @@ def test_explicit_date_guard_understands_arabic_digits_and_rejects_missing_dates
                 "visible_source_date": "٢٨ يوليو ٢٠٢٦",
             },
             {
-                "source_message_id": "2",
+                "source_message_id": "999",
                 "effective_date_basis": "explicit_date",
                 "visible_source_date": None,
             },
         ],
     }]}
 
-    warnings = normalize_consolidated_output(payload, messages, target_date=date(2026, 7, 28))
+    warnings = normalize_consolidated_output(payload, messages)
 
-    assert warnings == [
-        "Excluded COMI message 2: source date (missing) does not match target date 2026-07-28.",
-    ]
-    assert payload["top_consolidated_recommendations"][0]["mention_count"] == 1
-    assert payload["top_consolidated_recommendations"][0]["data_points"][0][
-        "visible_source_date"
-    ] == "٢٨ يوليو ٢٠٢٦"
+    assert warnings == ["Excluded recommendation with unknown Telegram message 999."]
+    stock = payload["top_consolidated_recommendations"][0]
+    assert stock["mention_count"] == 1
+    assert stock["data_points"][0]["visible_source_date"] == "٢٨ يوليو ٢٠٢٦"
 
 
 def test_channel_names_remove_emojis_without_changing_words():

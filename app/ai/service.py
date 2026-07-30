@@ -438,7 +438,7 @@ class AIAnalysisService:
                 initial.raw_response, encoding="utf-8",
             )
         warnings = normalize_consolidated_output(
-            initial_payload, messages, source_image_references, target_trading_date,
+            initial_payload, messages, source_image_references,
         )
         normalized_response = json.dumps(initial_payload, ensure_ascii=False)
         initial_metrics["prompt_assembly_ms"] = round((perf_counter() - prompt_assembly_started) * 1000)
