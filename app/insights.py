@@ -25,11 +25,11 @@ async def performance(session: AsyncSession, window_sessions: int) -> dict[str, 
     history says nothing about the source.
     """
     window = clamp_window(window_sessions)
-    since = await _scoring_since(session)
+    prices_from = await _prices_from(session)
     scored: list[dict[str, object]] = []
     by_channel: dict[str, list[Scored]] = defaultdict(list)
 
-    for call in await _unique_calls(session, since):
+    for call in await _unique_calls(session, prices_from):
         sessions = await _sessions_from(session, call["ticker"], call["opened_on"])
         result = score(
             sessions,
@@ -49,9 +49,16 @@ async def performance(session: AsyncSession, window_sessions: int) -> dict[str, 
             "outcome": result.outcome.value,
         })
 
+    # The earliest call actually scored, not the earliest stored price: reporting the price
+    # history's start claimed coverage no saved call came anywhere near.
+    oldest = min((item["opened_on"] for item in scored), default=None)
     return {
         "window_sessions": window,
-        "scoring_since": since.isoformat() if since else None,
+        "scoring_since": oldest,
+        # Calls naming a stock with no stored price at all, so a refresh is the missing step.
+        "unpriced_stocks": len({
+            item["ticker"] for item in scored if item["outcome"] == Outcome.UNPRICED.value
+        }),
         "totals": _totals(scored),
         "channels": _channel_scores(by_channel),
         "recommendations": sorted(scored, key=lambda item: item["opened_on"], reverse=True),
@@ -100,12 +107,13 @@ async def _unique_calls(session: AsyncSession, since: date | None) -> list[dict[
     return [call for _, call in best.values()]
 
 
-async def _scoring_since(session: AsyncSession) -> date | None:
+async def _prices_from(session: AsyncSession) -> date | None:
     """
     The first session ever stored.
 
-    Using the price history as the starting line means the feature scores exactly what it can
-    actually judge, with no date to configure and nothing counted from before it existed.
+    Used only as the gate on what can be scored - a call made before there was any price history
+    says nothing about the source. What the page reports as its starting point is the oldest call
+    actually scored, which is a fact about the calls rather than about the download.
     """
     return await session.scalar(select(func.min(DailyPrice.session_date)))
 

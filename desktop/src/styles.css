@@ -3206,3 +3206,13 @@ section {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+
+/* Insights: stocks that cannot be scored because no price was ever fetched for them. */
+.insights-warning {
+  margin: 0 0 6px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warn, #d08700) 14%, transparent);
+  color: var(--warn, #d08700);
+  font-size: 13px;
+}

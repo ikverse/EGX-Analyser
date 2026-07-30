@@ -4,10 +4,15 @@ from app.models import DailyPrice
 from app.scoring import MAX_WINDOW_SESSIONS, Outcome, clamp_window, score
 
 
-def session(day: int, high: float, low: float, close: float | None = None) -> DailyPrice:
+def session(
+    day: int, high: float, low: float, close: float | None = None, open: float | None = None,
+) -> DailyPrice:
+    # Opens at the session low unless a test says otherwise, so the entry is buyable at the open
+    # and cases that are not about entry ordering stay unaffected.
     return DailyPrice(
         ticker="TEST",
         session_date=date(2026, 7, day),
+        open=low if open is None else open,
         high=high,
         low=low,
         close=close if close is not None else (high + low) / 2,
@@ -24,7 +29,8 @@ def test_target_one_is_reported_with_the_session_that_reached_it():
     assert result.outcome is Outcome.TARGET_1
     assert result.settled_on == date(2026, 7, 2)
     assert result.sessions_elapsed == 2
-    assert result.return_pct == 10.0
+    # Measured from the middle of the 10.0-10.2 band rather than its bottom.
+    assert result.return_pct == 8.91
 
 
 def test_the_further_target_wins_when_one_session_clears_both():
@@ -156,3 +162,50 @@ def test_the_same_stock_quoted_two_ways_is_one_ticker():
     assert normalize_ticker(" amoc.ca ") == "AMOC"
     assert normalize_ticker("AMOC") == "AMOC"
     assert normalize_ticker(None) == ""
+
+
+def test_entry_and_target_in_one_session_count_when_it_opened_inside_the_band():
+    """The open precedes every other price, so the entry was available before the day's high."""
+    result = score(
+        [session(1, high=12.5, low=9.5, open=10.1)],
+        entry_low=10.0, entry_high=10.2, target_1=11.0, target_2=None, stop_loss=9.0,
+        window_sessions=10,
+    )
+
+    assert result.outcome is Outcome.TARGET_1
+
+
+def test_entry_and_target_in_one_session_are_ambiguous_when_it_opened_above_the_band():
+    """The stock may have run to the target first and only fallen back into the band afterwards."""
+    result = score(
+        [session(1, high=12.5, low=9.5, open=11.8)],
+        entry_low=10.0, entry_high=10.2, target_1=11.0, target_2=None, stop_loss=9.0,
+        window_sessions=10,
+    )
+
+    assert result.outcome is Outcome.AMBIGUOUS
+    assert result.return_pct is None
+
+
+def test_a_session_with_no_recorded_open_is_not_assumed_favourable():
+    day = session(1, high=12.5, low=9.5)
+    day.open = None
+
+    result = score(
+        [day],
+        entry_low=10.0, entry_high=10.2, target_1=11.0, target_2=None, stop_loss=9.0,
+        window_sessions=10,
+    )
+
+    assert result.outcome is Outcome.AMBIGUOUS
+
+
+def test_entering_on_an_earlier_session_leaves_a_later_target_unaffected():
+    result = score(
+        [session(1, high=10.2, low=9.9), session(2, high=12.5, low=11.0)],
+        entry_low=10.0, entry_high=10.2, target_1=11.0, target_2=None, stop_loss=9.0,
+        window_sessions=10,
+    )
+
+    assert result.outcome is Outcome.TARGET_1
+    assert result.sessions_elapsed == 2

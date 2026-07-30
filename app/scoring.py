@@ -111,7 +111,8 @@ def score(
     for index, day in enumerate(considered, start=1):
         if day.high is not None:
             peak = day.high if peak is None else max(peak, day.high)
-        if not entered and _touched_entry(day, entry_low, entry_high):
+        entered_here = not entered and _touched_entry(day, entry_low, entry_high)
+        if entered_here:
             entered = True
         if not entered:
             continue
@@ -119,6 +120,12 @@ def score(
         hit_target = _reached(day.high, target_2) or _reached(day.high, target_1)
         hit_stop = day.low is not None and stop_loss is not None and day.low <= stop_loss
         if hit_target and hit_stop:
+            return Scored(Outcome.AMBIGUOUS, day.session_date, None, index, peak, None)
+        # The entry first became available on the same session the target was reached. Daily
+        # figures cannot say which came first, so this only counts when the session opened where
+        # the entry was already buyable - otherwise the stock may have run to the target and only
+        # fallen back into the band afterwards.
+        if entered_here and hit_target and not _buyable_at_open(day, entry_low, entry_high):
             return Scored(Outcome.AMBIGUOUS, day.session_date, None, index, peak, None)
         if _reached(day.high, target_2):
             return Scored(Outcome.TARGET_2, day.session_date, target_2, index, peak,
@@ -146,12 +153,33 @@ def _touched_entry(day: DailyPrice, low: float | None, high: float | None) -> bo
     return day.low <= max(bound_low, bound_high) and day.high >= min(bound_low, bound_high)
 
 
+def _buyable_at_open(day: DailyPrice, low: float | None, high: float | None) -> bool:
+    """
+    The session opened at a price the entry band would already have bought.
+
+    The open precedes every other price of the session, so an open at or below the top of the band
+    means the entry was available before the day's high. A session stored before the open was
+    recorded reports None, which counts as unknown rather than favourable.
+    """
+    bounds = [value for value in (low, high) if value is not None]
+    return bool(bounds) and day.open is not None and day.open <= max(bounds)
+
+
 def _reached(high: float | None, target: float | None) -> bool:
     return high is not None and target is not None and high >= target
 
 
 def _return_pct(low: float | None, high: float | None, exit_price: float | None) -> float | None:
-    entry = low if low is not None else high
+    """
+    Return measured from the middle of the entry band.
+
+    Measuring from the bottom assumed the best price in the band was filled every time, which
+    overstated every winning call.
+    """
+    if low is not None and high is not None:
+        entry = (low + high) / 2
+    else:
+        entry = low if low is not None else high
     if entry is None or not entry or exit_price is None:
         return None
     return round((exit_price - entry) / entry * 100, 2)
@@ -210,14 +238,16 @@ def _chart_sessions(payload: object, wanted: int) -> list[dict[str, object]]:
     result = payload["chart"]["result"][0]  # type: ignore[index]
     quote = result["indicators"]["quote"][0]
     rows: list[dict[str, object]] = []
-    for stamp, high, low, close, volume in zip(
-        result["timestamp"], quote["high"], quote["low"], quote["close"], quote["volume"],
+    opens = quote.get("open") or [None] * len(result["timestamp"])
+    for stamp, open_, high, low, close, volume in zip(
+        result["timestamp"], opens, quote["high"], quote["low"], quote["close"], quote["volume"],
     ):
         # A session still open reports nulls; it is not history yet.
         if high is None or low is None:
             continue
         rows.append({
             "session_date": datetime.fromtimestamp(stamp, tz=UTC).date(),
+            "open": open_,
             "high": high,
             "low": low,
             "close": close,
@@ -235,6 +265,7 @@ async def _upsert(session: AsyncSession, ticker: str, day: dict[str, object]) ->
         ),
     )
     row = existing or DailyPrice(ticker=ticker, session_date=session_date)  # type: ignore[arg-type]
+    row.open = _number(day.get("open"))
     row.high = _number(day.get("high"))
     row.low = _number(day.get("low"))
     row.close = _number(day.get("close"))

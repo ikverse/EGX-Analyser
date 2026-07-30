@@ -206,7 +206,10 @@ export type ChannelScore = {
 };
 export type Performance = {
   window_sessions: number;
+  /** The oldest call actually scored, not the oldest stored price. */
   scoring_since?: string | null;
+  /** Calls naming a stock with no stored price at all, so a refresh is the missing step. */
+  unpriced_stocks?: number;
   totals: {
     tracked: number;
     judged: number;

@@ -51,6 +51,9 @@ class DailyPrice(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     ticker: Mapped[str] = mapped_column(String(30), index=True)
     session_date: Mapped[date] = mapped_column(Date, index=True)
+    # The open precedes every other price of the session, which is the only ordering daily figures
+    # can establish. Null for sessions stored before it was recorded; a refresh fills it in.
+    open: Mapped[float | None] = mapped_column(Float)
     high: Mapped[float | None] = mapped_column(Float)
     low: Mapped[float | None] = mapped_column(Float)
     close: Mapped[float | None] = mapped_column(Float)

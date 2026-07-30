@@ -20,6 +20,11 @@ _SQLITE_COMPATIBILITY_COLUMNS = {
         "processing_error": "TEXT",
         "ai_response_raw": "TEXT",
     },
+    "daily_prices": {
+        # Sessions stored before the open was recorded keep it null, which scoring treats as
+        # unknown rather than favourable until the next price refresh rewrites them.
+        "open": "FLOAT",
+    },
 }
 
 

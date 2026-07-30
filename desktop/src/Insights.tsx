@@ -146,11 +146,18 @@ export function Insights({
 
           <p className="insights-hint">
             {report.scoring_since
-              ? `Scored from ${report.scoring_since}, the first session with stored prices.`
+              ? `Oldest call scored: ${report.scoring_since}.`
               : "No prices stored yet. Use Refresh prices to start scoring."}{" "}
             Only calls that could be judged count toward the hit rate: a stock with no price history,
             or one whose entry never traded, counts for nobody.
           </p>
+
+          {report.unpriced_stocks ? (
+            <p className="insights-warning">
+              {report.unpriced_stocks} {report.unpriced_stocks === 1 ? "stock has" : "stocks have"}{" "}
+              no stored prices, so their calls cannot be scored. Use Refresh prices.
+            </p>
+          ) : null}
 
           <div className="insights-outcomes">
             {Object.entries(OUTCOME_LABELS).map(([key, label]) => (
