@@ -1,0 +1,1479 @@
+[
+ {
+  "egx": "AALR",
+  "yahoo": "EGS01081C016.CA",
+  "isin": "EGS01081C016",
+  "company": "General Company For Land Reclam",
+  "verified": "price"
+ },
+ {
+  "egx": "ABUK",
+  "yahoo": "EGS38191C010.CA",
+  "isin": "EGS38191C010",
+  "company": "Abou Kir Fertilizers",
+  "verified": "price"
+ },
+ {
+  "egx": "ACAMD",
+  "yahoo": "EGS72AQ1C016.CA",
+  "isin": "EGS72AQ1C016",
+  "company": "Arab Co. for Asset Management A",
+  "verified": "price"
+ },
+ {
+  "egx": "ACAP",
+  "yahoo": "EGS697S1C015.CA",
+  "isin": "EGS697S1C015",
+  "company": "A Capital Holding",
+  "verified": "name"
+ },
+ {
+  "egx": "ACGC",
+  "yahoo": "EGS32221C011.CA",
+  "isin": "EGS32221C011",
+  "company": "Arab Cotton Ginning",
+  "verified": "price"
+ },
+ {
+  "egx": "ACTF.CA",
+  "yahoo": "EGS7D5P1C019.CA",
+  "isin": "EGS7D5P1C019",
+  "company": "Act Financial",
+  "verified": "name"
+ },
+ {
+  "egx": "ADCI",
+  "yahoo": "EGS38321C013.CA",
+  "isin": "EGS38321C013",
+  "company": "Arab Pharmaceuticals",
+  "verified": "price"
+ },
+ {
+  "egx": "ADIB",
+  "yahoo": "EGS60111C019.CA",
+  "isin": "EGS60111C019",
+  "company": "Abu Dhabi Islamic Bank- Egypt",
+  "verified": "price"
+ },
+ {
+  "egx": "ADPC",
+  "yahoo": "EGS30221C013.CA",
+  "isin": "EGS30221C013",
+  "company": "The Arab Dairy Products Co. Ara",
+  "verified": "price"
+ },
+ {
+  "egx": "AFDI",
+  "yahoo": "EGS69021C011.CA",
+  "isin": "EGS69021C011",
+  "company": "El Ahli Investment and Developm",
+  "verified": "price"
+ },
+ {
+  "egx": "AFMC",
+  "yahoo": "EGS30471C014.CA",
+  "isin": "EGS30471C014",
+  "company": "Alexandria Flour Mills",
+  "verified": "price"
+ },
+ {
+  "egx": "AIDC",
+  "yahoo": "EGS21351C019.CA",
+  "isin": "EGS21351C019",
+  "company": "Arabia Investments Holding",
+  "verified": "name"
+ },
+ {
+  "egx": "AJWA",
+  "yahoo": "EGS30211C014.CA",
+  "isin": "EGS30211C014",
+  "company": "AJWA for Food Industries compan",
+  "verified": "price"
+ },
+ {
+  "egx": "ALCN",
+  "yahoo": "EGS42111C012.CA",
+  "isin": "EGS42111C012",
+  "company": "Alexandria Containers and goods",
+  "verified": "price"
+ },
+ {
+  "egx": "ALRA",
+  "yahoo": "EGS071L1C018.CA",
+  "isin": "EGS071L1C018",
+  "company": "Atlas For Investment and Food I",
+  "verified": "name"
+ },
+ {
+  "egx": "ALUM",
+  "yahoo": "EGS3D031C018.CA",
+  "isin": "EGS3D031C018",
+  "company": "Arab Aluminum",
+  "verified": "price"
+ },
+ {
+  "egx": "AMER",
+  "yahoo": "EGS675S1C011.CA",
+  "isin": "EGS675S1C011",
+  "company": "Amer Group Holding",
+  "verified": "price"
+ },
+ {
+  "egx": "AMES",
+  "yahoo": "EGS72081C010.CA",
+  "isin": "EGS72081C010",
+  "company": "Alexandria New Medical Center",
+  "verified": "price"
+ },
+ {
+  "egx": "AMIA",
+  "yahoo": "EGS67221C019.CA",
+  "isin": "EGS67221C019",
+  "company": "Arab Moltaka Investments Co",
+  "verified": "price"
+ },
+ {
+  "egx": "AMOC",
+  "yahoo": "EGS380P1C010.CA",
+  "isin": "EGS380P1C010",
+  "company": "Alexandria Mineral Oils Company",
+  "verified": "price"
+ },
+ {
+  "egx": "APSW",
+  "yahoo": "EGS32331C018.CA",
+  "isin": "EGS32331C018",
+  "company": "ARAB POLVARA SPINNING & WEAVING",
+  "verified": "price"
+ },
+ {
+  "egx": "ARAB",
+  "yahoo": "EGS694A1C018.CA",
+  "isin": "EGS694A1C018",
+  "company": "Arab Developers Holding",
+  "verified": "price"
+ },
+ {
+  "egx": "ARCC",
+  "yahoo": "EGS3C0O1C016.CA",
+  "isin": "EGS3C0O1C016",
+  "company": "Arabian Cement Company",
+  "verified": "price"
+ },
+ {
+  "egx": "AREH",
+  "yahoo": "EGS65211C012.CA",
+  "isin": "EGS65211C012",
+  "company": "Egyptian Real Estate Group",
+  "verified": "price"
+ },
+ {
+  "egx": "ASCM",
+  "yahoo": "EGS10001C013.CA",
+  "isin": "EGS10001C013",
+  "company": "ASEC Company For Mining - ASCOM",
+  "verified": "price"
+ },
+ {
+  "egx": "ASPI",
+  "yahoo": "EGS691L1C018.CA",
+  "isin": "EGS691L1C018",
+  "company": "Aspire Capital Holding For Fina",
+  "verified": "price"
+ },
+ {
+  "egx": "ATLC",
+  "yahoo": "EGS676N1C015.CA",
+  "isin": "EGS676N1C015",
+  "company": "Al Tawfeek Leasing Company-A.T.",
+  "verified": "price"
+ },
+ {
+  "egx": "ATQA",
+  "yahoo": "EGS3D0C1C018.CA",
+  "isin": "EGS3D0C1C018",
+  "company": "Misr National Steel - Ataqa",
+  "verified": "price"
+ },
+ {
+  "egx": "AXPH",
+  "yahoo": "EGS38341C011.CA",
+  "isin": "EGS38341C011",
+  "company": "Alexandria Pharmaceuticals",
+  "verified": "price"
+ },
+ {
+  "egx": "BINV",
+  "yahoo": "EGS691T1C010.CA",
+  "isin": "EGS691T1C010",
+  "company": "B Investments Holding",
+  "verified": "price"
+ },
+ {
+  "egx": "BIOC",
+  "yahoo": "EGS38171C012.CA",
+  "isin": "EGS38171C012",
+  "company": "Glaxo Smith Kline",
+  "verified": "price"
+ },
+ {
+  "egx": "BONY",
+  "yahoo": "EGS656M1C010.CA",
+  "isin": "EGS656M1C010",
+  "company": "Bonyan for Development and Trad",
+  "verified": "name"
+ },
+ {
+  "egx": "BTFH",
+  "yahoo": "EGS691G1C015.CA",
+  "isin": "EGS691G1C015",
+  "company": "Beltone Holding",
+  "verified": "price"
+ },
+ {
+  "egx": "CAED",
+  "yahoo": "EGS72201C014.CA",
+  "isin": "EGS72201C014",
+  "company": "Cairo Educational Services",
+  "verified": "price"
+ },
+ {
+  "egx": "CANA",
+  "yahoo": "EGS60231C015.CA",
+  "isin": "EGS60231C015",
+  "company": "Suez Canal Bank S.A.E",
+  "verified": "price"
+ },
+ {
+  "egx": "CCAP",
+  "yahoo": "EGS73541C012.CA",
+  "isin": "EGS73541C012",
+  "company": "QALAA For Financial Investments",
+  "verified": "price"
+ },
+ {
+  "egx": "CCRS",
+  "yahoo": "EGS651B1C018.CA",
+  "isin": "EGS651B1C018",
+  "company": "Gulf Canadian Real Estate Inves",
+  "verified": "price"
+ },
+ {
+  "egx": "CEFM",
+  "yahoo": "EGS30401C011.CA",
+  "isin": "EGS30401C011",
+  "company": "Middle Egypt Flour Mills",
+  "verified": "price"
+ },
+ {
+  "egx": "CERA",
+  "yahoo": "EGS3C151C015.CA",
+  "isin": "EGS3C151C015",
+  "company": "The Arab Ceramic CO.- Ceramica ",
+  "verified": "price"
+ },
+ {
+  "egx": "CFGH",
+  "yahoo": "EGS672I2C014.CA",
+  "isin": "EGS672I2C014",
+  "company": "Concrete Fashion Group For Comm",
+  "verified": "price"
+ },
+ {
+  "egx": "CICH",
+  "yahoo": "EGS691D1C018.CA",
+  "isin": "EGS691D1C018",
+  "company": "CI Capital Holding For Financia",
+  "verified": "price"
+ },
+ {
+  "egx": "CIEB",
+  "yahoo": "EGS60041C018.CA",
+  "isin": "EGS60041C018",
+  "company": "Credit Agricole Egypt",
+  "verified": "price"
+ },
+ {
+  "egx": "CIRA",
+  "yahoo": "EGS65541C012.CA",
+  "isin": "EGS65541C012",
+  "company": "Cairo For Investment And Real E",
+  "verified": "price"
+ },
+ {
+  "egx": "CLHO",
+  "yahoo": "EGS729J1C018.CA",
+  "isin": "EGS729J1C018",
+  "company": "Cleopatra Hospital Company",
+  "verified": "price"
+ },
+ {
+  "egx": "CNFN",
+  "yahoo": "EGS738I1C018.CA",
+  "isin": "EGS738I1C018",
+  "company": "Contact Financial Holding",
+  "verified": "price"
+ },
+ {
+  "egx": "COMI",
+  "yahoo": "EGS60121C018.CA",
+  "isin": "EGS60121C018",
+  "company": "Commercial International Bank-E",
+  "verified": "price"
+ },
+ {
+  "egx": "COPR",
+  "yahoo": "EGS65511C015.CA",
+  "isin": "EGS65511C015",
+  "company": "Copper For Commercial Investmen",
+  "verified": "price"
+ },
+ {
+  "egx": "COSG",
+  "yahoo": "EGS30581C010.CA",
+  "isin": "EGS30581C010",
+  "company": "Cairo Oils & Soap",
+  "verified": "price"
+ },
+ {
+  "egx": "CPCI",
+  "yahoo": "EGS38391C016.CA",
+  "isin": "EGS38391C016",
+  "company": "Cairo Pharmaceuticals",
+  "verified": "price"
+ },
+ {
+  "egx": "CPME",
+  "yahoo": "EGS698X1C017.CA",
+  "isin": "EGS698X1C017",
+  "company": "Catalyst Partners Middle East .",
+  "verified": "name"
+ },
+ {
+  "egx": "CRST",
+  "yahoo": "EGS23141C012.CA",
+  "isin": "EGS23141C012",
+  "company": "Creast Mark For Contracting And",
+  "verified": "name"
+ },
+ {
+  "egx": "CSAG",
+  "yahoo": "EGS44031C010.CA",
+  "isin": "EGS44031C010",
+  "company": "Canal Shipping Agencies",
+  "verified": "price"
+ },
+ {
+  "egx": "DAPH",
+  "yahoo": "EGS65081C019.CA",
+  "isin": "EGS65081C019",
+  "company": "Development & Engineering Consu",
+  "verified": "price"
+ },
+ {
+  "egx": "DEIN",
+  "yahoo": "EGS63031C016.CA",
+  "isin": "EGS63031C016",
+  "company": "Delta Insurance",
+  "verified": "name"
+ },
+ {
+  "egx": "DOMT",
+  "yahoo": "EGS30031C016.CA",
+  "isin": "EGS30031C016",
+  "company": "Arabian Food Industries DOMTY",
+  "verified": "price"
+ },
+ {
+  "egx": "DSCW",
+  "yahoo": "EGS33321C018.CA",
+  "isin": "EGS33321C018",
+  "company": "Dice Sport & Casual Wear",
+  "verified": "price"
+ },
+ {
+  "egx": "DTPP",
+  "yahoo": "EGS370W1C013.CA",
+  "isin": "EGS370W1C013",
+  "company": "Delta For Printing & Packaging",
+  "verified": "price"
+ },
+ {
+  "egx": "EALR",
+  "yahoo": "EGS65771C015.CA",
+  "isin": "EGS65771C015",
+  "company": "El Arabia for Land Reclamation",
+  "verified": "price"
+ },
+ {
+  "egx": "EASB",
+  "yahoo": "EGS681D1C010.CA",
+  "isin": "EGS681D1C010",
+  "company": "Egyptian Arabian(Themar)Comp. F",
+  "verified": "price"
+ },
+ {
+  "egx": "EAST",
+  "yahoo": "EGS37091C013.CA",
+  "isin": "EGS37091C013",
+  "company": "Eastern Company",
+  "verified": "price"
+ },
+ {
+  "egx": "EBSC",
+  "yahoo": "EGS68181C014.CA",
+  "isin": "EGS68181C014",
+  "company": "Osool ESB Securities Brokerage",
+  "verified": "price"
+ },
+ {
+  "egx": "ECAP",
+  "yahoo": "EGS3C071C015.CA",
+  "isin": "EGS3C071C015",
+  "company": "El Ezz Porcelain (Gemma)",
+  "verified": "price"
+ },
+ {
+  "egx": "EDFM",
+  "yahoo": "EGS30351C018.CA",
+  "isin": "EGS30351C018",
+  "company": "East Delta Flour Mills",
+  "verified": "price"
+ },
+ {
+  "egx": "EEII",
+  "yahoo": "EGS3G111C015.CA",
+  "isin": "EGS3G111C015",
+  "company": "El Arabia Engineering Industrie",
+  "verified": "price"
+ },
+ {
+  "egx": "EFIC",
+  "yahoo": "EGS38381C017.CA",
+  "isin": "EGS38381C017",
+  "company": "Egyptian Financial & Industrial",
+  "verified": "price"
+ },
+ {
+  "egx": "EFID",
+  "yahoo": "EGS305I1C011.CA",
+  "isin": "EGS305I1C011",
+  "company": "Edita Food Industries S.A.E",
+  "verified": "price"
+ },
+ {
+  "egx": "EFIH",
+  "yahoo": "EGS743O1C013.CA",
+  "isin": "EGS743O1C013",
+  "company": "E-finance For Digital and Finan",
+  "verified": "price"
+ },
+ {
+  "egx": "EGAL",
+  "yahoo": "EGS3E181C010.CA",
+  "isin": "EGS3E181C010",
+  "company": "Egypt Aluminum",
+  "verified": "price"
+ },
+ {
+  "egx": "EGAS",
+  "yahoo": "EGS39011C019.CA",
+  "isin": "EGS39011C019",
+  "company": "Natural Gas & Mining Project (E",
+  "verified": "price"
+ },
+ {
+  "egx": "EGBE",
+  "yahoo": "EGS60182C010.CA",
+  "isin": "EGS60182C010",
+  "company": "Egyptian Gulf Bank",
+  "verified": "price"
+ },
+ {
+  "egx": "EGCH",
+  "yahoo": "EGS38201C017.CA",
+  "isin": "EGS38201C017",
+  "company": "Egyptian Chemical Industries (K",
+  "verified": "price"
+ },
+ {
+  "egx": "EGSA",
+  "yahoo": "EGS48022C015.CA",
+  "isin": "EGS48022C015",
+  "company": "Egyptian Satellites (NileSat)",
+  "verified": "price"
+ },
+ {
+  "egx": "EGTS",
+  "yahoo": "EGS70431C019.CA",
+  "isin": "EGS70431C019",
+  "company": "Egyptian for Tourism Resorts",
+  "verified": "price"
+ },
+ {
+  "egx": "EHDR",
+  "yahoo": "EGS65341C017.CA",
+  "isin": "EGS65341C017",
+  "company": "Egyptians Housing Development &",
+  "verified": "price"
+ },
+ {
+  "egx": "ELEC",
+  "yahoo": "EGS3G231C011.CA",
+  "isin": "EGS3G231C011",
+  "company": "Electro Cable Egypt",
+  "verified": "price"
+ },
+ {
+  "egx": "ELKA",
+  "yahoo": "EGS65071C010.CA",
+  "isin": "EGS65071C010",
+  "company": "El Kahera Housing",
+  "verified": "price"
+ },
+ {
+  "egx": "ELNA",
+  "yahoo": "EGS300L1C011.CA",
+  "isin": "EGS300L1C011",
+  "company": "El Nasr For Manufacturing Agric",
+  "verified": "price"
+ },
+ {
+  "egx": "ELSH",
+  "yahoo": "EGS65091C018.CA",
+  "isin": "EGS65091C018",
+  "company": "El Shams Housing & Urbanization",
+  "verified": "price"
+ },
+ {
+  "egx": "ELWA",
+  "yahoo": "EGS70R91C016.CA",
+  "isin": "EGS70R91C016",
+  "company": "El Wadi For International and I",
+  "verified": "price"
+ },
+ {
+  "egx": "EMFD",
+  "yahoo": "EGS673Y1C015.CA",
+  "isin": "EGS673Y1C015",
+  "company": "Emaar Misr for Development",
+  "verified": "price"
+ },
+ {
+  "egx": "ENGC",
+  "yahoo": "EGS3F021C017.CA",
+  "isin": "EGS3F021C017",
+  "company": "Engineering Industries (ICON)",
+  "verified": "price"
+ },
+ {
+  "egx": "EOSB",
+  "yahoo": "EGS681I1C015.CA",
+  "isin": "EGS681I1C015",
+  "company": "El Orouba Securities Brokerage",
+  "verified": "price"
+ },
+ {
+  "egx": "EPCO",
+  "yahoo": "EGS02211C018.CA",
+  "isin": "EGS02211C018",
+  "company": "Egypt for Poultry",
+  "verified": "price"
+ },
+ {
+  "egx": "EPPK",
+  "yahoo": "EGS360A1C011.CA",
+  "isin": "EGS360A1C011",
+  "company": "El Ahram Co. For Printing And P",
+  "verified": "price"
+ },
+ {
+  "egx": "ETEL",
+  "yahoo": "EGS48031C016.CA",
+  "isin": "EGS48031C016",
+  "company": "Telecom Egypt",
+  "verified": "price"
+ },
+ {
+  "egx": "ETRS",
+  "yahoo": "EGS42051C010.CA",
+  "isin": "EGS42051C010",
+  "company": "Egyptian Transport & Commercial",
+  "verified": "price"
+ },
+ {
+  "egx": "EXPA",
+  "yahoo": "EGS60241C014.CA",
+  "isin": "EGS60241C014",
+  "company": "Export Development Bank of Egyp",
+  "verified": "price"
+ },
+ {
+  "egx": "FAIT",
+  "yahoo": "EGS60321C014.CA",
+  "isin": "EGS60321C014",
+  "company": "Faisal Islamic Bank of Egypt - ",
+  "verified": "price"
+ },
+ {
+  "egx": "FAITA",
+  "yahoo": "EGS60322C012.CA",
+  "isin": "EGS60322C012",
+  "company": "Faisal Islamic Bank of Egypt - ",
+  "verified": "price"
+ },
+ {
+  "egx": "FERC",
+  "yahoo": "EGS385S1C012.CA",
+  "isin": "EGS385S1C012",
+  "company": "FERCHEM MISR CO. FOR FERTILLIZE",
+  "verified": "price"
+ },
+ {
+  "egx": "FWRY",
+  "yahoo": "EGS745L1C014.CA",
+  "isin": "EGS745L1C014",
+  "company": "Fawry For Banking Technology An",
+  "verified": "price"
+ },
+ {
+  "egx": "GBCO",
+  "yahoo": "EGS673T1C012.CA",
+  "isin": "EGS673T1C012",
+  "company": "GB Corp",
+  "verified": "price"
+ },
+ {
+  "egx": "GDWA",
+  "yahoo": "EGS3JM11C012.CA",
+  "isin": "EGS3JM11C012",
+  "company": "Gadwa For Industrial Developmen",
+  "verified": "price"
+ },
+ {
+  "egx": "GGCC",
+  "yahoo": "EGS21541C015.CA",
+  "isin": "EGS21541C015",
+  "company": "Giza General Contracting",
+  "verified": "price"
+ },
+ {
+  "egx": "GIHD",
+  "yahoo": "EGS65461C013.CA",
+  "isin": "EGS65461C013",
+  "company": "Gharbia Islamic Housing Develop",
+  "verified": "price"
+ },
+ {
+  "egx": "GMCI",
+  "yahoo": "EGS46051C016.CA",
+  "isin": "EGS46051C016",
+  "company": "GMC GROUP FOR INDUSTRIAL COMMER",
+  "verified": "price"
+ },
+ {
+  "egx": "GOUR",
+  "yahoo": "EGS540S1C014.CA",
+  "isin": "EGS540S1C014",
+  "company": "Gourmet Egypt.Com Foods",
+  "verified": "name"
+ },
+ {
+  "egx": "GPIM",
+  "yahoo": "EGS213S1C010.CA",
+  "isin": "EGS213S1C010",
+  "company": "GPI For Urban Growth",
+  "verified": "name"
+ },
+ {
+  "egx": "GPPL",
+  "yahoo": "EGS70342C018.CA",
+  "isin": "EGS70342C018",
+  "company": "Golden Pyramids Plaza",
+  "verified": "name"
+ },
+ {
+  "egx": "GRCA",
+  "yahoo": "EGS69261C013.CA",
+  "isin": "EGS69261C013",
+  "company": "Grand Investment Capital",
+  "verified": "price"
+ },
+ {
+  "egx": "GSSC",
+  "yahoo": "EGS30441C017.CA",
+  "isin": "EGS30441C017",
+  "company": "General Silos & Storage",
+  "verified": "price"
+ },
+ {
+  "egx": "GTEX",
+  "yahoo": "EGS59U92C011.CA",
+  "isin": "EGS59U92C011",
+  "company": "GTEX For Commercial And Industr",
+  "verified": "name"
+ },
+ {
+  "egx": "GTWL",
+  "yahoo": "EGS32161C019.CA",
+  "isin": "EGS32161C019",
+  "company": "Golden Textiles & Clothes Wool",
+  "verified": "price"
+ },
+ {
+  "egx": "HDBK",
+  "yahoo": "EGS60301C016.CA",
+  "isin": "EGS60301C016",
+  "company": "Housing & Development Bank",
+  "verified": "price"
+ },
+ {
+  "egx": "HELI",
+  "yahoo": "EGS65591C017.CA",
+  "isin": "EGS65591C017",
+  "company": "Heliopolis Housing",
+  "verified": "price"
+ },
+ {
+  "egx": "HRHO",
+  "yahoo": "EGS69101C011.CA",
+  "isin": "EGS69101C011",
+  "company": "EFG Holding",
+  "verified": "price"
+ },
+ {
+  "egx": "ICID",
+  "yahoo": "EGS67191C014.CA",
+  "isin": "EGS67191C014",
+  "company": "International Co For Investment",
+  "verified": "price"
+ },
+ {
+  "egx": "ICLE",
+  "yahoo": "EGS67001C015.CA",
+  "isin": "EGS67001C015",
+  "company": "International Company For Leasi",
+  "verified": "price"
+ },
+ {
+  "egx": "IDRE",
+  "yahoo": "EGS214Q1C011.CA",
+  "isin": "EGS214Q1C011",
+  "company": "Ismailia Development and Real E",
+  "verified": "price"
+ },
+ {
+  "egx": "IFAP",
+  "yahoo": "EGS07061C012.CA",
+  "isin": "EGS07061C012",
+  "company": "International Agricultural Prod",
+  "verified": "price"
+ },
+ {
+  "egx": "INFI",
+  "yahoo": "EGS01041C010.CA",
+  "isin": "EGS01041C010",
+  "company": "Ismailia National Food Industri",
+  "verified": "price"
+ },
+ {
+  "egx": "IRON",
+  "yahoo": "EGS3D061C015.CA",
+  "isin": "EGS3D061C015",
+  "company": "Egyptian Iron & Steel",
+  "verified": "price"
+ },
+ {
+  "egx": "ISMA",
+  "yahoo": "EGS02021C011.CA",
+  "isin": "EGS02021C011",
+  "company": "Ismailia Misr Poultry",
+  "verified": "price"
+ },
+ {
+  "egx": "ISMQ",
+  "yahoo": "EGS102S1C014.CA",
+  "isin": "EGS102S1C014",
+  "company": "Iron And Steel for Mines and Qu",
+  "verified": "price"
+ },
+ {
+  "egx": "ISPH",
+  "yahoo": "EGS512O1C012.CA",
+  "isin": "EGS512O1C012",
+  "company": "Ibnsina Pharma",
+  "verified": "price"
+ },
+ {
+  "egx": "JUFO",
+  "yahoo": "EGS30901C010.CA",
+  "isin": "EGS30901C010",
+  "company": "Juhayna Food Industries",
+  "verified": "price"
+ },
+ {
+  "egx": "KABO",
+  "yahoo": "EGS33061C010.CA",
+  "isin": "EGS33061C010",
+  "company": "El Nasr Clothes & Textiles (Kab",
+  "verified": "price"
+ },
+ {
+  "egx": "KRDI",
+  "yahoo": "EGS02291C010.CA",
+  "isin": "EGS02291C010",
+  "company": "Al Khair River For Development ",
+  "verified": "name"
+ },
+ {
+  "egx": "KWIN",
+  "yahoo": "EGS69011C012.CA",
+  "isin": "EGS69011C012",
+  "company": "El Kahera El Watania Investment",
+  "verified": "price"
+ },
+ {
+  "egx": "KZPC",
+  "yahoo": "EGS38411C012.CA",
+  "isin": "EGS38411C012",
+  "company": "Kafr El Zayat Pesticides",
+  "verified": "price"
+ },
+ {
+  "egx": "LCSW",
+  "yahoo": "EGS3C161C014.CA",
+  "isin": "EGS3C161C014",
+  "company": "Lecico Egypt",
+  "verified": "price"
+ },
+ {
+  "egx": "LUTS",
+  "yahoo": "EGS07661C019.CA",
+  "isin": "EGS07661C019",
+  "company": "Lotus For Agricultural Investme",
+  "verified": "price"
+ },
+ {
+  "egx": "MAAL",
+  "yahoo": "EGS739Z1C016.CA",
+  "isin": "EGS739Z1C016",
+  "company": "Egyptian Gulf Marseilia For Rea",
+  "verified": "price"
+ },
+ {
+  "egx": "MASR",
+  "yahoo": "EGS65571C019.CA",
+  "isin": "EGS65571C019",
+  "company": "Madinet Masr For Housing and De",
+  "verified": "price"
+ },
+ {
+  "egx": "MBSC",
+  "yahoo": "EGS3C371C019.CA",
+  "isin": "EGS3C371C019",
+  "company": "Misr Beni Suef Cement",
+  "verified": "price"
+ },
+ {
+  "egx": "MCQE",
+  "yahoo": "EGS3C391C017.CA",
+  "isin": "EGS3C391C017",
+  "company": "Misr Cement (Qena)",
+  "verified": "price"
+ },
+ {
+  "egx": "MCRO",
+  "yahoo": "EGS7D971C011.CA",
+  "isin": "EGS7D971C011",
+  "company": "Macro Group Pharmaceuticals -Ma",
+  "verified": "price"
+ },
+ {
+  "egx": "MENA",
+  "yahoo": "EGS65441C015.CA",
+  "isin": "EGS65441C015",
+  "company": "Mena Touristic & Real Estate In",
+  "verified": "price"
+ },
+ {
+  "egx": "MEPA",
+  "yahoo": "EGS3C4L1C015.CA",
+  "isin": "EGS3C4L1C015",
+  "company": "Medical Packaging Company",
+  "verified": "price"
+ },
+ {
+  "egx": "MFPC",
+  "yahoo": "EGS39061C014.CA",
+  "isin": "EGS39061C014",
+  "company": "Misr Fertilizers Production Com",
+  "verified": "price"
+ },
+ {
+  "egx": "MFSC",
+  "yahoo": "EGS53051C016.CA",
+  "isin": "EGS53051C016",
+  "company": "Misr Duty Free Shops",
+  "verified": "price"
+ },
+ {
+  "egx": "MHOT",
+  "yahoo": "EGS70081C012.CA",
+  "isin": "EGS70081C012",
+  "company": "Misr Hotels",
+  "verified": "price"
+ },
+ {
+  "egx": "MICH",
+  "yahoo": "EGS38211C016.CA",
+  "isin": "EGS38211C016",
+  "company": "Misr Chemical Industries",
+  "verified": "price"
+ },
+ {
+  "egx": "MILS",
+  "yahoo": "EGS30361C017.CA",
+  "isin": "EGS30361C017",
+  "company": "North Cairo Mills",
+  "verified": "price"
+ },
+ {
+  "egx": "MIPH",
+  "yahoo": "EGS380G1C011.CA",
+  "isin": "EGS380G1C011",
+  "company": "Minapharm Pharmaceuticals",
+  "verified": "price"
+ },
+ {
+  "egx": "MMAT",
+  "yahoo": "EGS70P91C010.CA",
+  "isin": "EGS70P91C010",
+  "company": "Marsa Marsa Alam For Tourism De",
+  "verified": "name"
+ },
+ {
+  "egx": "MOED",
+  "yahoo": "EGS729F1C012.CA",
+  "isin": "EGS729F1C012",
+  "company": "The Egyptian Modern Education S",
+  "verified": "price"
+ },
+ {
+  "egx": "MOIL",
+  "yahoo": "EGS44012C010.CA",
+  "isin": "EGS44012C010",
+  "company": "Maridive & oil services",
+  "verified": "price"
+ },
+ {
+  "egx": "MOIN",
+  "yahoo": "EGS63041C015.CA",
+  "isin": "EGS63041C015",
+  "company": "Mohandes Insurance",
+  "verified": "price"
+ },
+ {
+  "egx": "MOSC",
+  "yahoo": "EGS38421C011.CA",
+  "isin": "EGS38421C011",
+  "company": "Misr Oils & Soap",
+  "verified": "price"
+ },
+ {
+  "egx": "MPCI",
+  "yahoo": "EGS38351C010.CA",
+  "isin": "EGS38351C010",
+  "company": "Memphis Pharmaceuticals",
+  "verified": "price"
+ },
+ {
+  "egx": "MPCO",
+  "yahoo": "EGS02091C014.CA",
+  "isin": "EGS02091C014",
+  "company": "Mansourah Poultry",
+  "verified": "price"
+ },
+ {
+  "egx": "MPRC",
+  "yahoo": "EGS78021C010.CA",
+  "isin": "EGS78021C010",
+  "company": "Egyptian Media Production City",
+  "verified": "price"
+ },
+ {
+  "egx": "MTIE",
+  "yahoo": "EGS75011C014.CA",
+  "isin": "EGS75011C014",
+  "company": "MM Group For Industry And Inter",
+  "verified": "price"
+ },
+ {
+  "egx": "NAHO",
+  "yahoo": "EGS69182C011.CA",
+  "isin": "EGS69182C011",
+  "company": "Naeem Holding",
+  "verified": "price"
+ },
+ {
+  "egx": "NAPR",
+  "yahoo": "EGS370O1C013.CA",
+  "isin": "EGS370O1C013",
+  "company": "National Printing",
+  "verified": "name"
+ },
+ {
+  "egx": "NARE",
+  "yahoo": "EGS69191C012.CA",
+  "isin": "EGS69191C012",
+  "company": "Naeem Real Estate Holding Group",
+  "verified": "name"
+ },
+ {
+  "egx": "NCCW",
+  "yahoo": "EGS23111C015.CA",
+  "isin": "EGS23111C015",
+  "company": "Nasr Company for Civil Works",
+  "verified": "price"
+ },
+ {
+  "egx": "NDRL",
+  "yahoo": "EGS65AL1C010.CA",
+  "isin": "EGS65AL1C010",
+  "company": "First Investment Company And Re",
+  "verified": "price"
+ },
+ {
+  "egx": "NEDA",
+  "yahoo": "EGS52041C018.CA",
+  "isin": "EGS52041C018",
+  "company": "Northern Upper Egypt Developmen",
+  "verified": "price"
+ },
+ {
+  "egx": "NHPS",
+  "yahoo": "EGS65131C012.CA",
+  "isin": "EGS65131C012",
+  "company": "National Housing for Profession",
+  "verified": "price"
+ },
+ {
+  "egx": "NINH",
+  "yahoo": "EGS72011C017.CA",
+  "isin": "EGS72011C017",
+  "company": "Nozha International Hospital",
+  "verified": "price"
+ },
+ {
+  "egx": "NIPH",
+  "yahoo": "EGS38331C012.CA",
+  "isin": "EGS38331C012",
+  "company": "El-Nile Co. For Pharmaceuticals",
+  "verified": "price"
+ },
+ {
+  "egx": "OBRI",
+  "yahoo": "EGS65551C011.CA",
+  "isin": "EGS65551C011",
+  "company": "El Obour Real Estate Investment",
+  "verified": "price"
+ },
+ {
+  "egx": "OCDI",
+  "yahoo": "EGS65851C015.CA",
+  "isin": "EGS65851C015",
+  "company": "Six of October Development & In",
+  "verified": "price"
+ },
+ {
+  "egx": "OCPH",
+  "yahoo": "EGS380R1C018.CA",
+  "isin": "EGS380R1C018",
+  "company": "October Pharma",
+  "verified": "price"
+ },
+ {
+  "egx": "ODIN",
+  "yahoo": "EGS67181C015.CA",
+  "isin": "EGS67181C015",
+  "company": "ODIN Investments",
+  "verified": "price"
+ },
+ {
+  "egx": "OFH",
+  "yahoo": "EGS696S1C016.CA",
+  "isin": "EGS696S1C016",
+  "company": "O B  Financial Holding",
+  "verified": "price"
+ },
+ {
+  "egx": "OIH",
+  "yahoo": "EGS693V1C014.CA",
+  "isin": "EGS693V1C014",
+  "company": "Orascom Investment Holding",
+  "verified": "price"
+ },
+ {
+  "egx": "OLFI",
+  "yahoo": "EGS30AL1C012.CA",
+  "isin": "EGS30AL1C012",
+  "company": "Obour Land For Food Industries",
+  "verified": "price"
+ },
+ {
+  "egx": "ORAS",
+  "yahoo": "EGS95001C011.CA",
+  "isin": "EGS95001C011",
+  "company": "Orascom Construction PLC",
+  "verified": "name"
+ },
+ {
+  "egx": "ORHD",
+  "yahoo": "EGS70321C012.CA",
+  "isin": "EGS70321C012",
+  "company": "Orascom Development Egypt",
+  "verified": "price"
+ },
+ {
+  "egx": "ORWE",
+  "yahoo": "EGS33041C012.CA",
+  "isin": "EGS33041C012",
+  "company": "Oriental Weavers",
+  "verified": "price"
+ },
+ {
+  "egx": "PHAR",
+  "yahoo": "EGS38081C013.CA",
+  "isin": "EGS38081C013",
+  "company": "Egyptian International Pharmace",
+  "verified": "price"
+ },
+ {
+  "egx": "PHDC",
+  "yahoo": "EGS655L1C012.CA",
+  "isin": "EGS655L1C012",
+  "company": "Palm Hills Development Company",
+  "verified": "price"
+ },
+ {
+  "egx": "PHGC",
+  "yahoo": "EGS72XL1C014.CA",
+  "isin": "EGS72XL1C014",
+  "company": "Premium HealthCare Group",
+  "verified": "name"
+ },
+ {
+  "egx": "PHTV",
+  "yahoo": "EGS70331C011.CA",
+  "isin": "EGS70331C011",
+  "company": "Pyramisa Hotels",
+  "verified": "price"
+ },
+ {
+  "egx": "POUL",
+  "yahoo": "EGS02051C018.CA",
+  "isin": "EGS02051C018",
+  "company": "Cairo Poultry",
+  "verified": "price"
+ },
+ {
+  "egx": "PRCL",
+  "yahoo": "EGS3C111C019.CA",
+  "isin": "EGS3C111C019",
+  "company": "Ceramic & Porcelain",
+  "verified": "price"
+ },
+ {
+  "egx": "PRDC",
+  "yahoo": "EGS21FW1C015.CA",
+  "isin": "EGS21FW1C015",
+  "company": "Pioneers Properties For Urban D",
+  "verified": "price"
+ },
+ {
+  "egx": "PRMH",
+  "yahoo": "EGS691A1C011.CA",
+  "isin": "EGS691A1C011",
+  "company": "Prime Holding",
+  "verified": "price"
+ },
+ {
+  "egx": "QNBE",
+  "yahoo": "EGS60081C014.CA",
+  "isin": "EGS60081C014",
+  "company": "Qatar National Bank",
+  "verified": "name"
+ },
+ {
+  "egx": "RACC",
+  "yahoo": "EGS74191C015.CA",
+  "isin": "EGS74191C015",
+  "company": "Raya Customer Experience",
+  "verified": "price"
+ },
+ {
+  "egx": "RAKT",
+  "yahoo": "EGS36021C011.CA",
+  "isin": "EGS36021C011",
+  "company": "Rakta Paper Manufacturing",
+  "verified": "price"
+ },
+ {
+  "egx": "RAYA",
+  "yahoo": "EGS690C1C010.CA",
+  "isin": "EGS690C1C010",
+  "company": "Raya Holding For Financial Inve",
+  "verified": "price"
+ },
+ {
+  "egx": "RMDA",
+  "yahoo": "EGS381B1C015.CA",
+  "isin": "EGS381B1C015",
+  "company": "Tenth Of Ramadan Pharmaceutical",
+  "verified": "price"
+ },
+ {
+  "egx": "ROTO",
+  "yahoo": "EGS70281C018.CA",
+  "isin": "EGS70281C018",
+  "company": "Rowad Tourism (Al Rowad)",
+  "verified": "price"
+ },
+ {
+  "egx": "RREI",
+  "yahoo": "EGS65011C016.CA",
+  "isin": "EGS65011C016",
+  "company": "Arab Real Estate Investment CO.",
+  "verified": "price"
+ },
+ {
+  "egx": "RTVC",
+  "yahoo": "EGS70271C019.CA",
+  "isin": "EGS70271C019",
+  "company": "Remco for Touristic Villages Co",
+  "verified": "price"
+ },
+ {
+  "egx": "RUBX",
+  "yahoo": "EGS3A221C018.CA",
+  "isin": "EGS3A221C018",
+  "company": "Rubex International for Plastic",
+  "verified": "price"
+ },
+ {
+  "egx": "SAUD",
+  "yahoo": "EGS60101C010.CA",
+  "isin": "EGS60101C010",
+  "company": "Al Baraka Bank Egypt",
+  "verified": "price"
+ },
+ {
+  "egx": "SCEM",
+  "yahoo": "EGS3C401C014.CA",
+  "isin": "EGS3C401C014",
+  "company": "Sinai Cement",
+  "verified": "price"
+ },
+ {
+  "egx": "SCFM",
+  "yahoo": "EGS30411C010.CA",
+  "isin": "EGS30411C010",
+  "company": "South Cairo & Giza Mills & Bake",
+  "verified": "price"
+ },
+ {
+  "egx": "SCTS",
+  "yahoo": "EGS740C1C010.CA",
+  "isin": "EGS740C1C010",
+  "company": "Sues Canal Company For Technolo",
+  "verified": "price"
+ },
+ {
+  "egx": "SDTI",
+  "yahoo": "EGS70571C012.CA",
+  "isin": "EGS70571C012",
+  "company": "Sharm Dreams Co. for Tourism In",
+  "verified": "price"
+ },
+ {
+  "egx": "SEIG",
+  "yahoo": "EGS67031C012.CA",
+  "isin": "EGS67031C012",
+  "company": "Saudi Egyptian Investment & Fin",
+  "verified": "price"
+ },
+ {
+  "egx": "SIPC",
+  "yahoo": "EGS382M1C011.CA",
+  "isin": "EGS382M1C011",
+  "company": "Sabaa International Company for",
+  "verified": "price"
+ },
+ {
+  "egx": "SKPC",
+  "yahoo": "EGS380S1C017.CA",
+  "isin": "EGS380S1C017",
+  "company": "Sidi Kerir Petrochemicals - SID",
+  "verified": "price"
+ },
+ {
+  "egx": "SMFR",
+  "yahoo": "EGS51191C012.CA",
+  "isin": "EGS51191C012",
+  "company": "Samad Misr -EGYFERT",
+  "verified": "price"
+ },
+ {
+  "egx": "SNFC",
+  "yahoo": "EGS30291C016.CA",
+  "isin": "EGS30291C016",
+  "company": "Sharkia National Food",
+  "verified": "price"
+ },
+ {
+  "egx": "SPIN",
+  "yahoo": "EGS32041C013.CA",
+  "isin": "EGS32041C013",
+  "company": "Alexandria Spinning & Weaving (",
+  "verified": "price"
+ },
+ {
+  "egx": "SPMD",
+  "yahoo": "EGS73BR1C013.CA",
+  "isin": "EGS73BR1C013",
+  "company": "Speed Medical",
+  "verified": "price"
+ },
+ {
+  "egx": "SUGR",
+  "yahoo": "EGS30201C015.CA",
+  "isin": "EGS30201C015",
+  "company": "Delta Sugar",
+  "verified": "price"
+ },
+ {
+  "egx": "SVCE",
+  "yahoo": "EGS3C351C011.CA",
+  "isin": "EGS3C351C011",
+  "company": "South Valley Cement",
+  "verified": "price"
+ },
+ {
+  "egx": "SWDY",
+  "yahoo": "EGS3G0Z1C014.CA",
+  "isin": "EGS3G0Z1C014",
+  "company": "ELSWEDY ELECTRIC",
+  "verified": "price"
+ },
+ {
+  "egx": "TALM",
+  "yahoo": "EGS597R1C017.CA",
+  "isin": "EGS597R1C017",
+  "company": "Taaleem Management Services",
+  "verified": "price"
+ },
+ {
+  "egx": "TANM",
+  "yahoo": "EGS21EB1C011.CA",
+  "isin": "EGS21EB1C011",
+  "company": "Tanmiya for Real Estate Investm",
+  "verified": "name"
+ },
+ {
+  "egx": "TAQA",
+  "yahoo": "EGS490S1C014.CA",
+  "isin": "EGS490S1C014",
+  "company": "Taqa Arabia",
+  "verified": "name"
+ },
+ {
+  "egx": "TMGH",
+  "yahoo": "EGS691S1C011.CA",
+  "isin": "EGS691S1C011",
+  "company": "T M G Holding",
+  "verified": "price"
+ },
+ {
+  "egx": "TRTO",
+  "yahoo": "EGS79072C012.CA",
+  "isin": "EGS79072C012",
+  "company": "TransOceans Tours",
+  "verified": "price"
+ },
+ {
+  "egx": "UBEE",
+  "yahoo": "EGS600M1C017.CA",
+  "isin": "EGS600M1C017",
+  "company": "The United Bank",
+  "verified": "name"
+ },
+ {
+  "egx": "UEFM",
+  "yahoo": "EGS30451C016.CA",
+  "isin": "EGS30451C016",
+  "company": "Upper Egypt Flour Mills",
+  "verified": "price"
+ },
+ {
+  "egx": "UEGC",
+  "yahoo": "EGS21531C016.CA",
+  "isin": "EGS21531C016",
+  "company": "Elsaeed Contracting& Real Estat",
+  "verified": "price"
+ },
+ {
+  "egx": "UNIP",
+  "yahoo": "EGS38161C013.CA",
+  "isin": "EGS38161C013",
+  "company": "Universal For Paper and Packagi",
+  "verified": "price"
+ },
+ {
+  "egx": "UNIT",
+  "yahoo": "EGS65061C011.CA",
+  "isin": "EGS65061C011",
+  "company": "United Housing & Development",
+  "verified": "price"
+ },
+ {
+  "egx": "VALU",
+  "yahoo": "EGS505Z1C018.CA",
+  "isin": "EGS505Z1C018",
+  "company": "U Consumer Finance",
+  "verified": "name"
+ },
+ {
+  "egx": "VLMR",
+  "yahoo": "EGS69082C013.CA",
+  "isin": "EGS69082C013",
+  "company": "Valmore Holding",
+  "verified": "name"
+ },
+ {
+  "egx": "WCDF",
+  "yahoo": "EGS30421C019.CA",
+  "isin": "EGS30421C019",
+  "company": "Middle & West Delta Flour Mills",
+  "verified": "price"
+ },
+ {
+  "egx": "WKOL",
+  "yahoo": "EGS01071C017.CA",
+  "isin": "EGS01071C017",
+  "company": "Wadi Kom Ombo Land Reclamation",
+  "verified": "price"
+ },
+ {
+  "egx": "ZEOT",
+  "yahoo": "EGS38251C012.CA",
+  "isin": "EGS38251C012",
+  "company": "Extracted Oils",
+  "verified": "price"
+ },
+ {
+  "egx": "ZMID",
+  "yahoo": "EGS21171C011.CA",
+  "isin": "EGS21171C011",
+  "company": "Zahraa Maadi Investment & Devel",
+  "verified": "price"
+ }
+]

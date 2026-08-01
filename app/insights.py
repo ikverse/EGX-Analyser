@@ -44,7 +44,7 @@ async def performance(session: AsyncSession, window_sessions: int) -> dict[str, 
         scored.append({
             **call,
             "opened_on": call["opened_on"].isoformat(),
-            **{key: (value.isoformat() if isinstance(value, date) else _rounded(value))
+            **{key: (value.isoformat() if isinstance(value, date) else value)
                for key, value in asdict(result).items()},
             "outcome": result.outcome.value,
         })
@@ -232,12 +232,14 @@ def _number(value: object) -> float | None:
 
 
 def _price(value: object) -> float | None:
-    """A price as it is quoted. The feed returns full float precision, which reads as noise."""
-    return _rounded(_number(value))
+    """
+    A price exactly as the source printed it.
 
-
-def _rounded(value: object) -> object:
-    return round(value, 2) if isinstance(value, float) else value
+    It used to be rounded to two decimals, which reached the scorer rather than only the screen.
+    EGX trades plenty of stocks below one pound - ARAB at 0.243, COPR at 0.408 - where the third
+    decimal is the difference between a target that was hit and one the run waited for in vain.
+    """
+    return _number(value)
 
 
 async def recommended_tickers(session: AsyncSession) -> set[str]:

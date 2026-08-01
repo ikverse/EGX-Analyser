@@ -23,7 +23,6 @@ class Settings(BaseSettings):
     # Trading sessions a recommendation stays open before it counts as expired rather than
     # missed. Adjustable per user because it depends on how long they hold a position.
     scoring_window_sessions: int = 10
-    content_pack_manifest_url: str = "https://raw.githubusercontent.com/ikverse/EGX-Analyser/main/remote-content/content-pack.json"
     ai_provider: str = ""
     openai_model: str = "qwen3-vl-plus"
     telegram_api_id: int | None = None

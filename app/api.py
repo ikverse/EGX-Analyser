@@ -21,7 +21,6 @@ from app.prompt_customization import (
     restore_prompt_customization,
     save_prompt_customization,
 )
-from app.content_updates import ContentUpdateError, ContentUpdateService
 from app.database import get_session
 from app.diagnostics import diagnostics_path, logger, recent_entries
 from app.insights import performance, recommended_tickers
@@ -96,11 +95,6 @@ async def diagnostics(limit: int = 50) -> dict[str, object]:
     return {"path": str(diagnostics_path()), "entries": recent_entries(min(max(limit, 1), 100))}
 
 
-@router.get("/content-updates")
-async def content_update_status() -> dict[str, object]:
-    return ContentUpdateService(get_settings()).status()
-
-
 def egx_catalog(session: AsyncSession) -> EGXStockCatalog:
     settings = get_settings()
     return EGXStockCatalog(session, settings.egx_catalog_url, settings.storage_root, settings.egx_catalog_refresh_days)
@@ -118,14 +112,6 @@ async def refresh_egx_catalog(session: AsyncSession = Depends(get_session)) -> d
     if not result["refreshed"]:
         raise HTTPException(503, "Could not download the EGX catalog. Your saved local mapping is still available.")
     return result
-
-
-@router.post("/content-updates/check")
-async def check_content_updates() -> dict[str, object]:
-    try:
-        return await ContentUpdateService(get_settings()).check_and_apply()
-    except ContentUpdateError as error:
-        raise HTTPException(502, str(error)) from error
 
 
 @router.get("/settings")

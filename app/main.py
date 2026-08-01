@@ -1,4 +1,3 @@
-import asyncio
 from contextlib import asynccontextmanager
 import time
 import uuid
@@ -8,8 +7,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import router
 from app.database import init_database
 from app.diagnostics import configure_diagnostics, logger, structlog_file_processor, app_errors_path
-from app.config import get_settings
-from app.content_updates import ContentUpdateError, ContentUpdateService
 from app.runtime import LocalRuntime
 
 structlog.configure(processors=[
@@ -26,7 +23,6 @@ async def lifespan(app: FastAPI):
     await init_database()
     logger().info("local_engine_started")
     await runtime.start()
-    asyncio.create_task(refresh_content_updates())
     yield
     logger().info("local_engine_stopped")
     await runtime.stop()
@@ -66,10 +62,3 @@ async def record_api_request(request, call_next):
     response.headers["X-EGX-Request-ID"] = request_id
     return response
 
-
-async def refresh_content_updates() -> None:
-    try:
-        result = await ContentUpdateService(get_settings()).check_and_apply()
-        logger().info("content_update_checked", extra=result)
-    except ContentUpdateError as error:
-        logger().warning("content_update_check_failed", extra={"error": str(error)})

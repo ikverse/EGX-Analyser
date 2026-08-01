@@ -18,7 +18,6 @@ export type SettingsStatus = { openai_configured: boolean; ai_configured: boolea
 export type SettingsInput = { ai_provider?: AiProvider; openai_api_key?: string; openrouter_api_key?: string; huggingface_api_key?: string; qwen_api_key?: string; qwen_base_url?: string; ollama_base_url?: string; ollama_model?: string; openai_model?: string; analysis_include_phrases?: string; analysis_exclude_phrases?: string; telegram_api_id?: number; telegram_api_hash?: string; telegram_session?: string; scoring_window_sessions?: number };
 export type TelegramChat = { id: string; title: string; username: string; kind: string };
 export type DiagnosticEntry = { timestamp?: string; level: string; event: string; request_id?: string; method?: string; path?: string; status_code?: number; duration_ms?: number; error_type?: string };
-export type ContentUpdateStatus = { enabled: boolean; version: string | null; source: string };
 export type EgxCatalogStatus = { stock_count: number; last_successful_refresh?: string | null; last_refresh_attempt?: string | null; refresh_days: number; changed?: number; refreshed?: boolean };
 export type StockSourceRow = {
   ticker: string;
@@ -251,8 +250,6 @@ export class ApiClient {
   verifyTelegramCode(code: string, password?: string) { return this.request<{ authorized: boolean }>("/telegram/verify-code", { method: "POST", body: JSON.stringify({ code, password }) }); }
   telegramChats() { return this.request<TelegramChat[]>("/telegram/chats"); }
   diagnostics() { return this.request<{ path: string; entries: DiagnosticEntry[] }>("/diagnostics/recent"); }
-  contentUpdates() { return this.request<ContentUpdateStatus>("/content-updates"); }
-  checkContentUpdates() { return this.request<{ updated: boolean; version: string }>("/content-updates/check", { method: "POST" }); }
   performance(windowSessions?: number) {
     const query = windowSessions ? `?window_sessions=${windowSessions}` : "";
     return this.request<Performance>(`/insights/performance${query}`);

@@ -4,6 +4,7 @@ import io
 import json
 import mimetypes
 from dataclasses import dataclass, field
+import re
 from pathlib import Path
 from time import perf_counter
 from typing import Any
@@ -13,7 +14,6 @@ from openai import AsyncOpenAI
 from app.analysis_validation import normalize_consolidated_output
 from app.channel_names import clean_channel_name
 from app.config import Settings
-from app.content_updates import ContentUpdateService
 from app.entry_points import normalize_entry_point
 from app.prompt_customization import prompt_customization_block
 from app.recommendation_notes import remove_unsupported_targets
@@ -269,32 +269,32 @@ def _analysis_result_from_consolidated_payload(payload: dict[str, Any]) -> Analy
                                           "image_observations": []})
 
 
+_SCHEMA_MARKER = re.compile(r"<!--\s*EGX_PROMPT_SCHEMA:\s*(\d+)\s*-->")
+
+
+def _prompt_metadata(path: Path) -> dict[str, object]:
+    """Identifies the prompt a run used, so a report can be traced back to a tag."""
+    marker = _SCHEMA_MARKER.search(path.read_text(encoding="utf-8")[:512])
+    return {
+        "filename": path.name,
+        "source": "bundled",
+        "schema_version": int(marker.group(1)) if marker else None,
+    }
+
+
 class AIAnalysisService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
+        # Prompts ship with the build and only with the build. A downloaded pack meant the running
+        # app could be using a prompt the repository had never seen, which is invisible in a bug
+        # report and impossible to reproduce from a tag.
         prompt_directory = Path(__file__).parent / "prompts"
-        content_updates = ContentUpdateService(settings)
-        single_selection = content_updates.select_prompt(
-            "recommendation.md", prompt_directory / "recommendation.md",
-        )
-        consolidated_selection = content_updates.select_prompt(
-            "consolidated_recommendation.md",
-            prompt_directory / "consolidated_recommendation.md",
-        )
-        self.prompt = single_selection.path.read_text(encoding="utf-8")
-        self.consolidated_prompt = consolidated_selection.path.read_text(encoding="utf-8")
-        self.prompt_metadata = {
-            "filename": single_selection.path.name,
-            "source": single_selection.source,
-            "schema_version": single_selection.schema_version,
-            "content_pack_version": single_selection.content_pack_version,
-        }
-        self.consolidated_prompt_metadata = {
-            "filename": consolidated_selection.path.name,
-            "source": consolidated_selection.source,
-            "schema_version": consolidated_selection.schema_version,
-            "content_pack_version": consolidated_selection.content_pack_version,
-        }
+        single_path = prompt_directory / "recommendation.md"
+        consolidated_path = prompt_directory / "consolidated_recommendation.md"
+        self.prompt = single_path.read_text(encoding="utf-8")
+        self.consolidated_prompt = consolidated_path.read_text(encoding="utf-8")
+        self.prompt_metadata = _prompt_metadata(single_path)
+        self.consolidated_prompt_metadata = _prompt_metadata(consolidated_path)
         base_url = {
             "qwen": settings.qwen_base_url,
             "openrouter": "https://openrouter.ai/api/v1",
@@ -512,6 +512,10 @@ class AIAnalysisService:
                 model=self.settings.ai_model,
                 messages=request_messages,
                 response_format=response_format,
+                # Reading a price off a card has one right answer, printed in the image. Sampling
+                # only ever moves away from it, and it is what produced English company names that
+                # changed between runs of the same source.
+                temperature=0,
             )
             metrics["model_request_ms"] = round((perf_counter() - request_started) * 1000)
             output = response.choices[0].message.content or "{}"
@@ -534,6 +538,7 @@ class AIAnalysisService:
             input=[{"role": "user", "content": content}],
             text={"format": {"type": "json_object"}},
             instructions=system_instruction,
+            temperature=0,
         )
         metrics["model_request_ms"] = round((perf_counter() - request_started) * 1000)
         return AnalysisOutcome(

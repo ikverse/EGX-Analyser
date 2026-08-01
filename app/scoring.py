@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import DailyPrice
+from app.symbol_map import feeds_for
 
 # The window is expressed in trading sessions rather than calendar days: a stock does not move at
 # the weekend, so counting those would shorten every window by two days in five.
@@ -22,7 +23,7 @@ MAX_WINDOW_SESSIONS = 30
 # History comes from the same provider the quote feed proxies, addressed directly because that
 # feed reports only the current session. A month of calendar days is requested to be sure of
 # covering the sessions wanted once weekends and holidays are removed.
-YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}.CA"
+YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
 _BACKFILL_CONCURRENCY = 4
 
 
@@ -216,15 +217,23 @@ async def backfill_sessions(
     ) as client:
         async def one(ticker: str) -> tuple[str, list[dict[str, object]]]:
             async with limit:
-                try:
-                    response = await client.get(
-                        url_template.format(symbol=ticker),
-                        params={"interval": "1d", "range": "1mo"},
-                    )
-                    response.raise_for_status()
-                    return ticker, _chart_sessions(response.json(), wanted)
-                except (httpx.HTTPError, ValueError, KeyError, TypeError, IndexError):
-                    return ticker, []
+                # Both symbol forms are read and merged by date. Yahoo froze the legacy series on
+                # 29 July 2026 and started the ISIN series on the 30th, so a window spanning that
+                # date is only continuous if both are asked for; the live feed wins any overlap.
+                merged: dict[object, dict[str, object]] = {}
+                for symbol in reversed(feeds_for(ticker)):
+                    try:
+                        response = await client.get(
+                            url_template.format(symbol=symbol),
+                            params={"interval": "1d", "range": "1mo"},
+                        )
+                        response.raise_for_status()
+                        days = _chart_sessions(response.json(), wanted)
+                    except (httpx.HTTPError, ValueError, KeyError, TypeError, IndexError):
+                        continue
+                    for day in days:
+                        merged[day["session_date"]] = day
+                return ticker, sorted(merged.values(), key=lambda day: day["session_date"])[-wanted:]
 
         for ticker, days in await asyncio.gather(*(one(t) for t in tickers)):
             for day in days:

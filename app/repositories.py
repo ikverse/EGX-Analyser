@@ -1,8 +1,6 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Channel, Stock
-from app.config import get_settings
-from app.content_updates import ContentUpdateService
 
 
 class StockRepository:
@@ -10,8 +8,6 @@ class StockRepository:
         self.session = session
 
     async def resolve(self, ticker: str | None, company_name: str | None = None) -> Stock | None:
-        if not ticker and company_name:
-            ticker = ContentUpdateService(get_settings()).stock_aliases().get(company_name.strip().casefold())
         if not ticker:
             return None
         normalized = ticker.upper().strip()

@@ -1,7 +1,6 @@
 from datetime import date, datetime, timedelta, timezone
 import base64
 import asyncio
-import io
 import json
 import os
 from pathlib import Path
@@ -35,13 +34,6 @@ from app.reports import (
 )
 from app.services import AnalyticsService, MessageService, SearchService
 from app.config_store import load_secrets_into_environment, update_config
-from app.content_updates import (
-    ContentUpdateService,
-    prompt_schema_version,
-    public_key_from_seed,
-    sign_bytes,
-    verify_bytes,
-)
 from app.recommendation_signal import recommendation_signal
 from app.telegram_auth import TelegramAuthenticator
 from app.runtime import next_day_analysis_window, selected_date_analysis_window
@@ -1161,7 +1153,9 @@ def test_canonical_consolidated_prompt_has_one_versioned_contract():
     )
     prompt = prompt_path.read_text(encoding="utf-8")
 
-    assert prompt_schema_version(prompt_path) == 3
+    from app.ai.service import _prompt_metadata
+
+    assert _prompt_metadata(prompt_path)["schema_version"] == 3
     assert "28/07/2026` → exclude" in prompt
     assert "Telegram post is dated 29/7 but its image says 28/7 → exclude" in prompt
     assert "Images, ordinary text messages, and voice-note transcripts" in prompt
@@ -1293,54 +1287,7 @@ def test_analysis_result_normalizes_common_model_field_aliases():
     assert result.stock_mentions[0].ticker == "COMI"
 
 
-def test_content_pack_signature_matches_ed25519_reference_vector():
-    seed = bytes.fromhex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")
-    payload = b""
-    signature = sign_bytes(seed, payload)
-    assert public_key_from_seed(seed).hex() == "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
-    assert signature.hex() == (
-        "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e06522490155"
-        "5fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"
-    )
-    assert verify_bytes(public_key_from_seed(seed), payload, signature)
-    assert not verify_bytes(public_key_from_seed(seed), payload + b"x", signature)
 
-
-def test_content_pack_installs_prompt_and_aliases(tmp_path):
-    import zipfile
-
-    settings = type("Settings", (), {"storage_root": tmp_path, "content_pack_manifest_url": "https://example.test/pack"})()
-    manager = ContentUpdateService(settings)
-    archive_bytes = io.BytesIO()
-    with zipfile.ZipFile(archive_bytes, "w") as archive:
-        archive.writestr("recommendation.md", "Updated prompt")
-        archive.writestr("stock_aliases.json", '{"aliases":{"CIB Arabic":"CIB"}}')
-    manager._install_archive("1.0.0", archive_bytes.getvalue())
-    assert manager.active_version() == "1.0.0"
-    assert manager.file_path("recommendation.md").read_text(encoding="utf-8") == "Updated prompt"
-    assert manager.stock_aliases()["cib arabic"] == "CIB"
-
-
-def test_published_content_pack_ships_every_prompt_at_the_bundled_schema():
-    """The published pack must carry prompts the app will actually accept.
-
-    select_prompt() ignores a packaged prompt whose schema marker does not match
-    the bundled one, so a pack missing a prompt - or carrying an unmarked one -
-    silently delivers nothing.
-    """
-    import zipfile
-
-    from app.content_updates import _ALLOWED_FILES, prompt_schema_version
-
-    root = Path(__file__).resolve().parents[1]
-    prompt_directory = root / "app" / "ai" / "prompts"
-    with zipfile.ZipFile(root / "remote-content" / "content-pack.zip") as archive:
-        packaged = set(archive.namelist())
-        assert packaged <= _ALLOWED_FILES, f"pack carries unsupported files: {packaged - _ALLOWED_FILES}"
-        for bundled in sorted(prompt_directory.glob("*.md")):
-            assert bundled.name in packaged, f"{bundled.name} is missing from the published pack"
-            packaged_text = archive.read(bundled.name).decode("utf-8")
-            assert _prompt_schema_of(packaged_text) == prompt_schema_version(bundled)
 
 
 def _prompt_schema_of(text: str) -> int | None:
@@ -1348,90 +1295,9 @@ def _prompt_schema_of(text: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
-def test_content_pack_build_rejects_a_prompt_without_a_schema_marker(tmp_path, monkeypatch):
-    content_pack = _load_content_pack_script()
-    prompt_directory = tmp_path / "prompts"
-    prompt_directory.mkdir()
-    (prompt_directory / "recommendation.md").write_text("No marker here", encoding="utf-8")
-    monkeypatch.setattr(content_pack, "PROMPT_PATH", prompt_directory)
-    monkeypatch.setattr(content_pack, "SOURCE_PATH", tmp_path / "source")
-
-    with pytest.raises(SystemExit, match="EGX_PROMPT_SCHEMA"):
-        content_pack.stage_prompts()
 
 
-def test_content_pack_build_stages_bundled_prompts_into_the_pack_source(tmp_path, monkeypatch):
-    content_pack = _load_content_pack_script()
-    prompt_directory = tmp_path / "prompts"
-    prompt_directory.mkdir()
-    (prompt_directory / "recommendation.md").write_text(
-        "<!-- EGX_PROMPT_SCHEMA: 7 -->\nCanonical", encoding="utf-8",
-    )
-    source_directory = tmp_path / "source"
-    monkeypatch.setattr(content_pack, "PROMPT_PATH", prompt_directory)
-    monkeypatch.setattr(content_pack, "SOURCE_PATH", source_directory)
 
-    content_pack.stage_prompts()
-
-    staged = (source_directory / "recommendation.md").read_text(encoding="utf-8")
-    assert staged == "<!-- EGX_PROMPT_SCHEMA: 7 -->\nCanonical"
-
-
-def _load_content_pack_script():
-    import importlib.util
-
-    path = Path(__file__).resolve().parents[1] / "scripts" / "content_pack.py"
-    spec = importlib.util.spec_from_file_location("egx_content_pack_script", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def test_incompatible_content_pack_prompt_falls_back_to_bundled_prompt(tmp_path):
-    settings = type(
-        "Settings",
-        (),
-        {"storage_root": tmp_path / "storage", "content_pack_manifest_url": "https://example.test/pack"},
-    )()
-    manager = ContentUpdateService(settings)
-    manager.active.mkdir(parents=True)
-    (manager.active / ".version").write_text("1.0.1", encoding="utf-8")
-    (manager.active / "consolidated_recommendation.md").write_text(
-        "Old prompt without a schema marker", encoding="utf-8",
-    )
-    bundled = tmp_path / "bundled.md"
-    bundled.write_text("<!-- EGX_PROMPT_SCHEMA: 2 -->\nCanonical prompt", encoding="utf-8")
-
-    selection = manager.select_prompt("consolidated_recommendation.md", bundled)
-
-    assert selection.path == bundled
-    assert selection.source == "bundled"
-    assert selection.schema_version == 2
-    assert selection.content_pack_version is None
-
-
-def test_matching_content_pack_prompt_is_selected_and_versioned(tmp_path):
-    settings = type(
-        "Settings",
-        (),
-        {"storage_root": tmp_path / "storage", "content_pack_manifest_url": "https://example.test/pack"},
-    )()
-    manager = ContentUpdateService(settings)
-    manager.active.mkdir(parents=True)
-    (manager.active / ".version").write_text("2.0.0", encoding="utf-8")
-    active_prompt = manager.active / "consolidated_recommendation.md"
-    active_prompt.write_text(
-        "<!-- EGX_PROMPT_SCHEMA: 2 -->\nCompatible update", encoding="utf-8",
-    )
-    bundled = tmp_path / "bundled.md"
-    bundled.write_text("<!-- EGX_PROMPT_SCHEMA: 2 -->\nCanonical prompt", encoding="utf-8")
-
-    selection = manager.select_prompt("consolidated_recommendation.md", bundled)
-
-    assert selection.path == active_prompt
-    assert selection.source == "content_pack"
-    assert selection.schema_version == 2
-    assert selection.content_pack_version == "2.0.0"
 
 
 def test_next_day_analysis_window_uses_current_session_before_egx_opens():
@@ -2150,7 +2016,6 @@ def test_provider_request_trace_saves_final_prompt_and_sent_image_bytes(tmp_path
         "filename": "consolidated_recommendation.md",
         "source": "bundled",
         "schema_version": 2,
-        "content_pack_version": None,
     }
     _write_provider_request_trace(
         tmp_path,
@@ -2277,3 +2142,17 @@ async def test_running_selected_analysis_can_be_cancelled(session, monkeypatch):
     with pytest.raises(asyncio.CancelledError):
         await analysis_task
     assert request_id not in api_module._active_analysis_tasks
+
+
+def test_every_bundled_prompt_declares_its_schema_version():
+    """
+    The schema marker is how a saved report says which contract produced it. Prompts ship only with
+    the build now, so nothing else records that - an unmarked prompt would leave a run untraceable.
+    """
+    from app.ai.service import _prompt_metadata
+
+    prompt_directory = Path(__file__).resolve().parents[1] / "app" / "ai" / "prompts"
+    prompts = sorted(prompt_directory.glob("*.md"))
+    assert prompts, "no bundled prompts found"
+    for prompt in prompts:
+        assert _prompt_metadata(prompt)["schema_version"] is not None, f"{prompt.name} has no schema marker"
