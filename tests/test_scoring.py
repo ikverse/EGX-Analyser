@@ -1,4 +1,5 @@
-from datetime import date
+import pytest
+from datetime import date, datetime, timezone
 
 from app.models import DailyPrice
 from app.scoring import MAX_WINDOW_SESSIONS, Outcome, clamp_window, score
@@ -261,4 +262,107 @@ def test_symbol_map_reads_both_series_across_the_migration():
     # A stock with no mapping still gets its legacy symbol rather than nothing.
     assert feeds_for("NOSUCH") == ["NOSUCH.CA"]
     assert feeds_for("") == []
+
+
+class _FakeReport:
+    """A saved analysis, as _unique_calls reads one."""
+
+    def __init__(self, report_id, target_date, channels, rows):
+        self.id = report_id
+        self.report_date = datetime(2026, 7, 30, 12, 0, tzinfo=timezone.utc)
+        self.summary = {
+            "analysis_result": True,
+            "target_date": target_date,
+            "selected_channels": channels,
+            "stock_source_table": rows,
+        }
+
+
+def _call_row(ticker, channel, target_1):
+    return {
+        "ticker": ticker, "company": ticker, "source": channel,
+        "visible_source_date": "2026-07-30",
+        "buy_price_low": 10.0, "buy_price_high": 10.5, "target_1": target_1, "stop_loss": 9.5,
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_later_run_replaces_the_channel_it_covered(monkeypatch):
+    from app import insights
+
+    reports = [
+        _FakeReport(1, "2026-07-30", ["Alpha"], [_call_row("COMI", "Alpha", 12.0)]),
+        _FakeReport(2, "2026-07-30", ["Alpha"], [_call_row("COMI", "Alpha", 13.0)]),
+    ]
+
+    async def fake_reports_since(_session, _since):
+        return reports
+
+    monkeypatch.setattr(insights, "_reports_since", fake_reports_since)
+    calls = await insights._unique_calls(None, date(2026, 7, 1))
+
+    assert len(calls) == 1
+    assert calls[0]["target"] == 13.0
+
+
+@pytest.mark.asyncio
+async def test_a_later_narrower_run_does_not_erase_a_channel_it_never_looked_at(monkeypatch):
+    """
+    A run over fewer chats has nothing to say about a channel it never examined.
+
+    Keeping whichever copy listed the most price levels let it win anyway, silently replacing
+    scoring that had not been re-read.
+    """
+    from app import insights
+
+    reports = [
+        _FakeReport(1, "2026-07-30", ["Alpha", "Beta"], [
+            _call_row("COMI", "Alpha", 12.0), _call_row("SCEM", "Beta", 20.0),
+        ]),
+        _FakeReport(2, "2026-07-30", ["Alpha"], [_call_row("COMI", "Alpha", 13.0)]),
+    ]
+
+    async def fake_reports_since(_session, _since):
+        return reports
+
+    monkeypatch.setattr(insights, "_reports_since", fake_reports_since)
+    calls = {call["channel"]: call for call in await insights._unique_calls(None, date(2026, 7, 1))}
+
+    assert calls["Alpha"]["target"] == 13.0
+    assert calls["Beta"]["target"] == 20.0
+
+
+@pytest.mark.asyncio
+async def test_a_row_from_a_channel_the_run_did_not_cover_is_ignored(monkeypatch):
+    """A run can only speak for the chats it was pointed at."""
+    from app import insights
+
+    reports = [_FakeReport(1, "2026-07-30", ["Alpha"], [
+        _call_row("COMI", "Alpha", 12.0), _call_row("SCEM", "Gamma", 20.0),
+    ])]
+
+    async def fake_reports_since(_session, _since):
+        return reports
+
+    monkeypatch.setattr(insights, "_reports_since", fake_reports_since)
+    calls = await insights._unique_calls(None, date(2026, 7, 1))
+
+    assert [call["channel"] for call in calls] == ["Alpha"]
+
+
+@pytest.mark.asyncio
+async def test_a_report_without_a_recorded_coverage_falls_back_to_its_own_rows(monkeypatch):
+    """Reports saved before coverage was recorded still count for what they do show."""
+    from app import insights
+
+    older = _FakeReport(1, "2026-07-30", [], [_call_row("COMI", "Alpha", 12.0)])
+    older.summary.pop("selected_channels")
+
+    async def fake_reports_since(_session, _since):
+        return [older]
+
+    monkeypatch.setattr(insights, "_reports_since", fake_reports_since)
+    calls = await insights._unique_calls(None, date(2026, 7, 1))
+
+    assert [call["channel"] for call in calls] == ["Alpha"]
 

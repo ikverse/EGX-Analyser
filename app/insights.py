@@ -71,20 +71,26 @@ async def _unique_calls(session: AsyncSession, since: date | None) -> list[dict[
 
     Re-running the analysis on the same day saves another report listing the same recommendations,
     so the raw rows count a single call once per run. Left alone that inflates every total and
-    quietly gives extra weight to whichever channel happened to be analysed most often. Calls are
-    therefore keyed by stock, channel and date, keeping whichever copy states the most price
-    levels, since runs differ mainly in how much of the message the model managed to read.
+    quietly gives extra weight to whichever channel happened to be analysed most often.
+
+    A call is therefore resolved to the newest run that actually covered its channel. Keeping
+    whichever copy listed the most price levels sounded reasonable and was not: a later run over
+    fewer chats has nothing to say about a channel it never looked at, and letting it win erased
+    scoring it had never re-examined.
     """
     if since is None:
         return []
     best: dict[tuple[str, str, date], tuple[int, dict[str, object]]] = {}
     for report in await _reports_since(session, since):
+        covered = _channels_covered(report)
         for row in _recommendation_rows(report):
             ticker = normalize_ticker(row.get("ticker"))
             opened_on = _opened_on(row)
             if not ticker or opened_on is None or opened_on < since:
                 continue
             channel = str(row.get("source") or "Unknown").strip() or "Unknown"
+            if covered is not None and channel not in covered:
+                continue
             call = {
                 "ticker": ticker,
                 "company": row.get("company") or ticker,
@@ -97,14 +103,32 @@ async def _unique_calls(session: AsyncSession, since: date | None) -> list[dict[
                 "target_2": _price(row.get("target_2")),
                 "stop_loss": _price(row.get("stop_loss")),
             }
-            levels = sum(
-                call[key] is not None
-                for key in ("entry_low", "entry_high", "target", "target_2", "stop_loss")
-            )
             key = (ticker, channel, opened_on)
-            if key not in best or levels > best[key][0]:
-                best[key] = (levels, call)
+            # Reports arrive oldest first, so a later run covering this channel simply replaces it.
+            if key not in best or report.id >= best[key][0]:
+                best[key] = (report.id, call)
     return [call for _, call in best.values()]
+
+
+def _channels_covered(report: Report) -> set[str] | None:
+    """
+    The chats a run was pointed at, or None when the report predates that being recorded.
+
+    None means fall back to whatever its rows happen to show, which is right except for a chat that
+    produced nothing in that run - that one looks uncovered, and an older run keeps its say.
+    """
+    summary: object = report.summary
+    if isinstance(summary, str):
+        try:
+            summary = json.loads(summary or "{}")
+        except ValueError:
+            return None
+    if not isinstance(summary, dict):
+        return None
+    names = summary.get("selected_channels")
+    if not isinstance(names, list) or not names:
+        return None
+    return {str(name).strip() for name in names if str(name).strip()}
 
 
 async def _prices_from(session: AsyncSession) -> date | None:

@@ -100,6 +100,7 @@ export type ClientInquiryResponse = {
 export type AnalysisContentType = "text" | "images" | "audio";
 export type AnalysisMode = "next_day" | "specific_date";
 export type AnalysisPerformance = Record<string, number>;
+export type DuplicateAnalysis = { duplicate: boolean; target_date: string; report_id?: number; generated_at?: string | null; channels?: string[] };
 export type ModelExclusion = { stock_code?: string | null; source_message_id?: string | null; source_image_ref?: number | null; visible_source_date?: string | null; reason: string };
 export type ModelRetryAudit = { attempted?: boolean; status?: string; trigger_warnings?: string[]; final_validation_warnings?: string[] };
 
@@ -268,6 +269,11 @@ export class ApiClient {
   analyzeSelected(channel_ids: number[], content_types: AnalysisContentType[], analysis_mode: AnalysisMode = "next_day", target_date?: string, request_id?: string, signal?: AbortSignal) {
     return this.request<SelectedAnalysisResult>("/collection/analyze-selected", {
       method: "POST", body: JSON.stringify({ channel_ids, content_types, analysis_mode, target_date, request_id, analyze: true }), signal,
+    });
+  }
+  duplicateAnalysis(channel_ids: number[], analysis_mode: AnalysisMode = "next_day", target_date?: string) {
+    return this.request<DuplicateAnalysis>("/analysis-results/duplicate", {
+      method: "POST", body: JSON.stringify({ channel_ids, analysis_mode, target_date }),
     });
   }
   cancelAnalysis(requestId: string) {

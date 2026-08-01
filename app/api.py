@@ -1,12 +1,13 @@
 import asyncio
 from fastapi import APIRouter, Depends, HTTPException
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 import json
 import shutil
 import subprocess
 from time import perf_counter
 import httpx
+from pydantic import BaseModel
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.service import AIAnalysisService
@@ -121,6 +122,52 @@ def _model_exclusions(raw_response: str) -> list[dict[str, object]]:
     except (ValueError, TypeError, AttributeError):
         return []
     return [row for row in rows or [] if isinstance(row, dict) and row.get("reason")]
+
+
+class DuplicateAnalysisRequest(BaseModel):
+    channel_ids: list[int]
+    analysis_mode: str = "next_day"
+    target_date: date | None = None
+
+
+@router.post("/analysis-results/duplicate")
+async def find_duplicate_analysis(
+    payload: DuplicateAnalysisRequest, session: AsyncSession = Depends(get_session),
+) -> dict[str, object]:
+    """
+    Whether a saved report already answers this exact question.
+
+    Only an identical match counts: the same target session and the same chats. A run over
+    different chats answers a different question even on the same day, and warning about it would
+    train the user to dismiss the warning.
+    """
+    from app.runtime import next_day_analysis_window, selected_date_analysis_window
+
+    if payload.analysis_mode == "specific_date":
+        if payload.target_date is None:
+            raise HTTPException(422, "Choose a target date for historical analysis.")
+        _, _, target_date = selected_date_analysis_window(payload.target_date)
+    else:
+        _, _, target_date = next_day_analysis_window()
+    wanted = sorted(payload.channel_ids)
+    reports = (await session.scalars(select(Report).order_by(Report.id.desc()))).all()
+    for report in reports:
+        summary = report.summary if isinstance(report.summary, dict) else {}
+        if not summary.get("analysis_result"):
+            continue
+        if summary.get("target_date") != target_date.isoformat():
+            continue
+        recorded = summary.get("selected_channel_ids")
+        if not isinstance(recorded, list) or sorted(int(value) for value in recorded) != wanted:
+            continue
+        return {
+            "duplicate": True,
+            "target_date": target_date.isoformat(),
+            "report_id": report.id,
+            "generated_at": report.report_date.isoformat() if report.report_date else None,
+            "channels": summary.get("selected_channels") or [],
+        }
+    return {"duplicate": False, "target_date": target_date.isoformat()}
 
 
 @router.get("/settings")
@@ -535,6 +582,13 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
             "messages_analyzed": len(batch_messages),
             "audio_transcription_pending": audio_transcription_pending,
             "analysis_trace_directory": trace["directory"],
+            # What the run was pointed at, whether or not each chat turned out to have anything to
+            # say. Without it a later run over fewer channels looks like it covered them all, and
+            # silently replaces scoring it never re-examined.
+            "selected_channel_ids": sorted(payload.channel_ids),
+            "selected_channels": sorted({
+                clean_channel_name(channel.title or channel.handle) for _, channel in message_rows
+            }),
             "model_validation_warnings": outcome.validation_warnings,
             # What the model says it left out, and why. Exclusion used to be pure absence, which
             # cannot be checked: a source dropped for good reason and one never examined looked

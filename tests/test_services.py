@@ -2229,3 +2229,59 @@ def test_an_empty_run_makes_no_requests():
 
     assert _chunk_parts([], [], {}) == []
 
+
+def _saved_analysis(report_id, target_date, channel_ids):
+    from types import SimpleNamespace
+    from datetime import datetime, timezone
+
+    return SimpleNamespace(
+        id=report_id,
+        report_date=datetime(2026, 7, 30, 9, 0, tzinfo=timezone.utc),
+        summary={
+            "analysis_result": True,
+            "target_date": target_date,
+            "selected_channel_ids": sorted(channel_ids),
+            "selected_channels": [f"Chat {value}" for value in sorted(channel_ids)],
+        },
+    )
+
+
+def _matches(reports, target_date, channel_ids):
+    """The rule the endpoint applies: same target session and the same chats, nothing looser."""
+    wanted = sorted(channel_ids)
+    for report in reports:
+        summary = report.summary
+        if not summary.get("analysis_result"):
+            continue
+        if summary.get("target_date") != target_date:
+            continue
+        recorded = summary.get("selected_channel_ids")
+        if not isinstance(recorded, list) or sorted(int(v) for v in recorded) != wanted:
+            continue
+        return report
+    return None
+
+
+def test_a_repeat_of_the_same_session_and_chats_is_recognised():
+    reports = [_saved_analysis(1, "2026-07-30", [10, 20])]
+    assert _matches(reports, "2026-07-30", [20, 10]) is not None
+
+
+def test_a_different_chat_set_is_a_different_question():
+    """A run over different chats answers something new, so warning about it would train dismissal."""
+    reports = [_saved_analysis(1, "2026-07-30", [10, 20])]
+    assert _matches(reports, "2026-07-30", [10, 20, 30]) is None
+    assert _matches(reports, "2026-07-30", [10]) is None
+
+
+def test_a_different_target_session_is_not_a_repeat():
+    reports = [_saved_analysis(1, "2026-07-30", [10, 20])]
+    assert _matches(reports, "2026-07-29", [10, 20]) is None
+
+
+def test_a_report_predating_recorded_coverage_never_matches():
+    """Without a recorded chat list there is nothing to compare, so the run proceeds."""
+    report = _saved_analysis(1, "2026-07-30", [10, 20])
+    report.summary.pop("selected_channel_ids")
+    assert _matches([report], "2026-07-30", [10, 20]) is None
+

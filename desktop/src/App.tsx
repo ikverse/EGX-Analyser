@@ -7,7 +7,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { check } from "@tauri-apps/plugin-updater";
 
 import {
-  AiProvider, AnalysisContentType, AnalysisMode, AnalysisPerformance, AnalysisResultHistory, ApiClient, Channel, ClientInquiryResponse, EgxCatalogStatus, ModelRetryAudit,
+  AiProvider, AnalysisContentType, AnalysisMode, AnalysisPerformance, AnalysisResultHistory, ApiClient, Channel, ClientInquiryResponse, DuplicateAnalysis, EgxCatalogStatus, ModelRetryAudit,
   DiagnosticEntry, SettingsInput, SettingsStatus, TelegramChat,
   StockSourceRow, StockSourceTableRow, StockSummaryRow,
 } from "./api";
@@ -307,8 +307,26 @@ export default function App() {
     }
   };
 
-  const runAnalysis = useCallback((channelIds: number[]) => {
+  // A run that repeats an existing one costs the same as a new one and answers nothing new, so the
+  // question is asked before it is paid for. Only an exact repeat counts: same target session and
+  // same chats. A run over different chats answers a different question even on the same day.
+  const [duplicateWarning, setDuplicateWarning] = useState<{ found: DuplicateAnalysis; channelIds: number[] } | null>(null);
+
+  const runAnalysis = useCallback((channelIds: number[], confirmed = false) => {
     if (analysisRun.running) return;
+    if (!confirmed) {
+      void api.duplicateAnalysis(
+        channelIds,
+        analysisConfig.mode,
+        analysisConfig.mode === "specific_date" ? analysisConfig.targetDate : undefined,
+      )
+        .then((found) => {
+          if (found.duplicate) setDuplicateWarning({ found, channelIds });
+          else runAnalysis(channelIds, true);
+        })
+        .catch(() => runAnalysis(channelIds, true));
+      return;
+    }
     const requestId = crypto.randomUUID();
     const abortController = new AbortController();
     analysisAbortRef.current = abortController;
@@ -632,6 +650,15 @@ export default function App() {
         </section>
       </main>
 
+      {duplicateWarning && <DuplicateAnalysisModal
+        found={duplicateWarning.found}
+        onCancel={() => setDuplicateWarning(null)}
+        onContinue={() => {
+          const { channelIds } = duplicateWarning;
+          setDuplicateWarning(null);
+          runAnalysis(channelIds, true);
+        }}
+      />}
       {errorModal && <ErrorModal message={errorModal} onClose={() => setErrorModal(null)} />}
       {successModal && <SuccessModal
         message={successModal.message}
@@ -1273,6 +1300,29 @@ function DeleteAnalysisResultModal({ item, deleting, onCancel, onConfirm }: {
         <div className="error-modal-actions">
           <button type="button" className="secondary" onClick={onCancel} disabled={deleting}>Cancel</button>
           <button type="button" className="danger" onClick={onConfirm} disabled={deleting}>{deleting ? "Deleting…" : "Delete permanently"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DuplicateAnalysisModal({ found, onContinue, onCancel }: {
+  found: DuplicateAnalysis; onContinue: () => void; onCancel: () => void;
+}) {
+  const channels = found.channels ?? [];
+  return (
+    <div className="error-modal-backdrop" role="dialog" aria-modal="true" aria-label="Analysis already exists">
+      <div className="error-modal-card delete-modal-card">
+        <h2 className="error-modal-title">This analysis already exists</h2>
+        <p className="success-modal-body">
+          A result for {found.target_date} over the same {channels.length || "selected"} chat{channels.length === 1 ? "" : "s"} was
+          generated{found.generated_at ? ` on ${formatGeneratedAt(found.generated_at)}` : ""}.
+          Running it again costs another model request and answers the same question.
+          {channels.length > 0 && <><br /><small>{channels.join(" \u00b7 ")}</small></>}
+        </p>
+        <div className="error-modal-actions">
+          <button type="button" className="secondary" onClick={onCancel}>Cancel</button>
+          <button type="button" onClick={onContinue}>Continue anyway</button>
         </div>
       </div>
     </div>
