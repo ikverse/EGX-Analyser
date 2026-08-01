@@ -1995,6 +1995,7 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
   const localProvider = provider === "ollama";
   const configuredModel = status?.ai_provider === "ollama" ? status.ollama_model : status?.openai_model;
   const outputAudits = analysisResults.filter((item) => item.model_validation_warnings.length > 0);
+  const modelExclusions = analysisResults.filter((item) => (item.model_exclusions?.length ?? 0) > 0);
   const includePhrases = normalizePromptPhraseInput(values.analysis_include_phrases);
   const excludePhrases = normalizePromptPhraseInput(values.analysis_exclude_phrases);
   const excludeKeys = new Set(excludePhrases.map((phrase) => phrase.toLocaleLowerCase()));
@@ -2501,6 +2502,20 @@ function CloudSettings({ api, status, onSaved, onRunTelegramCheck, notify, showE
           {outputAudits.map((item) => <div key={item.id} className="diagnostic-output-audit">
             <span>{formatGeneratedAt(item.generated_at)}</span>
             <p>{item.model_validation_warnings.join(" ")}</p>
+          </div>)}
+        </div>}
+        {modelExclusions.length > 0 && <div className="diagnostic-output-audits">
+          <span className="settings-inline-heading">
+            <strong>Excluded by the model</strong>
+            <SettingsInfo id="model-exclusions" title="Excluded by the model"
+              text="Sources the model reports having deliberately left out, with its stated reason. Worth as much attention as what it kept: an over-eager exclusion is invisible everywhere else."
+              openInfoId={openInfoId} setOpenInfoId={setOpenInfoId} />
+          </span>
+          {modelExclusions.map((item) => <div key={item.id} className="diagnostic-output-audit">
+            <span>{formatGeneratedAt(item.generated_at)}</span>
+            <p>{(item.model_exclusions ?? []).map((dropped, index) => [
+              dropped.stock_code, dropped.visible_source_date, dropped.reason.replace(/_/g, " "),
+            ].filter(Boolean).join(" · ") + (index === (item.model_exclusions?.length ?? 0) - 1 ? "" : " | ")).join("")}</p>
           </div>)}
         </div>}
         <button type="button" className="secondary" disabled={loadingDiagnostics}

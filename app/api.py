@@ -114,6 +114,15 @@ async def refresh_egx_catalog(session: AsyncSession = Depends(get_session)) -> d
     return result
 
 
+def _model_exclusions(raw_response: str) -> list[dict[str, object]]:
+    """Reads the model's `excluded` rows. Absent in responses predating schema 5."""
+    try:
+        rows = json.loads(raw_response).get("excluded")
+    except (ValueError, TypeError, AttributeError):
+        return []
+    return [row for row in rows or [] if isinstance(row, dict) and row.get("reason")]
+
+
 @router.get("/settings")
 async def settings_status() -> dict[str, object]:
     settings = get_settings()
@@ -527,6 +536,10 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
             "audio_transcription_pending": audio_transcription_pending,
             "analysis_trace_directory": trace["directory"],
             "model_validation_warnings": outcome.validation_warnings,
+            # What the model says it left out, and why. Exclusion used to be pure absence, which
+            # cannot be checked: a source dropped for good reason and one never examined looked
+            # identical.
+            "model_exclusions": _model_exclusions(outcome.raw_response),
             "model_correction_attempted": outcome.correction_attempted,
             "model_retry_audit": outcome.retry_audit,
             "performance": timings_ms,
@@ -558,6 +571,7 @@ async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSe
                 "stock_source_table": report.summary["stock_source_table"],
                 "client_inquiry_responses": report.summary["client_inquiry_responses"],
                 "model_validation_warnings": outcome.validation_warnings,
+                "model_exclusions": _model_exclusions(outcome.raw_response),
                 "model_correction_attempted": outcome.correction_attempted,
                 "model_retry_audit": outcome.retry_audit,
                 "trace": trace,
@@ -779,6 +793,7 @@ async def analysis_results(
                 item.summary.get("client_inquiry_responses", []),
             ),
             "model_validation_warnings": item.summary.get("model_validation_warnings") or [],
+            "model_exclusions": item.summary.get("model_exclusions") or [],
             "model_correction_attempted": item.summary.get("model_correction_attempted", False),
             "model_retry_audit": item.summary.get("model_retry_audit", {}),
             "performance": item.summary.get("performance", {}),

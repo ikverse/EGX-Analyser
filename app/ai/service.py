@@ -13,6 +13,7 @@ from openai import AsyncOpenAI
 
 from app.analysis_validation import normalize_consolidated_output
 from app.channel_names import clean_channel_name
+from app import source_date_gate
 from app.config import Settings
 from app.entry_points import normalize_entry_point
 from app.prompt_customization import prompt_customization_block
@@ -272,6 +273,127 @@ def _analysis_result_from_consolidated_payload(payload: dict[str, Any]) -> Analy
 _SCHEMA_MARKER = re.compile(r"<!--\s*EGX_PROMPT_SCHEMA:\s*(\d+)\s*-->")
 
 
+# Small enough that the model keeps every reference in a request straight, large enough that the
+# prompt is not repeated more often than it needs to be.
+IMAGES_PER_CHUNK = 8
+
+
+@dataclass
+class _Chunk:
+    """One extraction request: whole messages, and the image references they carry."""
+
+    parts: list[tuple[str, str | None]] = field(default_factory=list)
+    image_paths: list[str] = field(default_factory=list)
+    references: list[int] = field(default_factory=list)
+
+
+@dataclass
+class _ChunkAnswer:
+    extracted: list[dict[str, Any]] = field(default_factory=list)
+    excluded: list[dict[str, Any]] = field(default_factory=list)
+    inquiries: list[dict[str, Any]] = field(default_factory=list)
+    cited: set[int] = field(default_factory=set)
+
+
+@dataclass
+class _Harvest:
+    """What every extraction request together said."""
+
+    extracted: list[dict[str, Any]] = field(default_factory=list)
+    excluded: list[dict[str, Any]] = field(default_factory=list)
+    inquiries: list[dict[str, Any]] = field(default_factory=list)
+    unaccounted: list[dict[str, Any]] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    request_count: int = 0
+    request_milliseconds: int = 0
+    retried: bool = False
+
+    def adopt(self, answer: "_ChunkAnswer") -> None:
+        self.extracted.extend(answer.extracted)
+        self.excluded.extend(answer.excluded)
+        self.inquiries.extend(answer.inquiries)
+
+
+def _chunk_parts(
+    interleaved_parts: list[tuple[str, str | None]],
+    block_starts: list[int],
+    part_references: dict[int, int],
+    images_per_chunk: int = IMAGES_PER_CHUNK,
+) -> list[_Chunk]:
+    """
+    Splits a run into requests small enough for the model to keep track of.
+
+    A message is never split across two of them. Its caption sits in the same block as its photo and
+    carries the one word that separates a new call from a follow-up on an old one, so the two have
+    to be judged together. A single message holding more images than the limit gets its own
+    oversized chunk for the same reason.
+    """
+    if not interleaved_parts:
+        return []
+    bounds = list(block_starts) or [0]
+    blocks: list[list[int]] = []
+    for position, first in enumerate(bounds):
+        last = bounds[position + 1] if position + 1 < len(bounds) else len(interleaved_parts)
+        blocks.append(list(range(first, last)))
+    if bounds[0] > 0:
+        blocks.insert(0, list(range(0, bounds[0])))
+
+    chunks: list[_Chunk] = []
+    current = _Chunk()
+    for block in blocks:
+        own = [part_references[index] for index in block if index in part_references]
+        if current.parts and len(current.references) + len(own) > images_per_chunk:
+            chunks.append(current)
+            current = _Chunk()
+        for index in block:
+            part = interleaved_parts[index]
+            current.parts.append(part)
+            if index in part_references:
+                current.references.append(part_references[index])
+                if part[1]:
+                    current.image_paths.append(part[1])
+    if current.parts:
+        chunks.append(current)
+    return chunks
+
+
+def _drop_sources_from_another_session(payload: dict[str, Any], target_trading_date: str) -> list[str]:
+    """
+    Removes occurrences whose printed date is not the session being analysed.
+
+    The prompt says the same thing and has been ignored, so the check is arithmetic here. A stock
+    left with no surviving occurrence goes with them: there is nothing left to recommend.
+    """
+    target = source_date_gate.parse(target_trading_date)
+    if target is None:
+        return []
+    warnings: list[str] = []
+    kept: list[dict[str, Any]] = []
+    for stock in payload.get("top_consolidated_recommendations") or []:
+        if not isinstance(stock, dict):
+            continue
+        points = [point for point in stock.get("data_points") or [] if isinstance(point, dict)]
+        surviving = [
+            point for point in points
+            if source_date_gate.accepts(point.get("visible_source_date"), target)
+        ]
+        dropped = len(points) - len(surviving)
+        if dropped:
+            warnings.append(
+                f"{stock.get('stock_code') or 'A stock'} lost {dropped} occurrence(s) printed with "
+                f"another session's date."
+            )
+        if points and not surviving:
+            continue
+        stock["data_points"] = surviving
+        stock["mention_count"] = len(surviving)
+        kept.append(stock)
+    for rank, stock in enumerate(kept, start=1):
+        stock["rank"] = rank
+    payload["top_consolidated_recommendations"] = kept
+    return warnings
+
+
 def _prompt_metadata(path: Path) -> dict[str, object]:
     """Identifies the prompt a run used, so a report can be traced back to a tag."""
     marker = _SCHEMA_MARKER.search(path.read_text(encoding="utf-8")[:512])
@@ -293,8 +415,11 @@ class AIAnalysisService:
         consolidated_path = prompt_directory / "consolidated_recommendation.md"
         self.prompt = single_path.read_text(encoding="utf-8")
         self.consolidated_prompt = consolidated_path.read_text(encoding="utf-8")
+        consolidation_path = prompt_directory / "consolidation.md"
+        self.consolidation_prompt = consolidation_path.read_text(encoding="utf-8")
         self.prompt_metadata = _prompt_metadata(single_path)
         self.consolidated_prompt_metadata = _prompt_metadata(consolidated_path)
+        self.consolidation_prompt_metadata = _prompt_metadata(consolidation_path)
         base_url = {
             "qwen": settings.qwen_base_url,
             "openrouter": "https://openrouter.ai/api/v1",
@@ -339,6 +464,10 @@ class AIAnalysisService:
         text_references: dict[str, str] = {}
         transcript_references: dict[str, str] = {}
         interleaved_parts: list[tuple[str, str | None]] = []
+        # Where each message begins, and the reference each image part carries. A chunk is cut
+        # on message boundaries so a caption never travels without its photo.
+        block_starts: list[int] = []
+        part_references: dict[int, int] = {}
         source_prelude = "\n".join(parts)
         metrics = {
             "logical_message_count": len(messages),
@@ -368,6 +497,7 @@ class AIAnalysisService:
                 metrics["reused_transcript_count"] += int(reused_transcript)
                 if transcript:
                     message_parts.append("Audio transcript:\n" + transcript)
+            block_starts.append(len(interleaved_parts))
             interleaved_parts.append(("\n".join(message_parts), None))
             for index, image_path in enumerate(item.get("image_paths") or [], start=1):
                 metrics["logical_image_count"] += 1
@@ -417,48 +547,211 @@ class AIAnalysisService:
                         f"IMAGE_REF {reference} | CHANNEL: {source} | TELEGRAM_ID: {telegram_id} | "
                         f"MESSAGE_IMAGE_INDEX: {index}. The referenced image is immediately below."
                     )
+                part_references[len(interleaved_parts)] = reference
                 interleaved_parts.append((image_label, path))
                 image_paths.append(path)
-        initial = await self._analyze_prompt(
-            source_prelude,
-            image_paths,
-            metrics,
+        chunks = _chunk_parts(interleaved_parts, block_starts, part_references)
+        harvest = await self._extract_in_chunks(
+            chunks, source_prelude, metrics, trace_directory, source_image_references,
+        )
+        payload = await self._consolidate(
+            harvest, analysis_period, target_trading_date, metrics, trace_directory,
+        )
+        if trace_directory is not None:
+            (trace_directory / "provider-ai-response.json").write_text(
+                json.dumps(payload, ensure_ascii=False), encoding="utf-8",
+            )
+        warnings = list(harvest.warnings)
+        warnings += normalize_consolidated_output(payload, messages, source_image_references)
+        warnings += _drop_sources_from_another_session(payload, target_trading_date)
+        normalized_response = json.dumps(payload, ensure_ascii=False)
+        run_metrics = dict(metrics)
+        run_metrics["prompt_assembly_ms"] = round((perf_counter() - prompt_assembly_started) * 1000)
+        run_metrics["model_request_count"] = harvest.request_count
+        run_metrics["model_requests_total_ms"] = harvest.request_milliseconds
+        run_metrics["images_sent"] = len(image_paths)
+        run_metrics["images_unaccounted"] = len(harvest.unaccounted)
+        return AnalysisOutcome(
+            result=_analysis_result_from_payload(payload),
+            raw_response=normalized_response,
+            input_metrics=run_metrics,
+            validation_warnings=warnings,
+            correction_attempted=harvest.retried,
+            retry_audit={
+                "attempted": harvest.retried,
+                "status": "chunk_retried" if harvest.retried else "not_required",
+                "excluded_rows": warnings,
+                "final_validation_warnings": warnings,
+                "final_response_path": "consolidated-ai-response.json",
+                "unaccounted_images": harvest.unaccounted,
+            },
+            source_image_references=source_image_references,
+        )
+
+    async def _extract_in_chunks(
+        self,
+        chunks: list["_Chunk"],
+        source_prelude: str,
+        metrics: dict[str, int],
+        trace_directory: Path | None,
+        source_image_references: dict[int, dict[str, str]],
+    ) -> "_Harvest":
+        """
+        Reads the sources a few images at a time.
+
+        One request per run asked the model to keep every image straight at once, and it could not:
+        over thirty images it cited IMAGE_REF 4 for a card that was image 15, so a report showed an
+        excluded past-recommendations table beside a valid call while the card it had actually read
+        appeared nowhere. References stay global rather than restarting at 1 in each request - the
+        duplicate-image notices point at earlier references, and renumbering would leave them
+        dangling - but a request now carries few enough images for the model to hold them.
+        """
+        harvest = _Harvest()
+        for chunk in chunks:
+            answer = await self._read_chunk(chunk, source_prelude, metrics, trace_directory, harvest)
+            missing = [reference for reference in chunk.references if reference not in answer.cited]
+            if missing:
+                # Retry this chunk alone, not the run. Its second answer replaces the first, or a
+                # chunk that merely forgot one image would contribute every other row twice.
+                harvest.retried = True
+                second = await self._read_chunk(
+                    chunk, source_prelude, metrics, trace_directory, harvest,
+                    correction=(
+                        "Your previous response left IMAGE_REF "
+                        + ", ".join(str(reference) for reference in missing)
+                        + " out of both `extracted` and `excluded`. Return the full response again, "
+                        "accounting for every IMAGE_REF supplied."
+                    ),
+                )
+                if len(second.cited) > len(answer.cited):
+                    answer = second
+            harvest.adopt(answer)
+            for reference in chunk.references:
+                if reference not in answer.cited:
+                    origin = source_image_references.get(reference) or {}
+                    harvest.unaccounted.append({
+                        "image_ref": reference,
+                        "source": origin.get("source"),
+                        "source_message_id": origin.get("source_message_id"),
+                    })
+        if harvest.unaccounted:
+            harvest.warnings.append(
+                f"{len(harvest.unaccounted)} image(s) were neither recommended nor excluded."
+            )
+        return harvest
+
+    async def _read_chunk(
+        self,
+        chunk: "_Chunk",
+        source_prelude: str,
+        metrics: dict[str, int],
+        trace_directory: Path | None,
+        harvest: "_Harvest",
+        correction: str | None = None,
+    ) -> "_ChunkAnswer":
+        prelude = source_prelude
+        if chunk.references:
+            prelude += (
+                "\nIMAGE_REF values in this request are "
+                + ", ".join(str(reference) for reference in chunk.references)
+                + ". Cite only those numbers."
+            )
+        if correction:
+            prelude += "\n" + correction
+        outcome = await self._analyze_prompt(
+            prelude,
+            chunk.image_paths,
+            dict(metrics),
             trace_directory,
             _CORE_ANALYSIS_PROTOCOL,
-            interleaved_parts=interleaved_parts,
+            interleaved_parts=chunk.parts,
             base_prompt=getattr(self, "consolidated_prompt", self.prompt),
             prompt_metadata=getattr(
                 self, "consolidated_prompt_metadata", getattr(self, "prompt_metadata", None),
             ),
         )
-        initial_metrics = dict(initial.input_metrics)
-        initial_payload = json.loads(initial.raw_response)
-        if trace_directory is not None:
-            (trace_directory / "provider-ai-response.json").write_text(
-                initial.raw_response, encoding="utf-8",
+        harvest.request_count += 1
+        harvest.request_milliseconds += int(outcome.input_metrics.get("model_request_ms", 0))
+        answer = _ChunkAnswer()
+        try:
+            payload = json.loads(outcome.raw_response)
+        except (ValueError, TypeError):
+            harvest.warnings.append("A source chunk returned no readable JSON.")
+            return answer
+        allowed = set(chunk.references)
+        for key, destination in (
+            ("extracted", answer.extracted),
+            ("excluded", answer.excluded),
+            ("client_inquiry_responses", answer.inquiries),
+        ):
+            for row in payload.get(key) or []:
+                if not isinstance(row, dict):
+                    continue
+                reference = row.get("source_image_ref")
+                if isinstance(reference, int):
+                    if reference in allowed:
+                        answer.cited.add(reference)
+                    else:
+                        # Names an image this request never carried, so it is dropped rather than
+                        # read as whatever image happens to sit at that number.
+                        harvest.warnings.append(
+                            f"Dropped a citation of IMAGE_REF {reference}, which was not in that request."
+                        )
+                        row["source_image_ref"] = None
+                destination.append(row)
+        return answer
+
+    async def _consolidate(
+        self,
+        harvest: "_Harvest",
+        analysis_period: str,
+        target_trading_date: str,
+        metrics: dict[str, int],
+        trace_directory: Path | None,
+    ) -> dict[str, Any]:
+        """
+        Ranks what extraction found, then rebuilds the document the rest of the app already reads.
+
+        No images are sent. Ranking is the one judgement that needs the whole run in view, which is
+        exactly why it is separated from reading, where seeing everything is what caused the model
+        to lose its place.
+        """
+        ranked: dict[str, Any] = {}
+        if harvest.extracted:
+            request = "\n".join([
+                "RUNTIME CONTEXT",
+                f"ANALYSIS_PERIOD: {analysis_period}",
+                f"TARGET_DATE: {target_trading_date}",
+                "",
+                "EXTRACTED OCCURRENCES:",
+                json.dumps(harvest.extracted, ensure_ascii=False),
+            ])
+            outcome = await self._analyze_prompt(
+                request,
+                [],
+                dict(metrics),
+                trace_directory,
+                _CORE_ANALYSIS_PROTOCOL,
+                base_prompt=self.consolidation_prompt,
+                prompt_metadata=self.consolidation_prompt_metadata,
             )
-        warnings = normalize_consolidated_output(
-            initial_payload, messages, source_image_references,
-        )
-        normalized_response = json.dumps(initial_payload, ensure_ascii=False)
-        initial_metrics["prompt_assembly_ms"] = round((perf_counter() - prompt_assembly_started) * 1000)
-        initial_metrics["model_request_count"] = 1
-        initial_metrics["model_requests_total_ms"] = initial_metrics.get("model_request_ms", 0)
-        return AnalysisOutcome(
-            result=_analysis_result_from_payload(initial_payload),
-            raw_response=normalized_response,
-            input_metrics=initial_metrics,
-            validation_warnings=warnings,
-            correction_attempted=False,
-            retry_audit={
-                "attempted": False,
-                "status": "not_required",
-                "excluded_rows": warnings,
-                "final_validation_warnings": warnings,
-                "final_response_path": "consolidated-ai-response.json",
+            harvest.request_count += 1
+            harvest.request_milliseconds += int(outcome.input_metrics.get("model_request_ms", 0))
+            try:
+                ranked = json.loads(outcome.raw_response)
+            except (ValueError, TypeError):
+                harvest.warnings.append("Consolidation returned no readable JSON.")
+        return {
+            "analysis_period": analysis_period,
+            "top_consolidated_recommendations": ranked.get("top_consolidated_recommendations") or [],
+            "achieved_targets": [],
+            "excluded": harvest.excluded,
+            "client_inquiry_responses": harvest.inquiries,
+            "text_based_categories": ranked.get("text_based_categories") or {
+                "most_important_stocks": [], "trading_stocks": [], "watchlist_stocks": [],
             },
-            source_image_references=source_image_references,
-        )
+            "daily_breakdown": {},
+        }
 
     async def _analyze_prompt(self, source_data: str, image_paths: list[str], input_metrics: dict[str, int] | None = None,
                               trace_directory: Path | None = None, system_instruction: str | None = None,

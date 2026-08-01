@@ -100,6 +100,7 @@ export type ClientInquiryResponse = {
 export type AnalysisContentType = "text" | "images" | "audio";
 export type AnalysisMode = "next_day" | "specific_date";
 export type AnalysisPerformance = Record<string, number>;
+export type ModelExclusion = { stock_code?: string | null; source_message_id?: string | null; source_image_ref?: number | null; visible_source_date?: string | null; reason: string };
 export type ModelRetryAudit = { attempted?: boolean; status?: string; trigger_warnings?: string[]; final_validation_warnings?: string[] };
 
 export type SelectedAnalysisResult = {
@@ -133,6 +134,7 @@ export type SelectedAnalysisResult = {
   stock_source_table: StockSourceTableRow[];
   client_inquiry_responses: ClientInquiryResponse[];
   model_validation_warnings: string[];
+  model_exclusions?: ModelExclusion[];
   model_correction_attempted: boolean;
   model_retry_audit: ModelRetryAudit;
   performance: AnalysisPerformance;
@@ -150,6 +152,7 @@ export type AnalysisResultHistory = {
   stock_source_table: StockSourceTableRow[];
   client_inquiry_responses: ClientInquiryResponse[];
   model_validation_warnings: string[];
+  model_exclusions?: ModelExclusion[];
   model_correction_attempted: boolean;
   model_retry_audit: ModelRetryAudit;
   performance: AnalysisPerformance;

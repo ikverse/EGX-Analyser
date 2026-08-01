@@ -183,10 +183,12 @@ async def test_same_template_images_are_sent_separately_for_stock_aware_review(t
             base_prompt=_kwargs.get("base_prompt"),
         )
         payload = {
-            "analysis_period": "test", "top_consolidated_recommendations": [], "achieved_targets": [],
+            "extracted": [],
+            "excluded": [
+                {"source_image_ref": 1, "reason": "not_a_recommendation"},
+                {"source_image_ref": 2, "reason": "not_a_recommendation"},
+            ],
             "client_inquiry_responses": [],
-            "text_based_categories": {"most_important_stocks": [], "trading_stocks": [], "watchlist_stocks": []},
-            "daily_breakdown": {},
         }
         return AnalysisOutcome(
             result=_analysis_result_from_payload(payload), raw_response=json.dumps(payload),
@@ -222,8 +224,12 @@ async def test_same_template_images_are_sent_separately_for_stock_aware_review(t
         "RUNTIME CONTEXT\n"
         "ANALYSIS_PERIOD: test\n"
         "TARGET_DATE: 2026-07-23\n"
-        "SOURCE ITEMS FOLLOW. Apply the canonical prompt independently to each item."
+        "SOURCE ITEMS FOLLOW. Apply the canonical prompt independently to each item.\n"
+        "IMAGE_REF values in this request are 1, 2. Cite only those numbers."
     )
+    # Three messages carrying two distinct images fit one request, so nothing was retried.
+    assert outcome.correction_attempted is False
+    assert outcome.input_metrics["images_unaccounted"] == 0
 
 
 def test_source_table_keeps_entry_range_without_averaging():
@@ -1147,39 +1153,32 @@ def test_analysis_prompt_keeps_base_prompt_and_appends_phrase_guidance(monkeypat
 
 
 def test_canonical_consolidated_prompt_has_one_versioned_contract():
-    prompt_path = (
-        Path(__file__).resolve().parents[1]
-        / "app" / "ai" / "prompts" / "consolidated_recommendation.md"
-    )
-    prompt = prompt_path.read_text(encoding="utf-8")
-
     from app.ai.service import _prompt_metadata
 
-    assert _prompt_metadata(prompt_path)["schema_version"] == 3
-    assert "28/07/2026` → exclude" in prompt
-    assert "Telegram post is dated 29/7 but its image says 28/7 → exclude" in prompt
-    assert "Images, ordinary text messages, and voice-note transcripts" in prompt
-    assert "`عاجل`" in prompt
-    assert "`منطقة البيع`" in prompt
-    assert '"return_tp1_pct"' in prompt
-    assert '"return_tp2_pct"' in prompt
-    assert '"notes_summary": "concise Arabic string"' in prompt
-    assert '"status"' not in prompt
-    assert "analysis_summary_ar" not in prompt
-    assert "stock_mentions" not in prompt
-    assert "image_observations" not in prompt
-    assert (
-        "`أهم الأسهم اليوم` is explicit recommendation context; extract every stock row "
-        "from the table directly beneath it."
-    ) in prompt
-    assert "`سهم المراقبة`" in prompt
-    assert "Scan the entire image from top to bottom" in prompt
-    assert (
-        "When `أهم الأسهم اليوم` appears below another recommendation or Watching card"
-        in prompt
-    )
-    assert prompt.count("## 2. Hard date gate") == 1
+    prompt_directory = Path(__file__).resolve().parents[1] / "app" / "ai" / "prompts"
+    extraction = (prompt_directory / "consolidated_recommendation.md").read_text(encoding="utf-8")
+    consolidation = (prompt_directory / "consolidation.md").read_text(encoding="utf-8")
 
+    assert _prompt_metadata(prompt_directory / "consolidated_recommendation.md")["schema_version"] == 5
+    assert _prompt_metadata(prompt_directory / "consolidation.md")["schema_version"] == 5
+
+    # Extraction judges one source at a time and says so when it drops one.
+    assert "28/07/2026` → exclude" in extraction
+    assert "Telegram post is dated 29/7 but its image says 28/7 → exclude" in extraction
+    assert "Images, ordinary text messages, and voice-note transcripts" in extraction
+    assert "`عاجل`" in extraction
+    assert "`منطقة البيع`" in extraction
+    assert '"return_tp1_pct"' in extraction
+    assert '"return_tp2_pct"' in extraction
+    assert '"excluded"' in extraction
+    assert "IMAGE_REF` numbering restarts" in extraction or "Cite only the numbers announced here" in extraction
+
+    # Ranking and the per-stock summary need the whole run, so they belong to the second pass and
+    # must not be asked for in the first.
+    assert '"notes_summary"' not in extraction
+    assert '"mention_count"' not in extraction
+    assert '"notes_summary": "concise Arabic string"' in consolidation
+    assert '"mention_count": "integer"' in consolidation
 
 def test_prompt_customization_restores_a_historical_configuration(monkeypatch, tmp_path):
     monkeypatch.setenv("EGX_CONFIG_FILE", str(tmp_path / ".env"))
@@ -1493,29 +1492,34 @@ def test_consolidated_validation_does_not_judge_recommendation_meaning():
 
 
 @pytest.mark.asyncio
-async def test_consolidated_analysis_uses_one_model_request():
-    invalid = {
-        "analysis_period": "test", "top_consolidated_recommendations": [{
-            "stock_code": "COMI", "stock_name_en": "CIB", "data_points": [{
-                "source": "CFI", "source_message_id": "7", "recommendation_type": "buy",
-                "effective_date_basis": "explicit_date", "visible_source_date": "2026-07-16",
-                "target_1": 100,
-            }],
-        }], "client_inquiry_responses": [],
-    }
-    corrected = json.loads(json.dumps(invalid))
-    corrected["top_consolidated_recommendations"][0]["data_points"][0]["recommendation_evidence"] = (
-        "COMI - توصية شراء"
-    )
-    responses = [invalid, corrected]
+async def test_consolidated_analysis_reads_then_consolidates():
+    """A run with no images is one extraction request and one consolidation request, not one call."""
+    extracted = {"extracted": [{
+        "stock_code": "COMI", "stock_name_en": "CIB", "source_message_id": "7",
+        "recommendation_type": "buy", "effective_date_basis": "explicit_date",
+        "visible_source_date": "2026-07-16", "target_1": 100,
+        "recommendation_evidence": "COMI - توصية شراء",
+    }], "excluded": [], "client_inquiry_responses": []}
+    ranked = {"top_consolidated_recommendations": [{
+        "stock_code": "COMI", "stock_name_en": "CIB", "mention_count": 1, "rank": 1,
+        "data_points": [{
+            "source": "CFI", "source_message_id": "7", "recommendation_type": "buy",
+            "effective_date_basis": "explicit_date", "visible_source_date": "2026-07-16",
+            "target_1": 100, "recommendation_evidence": "COMI - توصية شراء",
+        }],
+    }]}
+    responses = [extracted, ranked]
     service = object.__new__(AIAnalysisService)
     service.settings = SimpleNamespace()
     service.prompt = ""
+    service.consolidation_prompt = ""
+    service.consolidation_prompt_metadata = {}
 
     async def fake_analyze_prompt(*_args, **_kwargs):
         payload = responses.pop(0)
         return AnalysisOutcome(
-            result=_analysis_result_from_payload(payload), raw_response=json.dumps(payload, ensure_ascii=False),
+            result=_analysis_result_from_payload({"top_consolidated_recommendations": []}),
+            raw_response=json.dumps(payload, ensure_ascii=False),
             input_metrics={"model_request_ms": 10},
         )
 
@@ -1527,39 +1531,39 @@ async def test_consolidated_analysis_uses_one_model_request():
     )
 
     assert outcome.correction_attempted is False
-    assert outcome.validation_warnings == []
     assert outcome.retry_audit["status"] == "not_required"
-    assert outcome.input_metrics["model_request_count"] == 1
-    assert len(responses) == 1
+    assert outcome.input_metrics["model_request_count"] == 2
+    assert responses == []
     point = json.loads(outcome.raw_response)["top_consolidated_recommendations"][0]["data_points"][0]
     assert point["source"] == "CFI"
-    assert "recommendation_evidence" not in point
-
 
 @pytest.mark.asyncio
-async def test_consolidated_analysis_keeps_a_source_dated_before_the_target():
-    payload = {
-        "analysis_period": "test",
-        "top_consolidated_recommendations": [{
-            "stock_code": "TMGH",
-            "data_points": [{
-                "source_message_id": "60284",
-                "effective_date_basis": "explicit_date",
-                "visible_source_date": "27/07/2026",
-            }],
+async def test_consolidated_analysis_drops_a_source_printed_with_another_session():
+    """
+    A card printed 27 July is a call for the 27th, whatever day it was posted.
+
+    Letting the previous session through counted every T+1 card twice - once in the report for the
+    day it was published and once in the report for the day it names.
+    """
+    ranked = {"top_consolidated_recommendations": [{
+        "stock_code": "TMGH",
+        "data_points": [{
+            "source_message_id": "60284",
+            "effective_date_basis": "explicit_date",
+            "visible_source_date": "27/07/2026",
         }],
-        "client_inquiry_responses": [],
-    }
+    }]}
+    responses = [{"extracted": [{"stock_code": "TMGH", "source_message_id": "60284"}]}, ranked]
     service = object.__new__(AIAnalysisService)
     service.settings = SimpleNamespace()
     service.prompt = ""
-    requests = 0
+    service.consolidation_prompt = ""
+    service.consolidation_prompt_metadata = {}
 
     async def fake_analyze_prompt(*_args, **_kwargs):
-        nonlocal requests
-        requests += 1
+        payload = responses.pop(0)
         return AnalysisOutcome(
-            result=_analysis_result_from_payload(payload),
+            result=_analysis_result_from_payload({"top_consolidated_recommendations": []}),
             raw_response=json.dumps(payload, ensure_ascii=False),
             input_metrics={"model_request_ms": 10},
         )
@@ -1578,14 +1582,9 @@ async def test_consolidated_analysis_keeps_a_source_dated_before_the_target():
         "2026-07-28",
     )
 
-    # A card printed with an earlier date is kept: which session a recommendation belongs to is
-    # the model's call, and the source window already limits which messages reach it.
-    assert requests == 1
-    assert outcome.correction_attempted is False
-    assert outcome.validation_warnings == []
     kept = json.loads(outcome.raw_response)["top_consolidated_recommendations"]
-    assert [stock["stock_code"] for stock in kept] == ["TMGH"]
-
+    assert kept == []
+    assert any("another session" in warning for warning in outcome.validation_warnings)
 
 def test_minimal_provenance_excludes_unknown_ids_and_restores_one_image_reference():
     messages = [{
@@ -2156,3 +2155,77 @@ def test_every_bundled_prompt_declares_its_schema_version():
     assert prompts, "no bundled prompts found"
     for prompt in prompts:
         assert _prompt_metadata(prompt)["schema_version"] is not None, f"{prompt.name} has no schema marker"
+
+
+def _run_of(messages: list[int]) -> tuple[list, list[int], dict[int, int]]:
+    """Builds the shapes _chunk_parts reads: parts, message starts, and each image part's ref."""
+    parts: list[tuple[str, str | None]] = []
+    starts: list[int] = []
+    references: dict[int, int] = {}
+    reference = 0
+    for position, images in enumerate(messages):
+        starts.append(len(parts))
+        parts.append((f"--- MESSAGE {position} ---", None))
+        for _ in range(images):
+            reference += 1
+            references[len(parts)] = reference
+            parts.append((f"IMAGE_REF {reference}", f"/photo/{reference}.jpg"))
+    return parts, starts, references
+
+
+def test_chunking_keeps_requests_small_enough_to_cite_reliably():
+    """One request per run is where IMAGE_REF 4 was cited for image 15."""
+    from app.ai.service import _chunk_parts
+
+    parts, starts, references = _run_of([1] * 32)
+    chunks = _chunk_parts(parts, starts, references)
+
+    assert [len(chunk.references) for chunk in chunks] == [8, 8, 8, 8]
+    assert [reference for chunk in chunks for reference in chunk.references] == list(range(1, 33))
+
+
+def test_chunking_never_separates_a_message_from_its_images():
+    from app.ai.service import _chunk_parts
+
+    parts, starts, references = _run_of([2] * 10)
+    chunks = _chunk_parts(parts, starts, references)
+
+    # A message appearing in two chunks would mean a card judged without its caption.
+    seen: list[str] = []
+    for chunk in chunks:
+        headers = [text for text, path in chunk.parts if path is None and text.startswith("--- MESSAGE")]
+        seen.extend(headers)
+    assert len(seen) == len(set(seen)) == 10
+
+
+def test_an_oversized_message_gets_its_own_chunk_without_dragging_neighbours():
+    from app.ai.service import _chunk_parts
+
+    parts, starts, references = _run_of([1, 11, 1])
+    chunks = _chunk_parts(parts, starts, references)
+
+    assert [len(chunk.references) for chunk in chunks] == [1, 11, 1]
+
+
+def test_chunking_loses_nothing():
+    from app.ai.service import _chunk_parts
+
+    parts, starts, references = _run_of([1, 2, 3, 1, 4, 2])
+    chunks = _chunk_parts(parts, starts, references)
+
+    assert [part for chunk in chunks for part in chunk.parts] == parts
+    assert sum(len(chunk.image_paths) for chunk in chunks) == 13
+
+
+def test_a_run_without_images_is_a_single_request():
+    from app.ai.service import _chunk_parts
+
+    parts, starts, references = _run_of([0] * 30)
+    assert len(_chunk_parts(parts, starts, references)) == 1
+
+
+def test_an_empty_run_makes_no_requests():
+    from app.ai.service import _chunk_parts
+
+    assert _chunk_parts([], [], {}) == []
+

@@ -209,3 +209,56 @@ def test_entering_on_an_earlier_session_leaves_a_later_target_unaffected():
 
     assert result.outcome is Outcome.TARGET_1
     assert result.sessions_elapsed == 2
+
+
+def test_only_the_target_session_is_accepted():
+    """A source belongs to the session printed on it, and to no other."""
+    from datetime import date
+
+    from app import source_date_gate
+
+    target = date(2026, 7, 30)
+    assert source_date_gate.accepts("30 JULY 2026", target)
+    assert source_date_gate.accepts("30/7/2026", target)
+    assert source_date_gate.accepts("30-Jul-2026", target)
+    # The session before: a call made on the 29th for the 29th.
+    assert not source_date_gate.accepts("29/07/2026", target)
+    # The session after: the T+1 card, which belongs to the next report and not to two of them.
+    assert not source_date_gate.accepts("31/7/2026", target)
+    # A re-posted screenshot of an old card.
+    assert not source_date_gate.accepts("13/7/2026", target)
+
+
+def test_a_date_that_cannot_be_read_is_rejected():
+    from datetime import date
+
+    from app import source_date_gate
+
+    target = date(2026, 7, 30)
+    for value in (None, "", "last week", "سعر السهم"):
+        assert not source_date_gate.accepts(value, target)
+
+
+def test_dates_are_read_the_way_sources_print_them():
+    from datetime import date
+
+    from app import source_date_gate
+
+    assert source_date_gate.parse("13/7/2026") == date(2026, 7, 13)
+    assert source_date_gate.parse("2026-07-30") == date(2026, 7, 30)
+    assert source_date_gate.parse("30 JULY 2026") == date(2026, 7, 30)
+    assert source_date_gate.parse("٢٨ يوليو ٢٠٢٦") == date(2026, 7, 28)
+    assert source_date_gate.parse("32/7/2026") is None
+    assert source_date_gate.parse("30/13/2026") is None
+
+
+def test_symbol_map_reads_both_series_across_the_migration():
+    """Yahoo froze SYMBOL.CA on 29 July 2026, so one form alone leaves a hole from the 30th on."""
+    from app.symbol_map import feeds_for
+
+    assert feeds_for("ARAB") == ["EGS694A1C018.CA", "ARAB.CA"]
+    assert feeds_for("arab.ca") == ["EGS694A1C018.CA", "ARAB.CA"]
+    # A stock with no mapping still gets its legacy symbol rather than nothing.
+    assert feeds_for("NOSUCH") == ["NOSUCH.CA"]
+    assert feeds_for("") == []
+
