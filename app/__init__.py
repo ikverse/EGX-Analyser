@@ -1,0 +1,1 @@
+"""EGX stock intelligence application."""

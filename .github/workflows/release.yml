@@ -1,0 +1,136 @@
+name: Publish desktop update
+run-name: ${{ github.ref_name }} - Keep next-session recommendation cards
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Restore npm download cache
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\npm-cache
+          key: windows-npm-downloads-v2-${{ hashFiles('desktop/package-lock.json') }}
+          restore-keys: |
+            windows-npm-downloads-v2-
+      - name: Restore pip download cache
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pip\Cache
+          key: windows-pip-downloads-v2-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            windows-pip-downloads-v2-
+      - name: Restore Rust compilation cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            desktop/src-tauri/target
+          key: windows-rust-tauri-v2-${{ hashFiles('desktop/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            windows-rust-tauri-v2-
+      - name: Verify release tag matches bundled version
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          if ($tag -notmatch '^v(?<version>\d+\.\d+\.\d+)$') {
+            throw "Release tags must use vMAJOR.MINOR.PATCH; received '$tag'."
+          }
+          $expected = $Matches.version
+          $tauriVersion = (Get-Content desktop/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $nodeVersion = (Get-Content desktop/package.json -Raw | ConvertFrom-Json).version
+          $cargoVersion = (Select-String -Path desktop/src-tauri/Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          $pythonVersion = (Select-String -Path pyproject.toml -Pattern '^version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          $apiVersion = (Select-String -Path app/main.py -Pattern 'version="([^"]+)"').Matches[0].Groups[1].Value
+          $versions = @{ tauri = $tauriVersion; node = $nodeVersion; cargo = $cargoVersion; python = $pythonVersion; api = $apiVersion }
+          $mismatches = $versions.GetEnumerator() | Where-Object { $_.Value -ne $expected }
+          if ($mismatches) {
+            $actual = ($versions.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ', '
+            throw "Release tag $tag requires every bundled version to be $expected. Found: $actual"
+          }
+      - name: Install frontend and Python build dependencies
+        shell: pwsh
+        run: |
+          npm ci --prefix desktop
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
+          .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+      - name: Verify backend and frontend quality
+        shell: pwsh
+        run: |
+          .\.venv\Scripts\python.exe -m ruff check app tests
+          .\.venv\Scripts\python.exe -m pytest -q
+          npm run build --prefix desktop
+      - name: Restore the private update signing key
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY_CONTENT: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          $signingKeyPath = Join-Path $env:RUNNER_TEMP 'egx-analyzer.key'
+          [IO.File]::WriteAllText($signingKeyPath, $env:TAURI_SIGNING_PRIVATE_KEY_CONTENT)
+          "TAURI_SIGNING_PRIVATE_KEY=$signingKeyPath" | Add-Content -Path $env:GITHUB_ENV
+      - name: Build signed update artifacts
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: powershell -ExecutionPolicy Bypass -File scripts/build-desktop.ps1 -Release -SkipDependencyInstall
+      - name: Read versioned release summary
+        id: release_metadata
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $lines = Get-Content CHANGELOG.md
+          $start = [Array]::IndexOf($lines, "## $tag")
+          if ($start -lt 0) { throw "CHANGELOG.md has no release section for $tag." }
+          $bodyLines = @()
+          for ($index = $start + 1; $index -lt $lines.Count; $index++) {
+            if ($lines[$index] -match '^##\s+') { break }
+            $bodyLines += $lines[$index]
+          }
+          $body = ($bodyLines -join "`n").Trim()
+          if (-not $body) { throw "CHANGELOG.md section $tag has no release summary." }
+          $summary = ($bodyLines | Where-Object { $_ -match '^-' } | Select-Object -First 1) -replace '^-\s*', ''
+          if (-not $summary) { $summary = 'Desktop update' }
+          New-Item -ItemType Directory -Force release | Out-Null
+          Set-Content -Path release/release-notes.md -Value $body -Encoding utf8
+          "title=EGX Analyzer $tag - $summary" | Add-Content -Path $env:GITHUB_OUTPUT
+      - name: Create update manifest
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          New-Item -ItemType Directory -Force release | Out-Null
+          $installer = Get-ChildItem desktop/src-tauri/target/release/bundle/nsis -Filter '*.exe' | Select-Object -First 1
+          $safeInstaller = Join-Path $PWD "release/egx-analyzer-$version-x64-setup.exe"
+          Copy-Item $installer.FullName $safeInstaller
+          Copy-Item "$($installer.FullName).sig" "$safeInstaller.sig"
+          $releaseNotes = Get-Content release/release-notes.md -Raw
+          powershell -ExecutionPolicy Bypass -File scripts/new-update-manifest.ps1 -Repository '${{ github.repository }}' -Version $version -ReleaseNotes $releaseNotes -InstallerPath $safeInstaller
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.release_metadata.outputs.title }}
+          body_path: release/release-notes.md
+          fail_on_unmatched_files: true
+          files: |
+            release/egx-analyzer-*-setup.exe
+            release/egx-analyzer-*-setup.exe.sig
+            release/latest.json

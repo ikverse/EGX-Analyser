@@ -1,0 +1,891 @@
+import asyncio
+from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+import json
+import shutil
+import subprocess
+from time import perf_counter
+import httpx
+from sqlalchemy import or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.ai.service import AIAnalysisService
+from app.analysis_filter import is_non_actionable_stock_update
+from app.analysis_trace import create_selected_input_trace, save_analysis_performance, save_consolidated_response, save_model_validation
+from app.channel_names import clean_channel_name
+from app.config import get_settings
+from app.config_store import update_config
+from app.prompt_customization import (
+    load_prompt_customization,
+    reset_prompt_customization,
+    restore_prompt_customization,
+    save_prompt_customization,
+)
+from app.content_updates import ContentUpdateError, ContentUpdateService
+from app.database import get_session
+from app.diagnostics import diagnostics_path, logger, recent_entries
+from app.insights import performance, recommended_tickers
+from app.models import Channel, Image, Media, Message, Recommendation, Report, Stock
+from app.reports import ReportService, _attach_source_images, bind_source_image_references, ensure_stock_notes_summaries
+from app.stock_catalog import EGXStockCatalog
+from app.scoring import MAX_WINDOW_SESSIONS, backfill_sessions, latest_quotes
+from app.schemas import (ChannelUpdate, CollectionRequest, DailyReportRequest, MessageCreate, SearchRequest, SettingsUpdate, TelegramChatSelect,
+                         TelegramCodeRequest, TelegramCodeVerification)
+from app.services import AnalyticsService, MessageService, SearchService
+from app.repositories import get_or_create_channel
+from app.telegram_auth import TelegramAuthenticator
+from app.time_utils import cairo_iso
+from telethon import TelegramClient
+from openai import APIConnectionError, APIStatusError, AsyncOpenAI, AuthenticationError, BadRequestError, RateLimitError
+from zoneinfo import ZoneInfo
+
+router = APIRouter()
+_active_analysis_tasks: dict[str, asyncio.Task[object]] = {}
+_analysis_lock = asyncio.Lock()
+
+_QWEN_VISION_PREFERENCE = (
+    "qwen3-vl-plus",
+    "qwen3-vl-235b-a22b-instruct",
+    "qwen3-vl-flash",
+)
+
+
+def _qwen_vision_models(catalog: list[object]) -> list[str]:
+    """Return every model exposed by the saved Qwen account."""
+    available: set[str] = set()
+    for item in catalog:
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+            continue
+        model_id = item["id"].strip()
+        if model_id:
+            available.add(model_id)
+    return sorted(available)
+
+
+def _ollama_api_url(settings) -> str:
+    return settings.ollama_base_url.rstrip("/").removesuffix("/v1")
+
+
+def _ollama_vision_models(catalog: list[object]) -> list[str]:
+    """Return every installed Ollama model reported by the local service."""
+    models: list[str] = []
+    for item in catalog:
+        if not isinstance(item, dict) or not isinstance(item.get("name"), str):
+            continue
+        name = item["name"].strip()
+        if name:
+            models.append(name)
+    return sorted(set(models))
+telegram_authenticator = TelegramAuthenticator()
+
+
+@router.get("/health", tags=["system"])
+async def health() -> dict[str, str]: return {"status": "ok"}
+
+
+async def _acquire_analysis_slot() -> None:
+    try:
+        await asyncio.wait_for(_analysis_lock.acquire(), timeout=0.05)
+    except TimeoutError as error:
+        raise HTTPException(409, "Another AI analysis is already running. Stop it or wait for it to finish.") from error
+
+
+@router.get("/diagnostics/recent", tags=["system"])
+async def diagnostics(limit: int = 50) -> dict[str, object]:
+    """Return locally stored, secret-free API diagnostics for troubleshooting."""
+    return {"path": str(diagnostics_path()), "entries": recent_entries(min(max(limit, 1), 100))}
+
+
+@router.get("/content-updates")
+async def content_update_status() -> dict[str, object]:
+    return ContentUpdateService(get_settings()).status()
+
+
+def egx_catalog(session: AsyncSession) -> EGXStockCatalog:
+    settings = get_settings()
+    return EGXStockCatalog(session, settings.egx_catalog_url, settings.storage_root, settings.egx_catalog_refresh_days)
+
+
+@router.get("/egx-catalog")
+async def egx_catalog_status(session: AsyncSession = Depends(get_session)) -> dict[str, object]:
+    return await egx_catalog(session).status()
+
+
+@router.post("/egx-catalog/refresh")
+async def refresh_egx_catalog(session: AsyncSession = Depends(get_session)) -> dict[str, object]:
+    result = await egx_catalog(session).ensure(force=True)
+    await session.commit()
+    if not result["refreshed"]:
+        raise HTTPException(503, "Could not download the EGX catalog. Your saved local mapping is still available.")
+    return result
+
+
+@router.post("/content-updates/check")
+async def check_content_updates() -> dict[str, object]:
+    try:
+        return await ContentUpdateService(get_settings()).check_and_apply()
+    except ContentUpdateError as error:
+        raise HTTPException(502, str(error)) from error
+
+
+@router.get("/settings")
+async def settings_status() -> dict[str, object]:
+    settings = get_settings()
+    prompt_customization_error: str | None = None
+    try:
+        prompt_customization = load_prompt_customization()
+    except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+        prompt_customization = {"include_phrases": [], "exclude_phrases": [], "history": []}
+        prompt_customization_error = (
+            "The prompt customization file is damaged or unreadable. Reset to the default prompt to recover it."
+        )
+    indexed_history = [
+        {**entry, "history_index": index}
+        for index, entry in enumerate(prompt_customization["history"])
+        if isinstance(entry, dict)
+    ]
+    session_path = f"{settings.telegram_session}.session"
+    return {"openai_configured": bool(settings.openai_api_key),
+            "ai_configured": bool(settings.ai_api_key),
+            "ai_provider": settings.ai_provider,
+            "telegram_configured": bool(settings.telegram_api_id and settings.telegram_api_hash),
+            "telegram_authorized": Path(session_path).exists(),
+            "scoring_window_sessions": settings.scoring_window_sessions,
+            "openai_model": settings.openai_model, "ollama_model": settings.ollama_model,
+            "qwen_base_url": settings.qwen_base_url,
+            "ollama_base_url": settings.ollama_base_url, "telegram_session": settings.telegram_session,
+            "audio_transcription_available": settings.ai_provider == "openai" and bool(settings.openai_api_key),
+            "audio_transcription_status": (
+                "Voice-note transcription is available."
+                if settings.ai_provider == "openai" and settings.openai_api_key
+                else "Voice notes are saved and remain pending until a compatible transcription service is configured."
+            ),
+            "analysis_include_phrases": ", ".join(prompt_customization["include_phrases"]),
+            "analysis_exclude_phrases": ", ".join(prompt_customization["exclude_phrases"]),
+            "prompt_customization_history": indexed_history[-50:],
+            "prompt_customization_history_total": len(indexed_history),
+            "prompt_customization_error": prompt_customization_error}
+
+
+@router.get("/models")
+async def available_models() -> list[str]:
+    settings = get_settings()
+    provider = settings.ai_provider
+    if provider == "ollama":
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.get(f"{_ollama_api_url(settings)}/api/tags")
+                response.raise_for_status()
+            return _ollama_vision_models(response.json().get("models", []))
+        except httpx.HTTPStatusError as error:
+            raise HTTPException(502, f"Ollama could not list local models (status {error.response.status_code}).") from error
+        except httpx.HTTPError as error:
+            raise HTTPException(
+                503,
+                "Ollama is not reachable. Install and start Ollama, then confirm its local service is running.",
+            ) from error
+    if not settings.ai_api_key:
+        raise HTTPException(400, f"Save a {provider.title()} API key first")
+    if provider != "openai":
+        catalog_url = {
+            "qwen": f"{settings.qwen_base_url.rstrip('/')}/models",
+            "openrouter": "https://openrouter.ai/api/v1/models",
+            "huggingface": "https://router.huggingface.co/v1/models",
+        }[provider]
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                response = await client.get(catalog_url, headers={"Authorization": f"Bearer {settings.ai_api_key}"})
+                response.raise_for_status()
+            catalog = response.json().get("data", [])
+        except httpx.HTTPStatusError as error:
+            status = error.response.status_code
+            if provider == "qwen" and status in (401, 403):
+                raise HTTPException(
+                    status,
+                    "Qwen rejected this key. Create a pay-as-you-go Model Studio API key in the same region "
+                    "as the selected endpoint. Beijing uses dashscope.aliyuncs.com, Singapore uses "
+                    "dashscope-intl.aliyuncs.com, and US uses dashscope-us.aliyuncs.com. Token Plan, "
+                    "Coding Plan, Qwen Chat, and expired temporary keys cannot be used here.",
+                ) from error
+            message = "rejected the saved API key" if status in (401, 403) else f"could not load models (status {status})"
+            raise HTTPException(status if status < 500 else 502, f"{provider.title()} {message}. Try again shortly.") from error
+        except httpx.HTTPError as error:
+            raise HTTPException(503, f"Unable to connect to {provider.title()}. Check your internet connection and try again.") from error
+        if provider == "qwen":
+            return _qwen_vision_models(catalog)
+        return sorted({model["id"].strip() for model in catalog
+                       if isinstance(model, dict) and isinstance(model.get("id"), str) and model["id"].strip()})
+    try:
+        models = await AsyncOpenAI(api_key=settings.openai_api_key).models.list()
+    except AuthenticationError as error:
+        raise HTTPException(401, "OpenAI rejected the saved API key. Replace it in Settings and save.") from error
+    except RateLimitError as error:
+        raise HTTPException(429, "OpenAI rate limit reached. Try loading models again shortly.") from error
+    except APIConnectionError as error:
+        raise HTTPException(503, "Unable to connect to OpenAI. Check your internet connection and try again.") from error
+    except APIStatusError as error:
+        raise HTTPException(502, f"OpenAI could not load models (status {error.status_code}). Try again shortly.") from error
+    except Exception as error:
+        raise HTTPException(502, "Unable to load available OpenAI models. Try again shortly.") from error
+    return sorted({model.id for model in models.data if model.id}, reverse=True)
+
+
+@router.put("/settings")
+async def update_settings(payload: SettingsUpdate) -> dict[str, object]:
+    current = get_settings()
+    telegram_credentials_changed = (
+        (payload.telegram_api_id is not None and payload.telegram_api_id != current.telegram_api_id)
+        or (payload.telegram_api_hash is not None and payload.telegram_api_hash != current.telegram_api_hash)
+    )
+    payload_values = payload.model_dump(exclude_none=True)
+    include_phrases = payload_values.pop("analysis_include_phrases", None)
+    exclude_phrases = payload_values.pop("analysis_exclude_phrases", None)
+    values = {key.upper(): str(value) for key, value in payload_values.items()}
+    values["ANALYSIS_INSTRUCTIONS"] = ""
+    try:
+        update_config(values)
+        if include_phrases is not None or exclude_phrases is not None:
+            existing = load_prompt_customization()
+            save_prompt_customization(
+                include_phrases if include_phrases is not None else existing["include_phrases"],
+                exclude_phrases if exclude_phrases is not None else existing["exclude_phrases"],
+            )
+    except (OSError, UnicodeError, ValueError, subprocess.SubprocessError) as error:
+        logger().error("settings_update_failed", extra={"error_type": type(error).__name__})
+        raise HTTPException(500, "Settings could not be encrypted and saved. Try again after restarting the app.") from error
+    get_settings.cache_clear()
+    if telegram_credentials_changed:
+        await telegram_authenticator.reset_session(current.telegram_session)
+    return await settings_status()
+
+
+@router.post("/settings/prompt/reset")
+async def reset_analysis_prompt_customization() -> dict[str, object]:
+    try:
+        reset_prompt_customization()
+        update_config({"ANALYSIS_INSTRUCTIONS": ""})
+    except (OSError, UnicodeError, ValueError, json.JSONDecodeError, subprocess.SubprocessError) as error:
+        logger().error("prompt_customization_reset_failed", extra={"error_type": type(error).__name__})
+        raise HTTPException(500, "The default analysis prompt could not be restored.") from error
+    get_settings.cache_clear()
+    return await settings_status()
+
+
+@router.post("/settings/prompt/restore/{history_index}")
+async def restore_analysis_prompt_customization(history_index: int) -> dict[str, object]:
+    try:
+        restore_prompt_customization(history_index)
+        update_config({"ANALYSIS_INSTRUCTIONS": ""})
+    except IndexError as error:
+        raise HTTPException(404, "That prompt history entry no longer exists.") from error
+    except (OSError, UnicodeError, ValueError, json.JSONDecodeError, subprocess.SubprocessError) as error:
+        logger().error("prompt_customization_restore_failed", extra={"error_type": type(error).__name__})
+        raise HTTPException(500, "The selected prompt configuration could not be restored.") from error
+    get_settings.cache_clear()
+    return await settings_status()
+
+
+@router.post("/telegram/request-code")
+async def request_telegram_code(payload: TelegramCodeRequest) -> dict[str, str]:
+    await telegram_authenticator.request_code(payload.phone)
+    return {"status": "code_sent"}
+
+
+@router.post("/telegram/verify-code")
+async def verify_telegram_code(payload: TelegramCodeVerification) -> dict[str, bool]:
+    return {"authorized": await telegram_authenticator.verify(payload.code, payload.password)}
+
+
+@router.get("/telegram/chats")
+async def telegram_chats() -> list[dict[str, str]]:
+    settings = get_settings()
+    if not settings.telegram_api_id or not settings.telegram_api_hash:
+        raise HTTPException(400, "Save Telegram API credentials first")
+    async with TelegramClient(settings.telegram_session, settings.telegram_api_id, settings.telegram_api_hash) as client:
+        if not await client.is_user_authorized():
+            raise HTTPException(400, "Connect Telegram in Settings first")
+        dialogs = await client.get_dialogs()
+    return [{"id": str(dialog.entity.id), "title": clean_channel_name(dialog.title or str(dialog.entity.id)),
+             "username": getattr(dialog.entity, "username", None) or "", "kind":
+             "channel" if dialog.is_channel else "group" if dialog.is_group else "direct"}
+            for dialog in dialogs]
+
+
+@router.post("/messages")
+async def create_message(payload: MessageCreate, session: AsyncSession = Depends(get_session)) -> dict:
+    message = await MessageService(session).ingest(payload)
+    await session.commit()
+    return {"id": message.id, "created": message.processed_at is None}
+
+
+@router.post("/messages/{message_id}/analyze")
+async def analyze_message(message_id: int, session: AsyncSession = Depends(get_session)) -> dict:
+    await _acquire_analysis_slot()
+    try:
+        message = await session.get(Message, message_id)
+        if message is None:
+            raise HTTPException(404, "Message not found")
+        recommendations = await MessageService(session, AIAnalysisService(get_settings())).analyze(message)
+        await session.commit()
+        return {"recommendation_ids": [item.id for item in recommendations]}
+    finally:
+        _analysis_lock.release()
+
+
+@router.post("/collection/run")
+async def run_collection() -> dict:
+    from app.main import runtime
+    try:
+        summary = await runtime.collect_once(analyze_messages=False)
+        return {"messages_collected": summary["messages_in_window"], **summary}
+    except RuntimeError as error:
+        if "already running" in str(error).lower():
+            raise HTTPException(409, "A background collection is already running. Wait a moment and try again.") from error
+        raise HTTPException(500, str(error)) from error
+    except BadRequestError as error:
+        raise HTTPException(400, f"The selected AI provider rejected the analysis request: {error}") from error
+
+
+@router.post("/collection/analyze-selected")
+async def analyze_selected_channels(payload: CollectionRequest, session: AsyncSession = Depends(get_session)) -> dict:
+    from app.main import runtime
+    from app.runtime import next_day_analysis_window, selected_date_analysis_window
+    cairo = ZoneInfo("Africa/Cairo")
+    if payload.analysis_mode == "specific_date":
+        if payload.target_date is None:
+            raise HTTPException(422, "Choose a target date for historical analysis.")
+        if payload.target_date > datetime.now(timezone.utc).astimezone(cairo).date():
+            raise HTTPException(422, "Historical analysis can only use today or an earlier Cairo date.")
+        window_start, window_end, target_date = selected_date_analysis_window(payload.target_date)
+        report_label = f"selected-date suggestions ({target_date.isoformat()})"
+    else:
+        window_start, window_end, target_date = next_day_analysis_window()
+        report_label = f"next-day suggestions ({target_date.isoformat()})"
+    source_start_date = window_start.astimezone(cairo).date().isoformat()
+    source_end_date = (window_end - timedelta(microseconds=1)).astimezone(cairo).date().isoformat()
+    analysis_period = f"Source messages: {source_start_date} through {source_end_date}; target date: {target_date.isoformat()}"
+    content_types = set(payload.content_types)
+    analysis_started = perf_counter()
+    timings_ms: dict[str, int] = {}
+    analysis_task = asyncio.current_task()
+    analysis_slot_acquired = False
+    await _acquire_analysis_slot()
+    analysis_slot_acquired = True
+    try:
+        if payload.request_id and analysis_task is not None:
+            existing_task = _active_analysis_tasks.get(payload.request_id)
+            if existing_task is not None and not existing_task.done():
+                raise HTTPException(409, "This analysis request is already running.")
+            _active_analysis_tasks[payload.request_id] = analysis_task
+        collection = await runtime.collect_once(payload.channel_ids, since=window_start, analyze_messages=False)
+        timings_ms["telegram_collection_ms"] = round((perf_counter() - analysis_started) * 1000)
+        database_load_started = perf_counter()
+        message_rows = (await session.execute(
+            select(Message, Channel)
+            .join(Channel, Message.channel_id == Channel.id)
+            .where(
+                Message.channel_id.in_(payload.channel_ids),
+                Message.published_at >= window_start,
+                Message.published_at < window_end,
+            )
+            .order_by(Message.published_at.asc())
+        )).all()
+        message_ids = [message.id for message, _ in message_rows]
+        images_by_message: dict[int, list[str]] = {}
+        transcripts_by_message: dict[int, list[str]] = {}
+        audio_transcription_pending = 0
+        audio_files_selected = 0
+        if message_ids and "images" in content_types:
+            image_rows = (await session.scalars(select(Image).where(Image.message_id.in_(message_ids)))).all()
+            for image in image_rows:
+                if Path(image.path).is_file():
+                    images_by_message.setdefault(image.message_id, []).append(image.path)
+        if message_ids and "audio" in content_types:
+            media_rows = (await session.scalars(select(Media).where(Media.message_id.in_(message_ids)))).all()
+            transcription_service = AIAnalysisService(get_settings())
+            for media in media_rows:
+                if media.transcript:
+                    transcripts_by_message.setdefault(media.message_id, []).append(media.transcript)
+                    continue
+                if not Path(media.path).is_file():
+                    continue
+                audio_files_selected += 1
+                try:
+                    transcript = (await transcription_service.transcribe(media.path)).strip()
+                except RuntimeError:
+                    audio_transcription_pending += 1
+                    continue
+                except Exception as error:
+                    audio_transcription_pending += 1
+                    logger().warning(
+                        "audio_transcription_failed",
+                        extra={"media_id": media.id, "error_type": type(error).__name__},
+                    )
+                    continue
+                if transcript:
+                    media.transcript = transcript
+                    media.processed_at = datetime.now(timezone.utc)
+                    transcripts_by_message.setdefault(media.message_id, []).append(transcript)
+                else:
+                    audio_transcription_pending += 1
+        timings_ms["database_loading_ms"] = round((perf_counter() - database_load_started) * 1000)
+        input_filter_started = perf_counter()
+        batch_messages = []
+        excluded_items: list[dict[str, str]] = []
+        for message, channel in message_rows:
+            selected_text = message.text if "text" in content_types else ""
+            selected_images = images_by_message.get(message.id, [])
+            selected_transcripts = transcripts_by_message.get(message.id, [])
+            if not selected_text.strip() and not selected_images and not selected_transcripts:
+                continue
+            source_context = "\n".join([message.text or "", *selected_transcripts])
+            if is_non_actionable_stock_update(source_context):
+                excluded_items.append({
+                    "source": clean_channel_name(channel.title or channel.handle),
+                    "published_at": message.published_at.astimezone(cairo).isoformat(),
+                    "telegram_message_id": str(message.telegram_message_id),
+                    "reason": "target_hit_or_previous_recommendation_update",
+                })
+                continue
+            batch_messages.append({
+                "source": clean_channel_name(channel.title or channel.handle),
+                "published_at": message.published_at.astimezone(cairo).isoformat(),
+                "telegram_message_id": message.telegram_message_id,
+                "text": selected_text,
+                "image_paths": selected_images,
+                "transcripts": selected_transcripts,
+            })
+        timings_ms["input_filtering_ms"] = round((perf_counter() - input_filter_started) * 1000)
+        trace_write_started = perf_counter()
+        trace = create_selected_input_trace(
+            get_settings().storage_root, batch_messages, window_start, window_end,
+            analysis_period, target_date.isoformat(), content_types, excluded_items,
+        )
+        timings_ms["selected_input_trace_ms"] = round((perf_counter() - trace_write_started) * 1000)
+        if not batch_messages:
+            start_label = window_start.astimezone(cairo).strftime("%Y-%m-%d %H:%M Cairo")
+            end_label = window_end.astimezone(cairo).strftime("%Y-%m-%d %H:%M Cairo")
+            logger().warning(
+                "analysis_no_selected_input",
+                extra={
+                    "target_date": target_date.isoformat(),
+                    "window_start": window_start.isoformat(),
+                    "window_end": window_end.isoformat(),
+                    "selected_channel_ids": payload.channel_ids,
+                    "content_types": sorted(content_types),
+                    "collected_in_window": collection["messages_in_window"],
+                    "stored_messages_in_window": len(message_rows),
+                    "excluded_messages": len(excluded_items),
+                    "trace_directory": trace["directory"],
+                },
+            )
+            audio_reason = (
+                f" {audio_transcription_pending} selected voice note(s) remain pending because the current "
+                "provider cannot transcribe them."
+                if audio_files_selected and audio_transcription_pending else ""
+            )
+            raise HTTPException(
+                422,
+                "No selected content was found in the chosen chats between "
+                f"{start_label} and {end_label}. Telegram collection found "
+                f"{collection['messages_in_window']} new message(s), "
+                f"{len(message_rows)} stored message(s) matched the time window, and "
+                f"{len(excluded_items)} message(s) were excluded. "
+                "No empty result was created. Reload the selected chats or choose chats that posted within this window."
+                + audio_reason,
+            )
+        model_pipeline_started = perf_counter()
+        outcome = await AIAnalysisService(get_settings()).analyze_consolidated(
+            batch_messages, analysis_period, target_date.isoformat(), Path(str(trace["directory"]))
+        )
+        timings_ms["model_pipeline_ms"] = round((perf_counter() - model_pipeline_started) * 1000)
+        timings_ms.update({key: int(value) for key, value in outcome.input_metrics.items()})
+        consolidated_source = json.loads(outcome.raw_response)
+        if not isinstance(consolidated_source, dict):
+            raise RuntimeError("The AI provider returned a non-object response for the consolidated analysis")
+        bind_source_image_references(consolidated_source, outcome.source_image_references)
+        catalog_started = perf_counter()
+        catalog = egx_catalog(session)
+        catalog_refresh: dict[str, object] = {"changed": 0, "refreshed": False}
+        try:
+            async with session.begin_nested():
+                catalog_refresh = await catalog.ensure()
+                await catalog.enrich_consolidated_output(consolidated_source)
+        except Exception as error:
+            logger().warning(
+                "catalog_enrichment_skipped",
+                extra={"error_type": type(error).__name__, "fallback": "source_identity"},
+            )
+        timings_ms["catalog_enrichment_ms"] = round((perf_counter() - catalog_started) * 1000)
+        collection["messages_analyzed"] = len(batch_messages)
+        trace = save_consolidated_response(trace, outcome.raw_response)
+        trace = save_model_validation(
+            trace, outcome.validation_warnings, outcome.correction_attempted, outcome.retry_audit,
+        )
+        report_generation_started = perf_counter()
+        report = await ReportService(session, get_settings()).generate_selected_chat_report(
+            payload.channel_ids, window_start, window_end, 2,
+            consolidated_source=consolidated_source, consolidated_raw_response=outcome.raw_response,
+            report_label=report_label, analyzed_message_count=len(batch_messages),
+        )
+        timings_ms["report_generation_ms"] = round((perf_counter() - report_generation_started) * 1000)
+        timings_ms["total_before_commit_ms"] = round((perf_counter() - analysis_started) * 1000)
+        report.summary = {**report.summary, **{
+            "analysis_result": True,
+            "target_date": target_date.isoformat(),
+            "analysis_window_mode": payload.analysis_mode,
+            "source_window_start": window_start.isoformat(),
+            "source_window_end": window_end.isoformat(),
+            "content_types": sorted(content_types),
+            "messages_analyzed": len(batch_messages),
+            "audio_transcription_pending": audio_transcription_pending,
+            "analysis_trace_directory": trace["directory"],
+            "model_validation_warnings": outcome.validation_warnings,
+            "model_correction_attempted": outcome.correction_attempted,
+            "model_retry_audit": outcome.retry_audit,
+            "performance": timings_ms,
+        }}
+        commit_started = perf_counter()
+        await session.commit()
+        timings_ms["database_commit_ms"] = round((perf_counter() - commit_started) * 1000)
+        timings_ms["total_analysis_ms"] = round((perf_counter() - analysis_started) * 1000)
+        trace = save_analysis_performance(trace, timings_ms)
+        logger().info(
+            "analysis_performance",
+            extra={
+                **timings_ms,
+                "catalog_changes": catalog_refresh["changed"],
+                "catalog_refreshed": catalog_refresh["refreshed"],
+                **outcome.input_metrics,
+            },
+        )
+        channel_results = report.summary["channel_results"]
+        return {"messages_collected": collection["messages_in_window"], **collection,
+                "window_start": window_start, "window_end": window_end, "target_date": target_date.isoformat(),
+                "analysis_mode": payload.analysis_mode,
+                "content_types": sorted(content_types),
+                "audio_transcription_pending": audio_transcription_pending,
+                "report": {"id": report.id, "markdown_path": report.markdown_path, "html_path": report.html_path,
+                           "original_ai_response_text_path": report.summary["original_ai_response_text_path"]}, "channel_results": channel_results,
+                "stock_code_summary": report.summary["stock_code_summary"],
+                "stock_code_details": report.summary["stock_code_details"],
+                "stock_source_table": report.summary["stock_source_table"],
+                "client_inquiry_responses": report.summary["client_inquiry_responses"],
+                "model_validation_warnings": outcome.validation_warnings,
+                "model_correction_attempted": outcome.correction_attempted,
+                "model_retry_audit": outcome.retry_audit,
+                "trace": trace,
+                "performance": timings_ms,
+                "not_stock_related": [item["channel"] for item in channel_results if item["status"] == "not_stock_related"]}
+    except asyncio.CancelledError:
+        logger().info(
+            "analysis_cancelled",
+            extra={"analysis_request_id": payload.request_id, "elapsed_ms": round((perf_counter() - analysis_started) * 1000)},
+        )
+        raise
+    except RuntimeError as error:
+        if "already running" in str(error).lower():
+            raise HTTPException(409, "A background collection is already running. Wait a moment and try again.") from error
+        raise HTTPException(500, str(error)) from error
+    except BadRequestError as error:
+        raise HTTPException(400, f"The selected AI provider rejected the analysis request: {error}") from error
+    finally:
+        if analysis_slot_acquired:
+            _analysis_lock.release()
+        if payload.request_id and _active_analysis_tasks.get(payload.request_id) is analysis_task:
+            _active_analysis_tasks.pop(payload.request_id, None)
+
+
+@router.post("/collection/analyze-selected/{request_id}/cancel")
+async def cancel_selected_analysis(request_id: str) -> dict[str, bool]:
+    task = _active_analysis_tasks.get(request_id)
+    if task is None or task.done():
+        return {"cancelled": False}
+    task.cancel()
+    return {"cancelled": True}
+
+
+@router.get("/messages")
+async def list_messages(session: AsyncSession = Depends(get_session), limit: int = 50) -> list[dict]:
+    messages = (await session.scalars(select(Message).order_by(Message.published_at.desc()).limit(min(limit, 100)))).all()
+    return [{"id": item.id, "text": item.text, "published_at": item.published_at, "channel_id": item.channel_id} for item in messages]
+
+
+@router.get("/channels")
+async def list_channels(session: AsyncSession = Depends(get_session)) -> list[dict]:
+    return [{"id": item.id, "handle": item.handle, "title": clean_channel_name(item.title or item.handle),
+             "active": item.active,
+             "analyst_score": item.analyst_score} for item in (await session.scalars(select(Channel))).all()]
+
+
+@router.post("/telegram/chats/select")
+async def select_telegram_chat(payload: TelegramChatSelect, session: AsyncSession = Depends(get_session)) -> dict:
+    try:
+        # Prefer the @username handle; fall back to the numeric entity ID.
+        # For supergroups/channels the API returns IDs like "-1001234567890" — strip the
+        # "-100" prefix so the stored handle is the plain channel ID used by Telethon.
+        if payload.username:
+            handle = payload.username
+        else:
+            raw = str(payload.id).lstrip("-")
+            handle = raw[3:] if raw.startswith("100") else raw
+        channel = await get_or_create_channel(session, handle)
+        channel.title = payload.title
+        channel.active = False
+        await session.commit()
+        return {
+            "id": channel.id,
+            "handle": channel.handle,
+            "title": clean_channel_name(channel.title or channel.handle),
+            "active": channel.active,
+        }
+    except Exception as error:
+        await session.rollback()
+        logger().exception(
+            "telegram_chat_selection_failed",
+            extra={"error_type": type(error).__name__, "path": "/telegram/chats/select"},
+        )
+        raise HTTPException(500, "Unable to save this Telegram chat. Restart the local engine and try again.") from error
+
+
+@router.patch("/channels/{channel_id}")
+async def update_channel(channel_id: int, payload: ChannelUpdate, session: AsyncSession = Depends(get_session)) -> dict:
+    channel = await session.get(Channel, channel_id)
+    if channel is None:
+        raise HTTPException(404, "Channel not found")
+    channel.active = payload.active
+    await session.commit()
+    return {"id": channel.id, "active": channel.active}
+
+
+@router.get("/stocks")
+async def list_stocks(session: AsyncSession = Depends(get_session)) -> list[dict]:
+    return [{"id": item.id, "ticker": item.ticker, "name_en": item.name_en, "name_ar": item.name_ar} for item in (await session.scalars(select(Stock))).all()]
+
+
+@router.get("/recommendations")
+async def list_recommendations(session: AsyncSession = Depends(get_session)) -> list[dict]:
+    values = (await session.scalars(select(Recommendation).order_by(Recommendation.id.desc()).limit(100))).all()
+    return [{"id": item.id, "company": item.company_name, "ticker": item.ticker_raw, "signal": item.signal, "confidence": item.confidence, "target": item.target} for item in values]
+
+
+@router.get("/analytics/consensus")
+async def consensus(session: AsyncSession = Depends(get_session)) -> list[dict]: return await AnalyticsService(session).consensus()
+
+
+@router.get("/insights/performance")
+async def insights_performance(
+    window_sessions: int | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Recommendation outcomes and per-channel records over the configured window."""
+    settings = get_settings()
+    return await performance(session, window_sessions or settings.scoring_window_sessions)
+
+
+@router.post("/insights/prices/refresh")
+async def refresh_prices(
+    sessions: int | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """
+    Fills in recent sessions for every ticker that has a recommendation.
+
+    Only those tickers are fetched: the rest cannot be scored, and each one costs a request to an
+    undocumented endpoint.
+    """
+    settings = get_settings()
+    tickers = sorted(await recommended_tickers(session))
+    if not tickers:
+        return {"tickers": 0, "stored": {}, "message": "No saved recommendations to price yet."}
+    wanted = min(sessions or settings.scoring_window_sessions, MAX_WINDOW_SESSIONS)
+    stored = await backfill_sessions(session, tickers, sessions=wanted)
+    await session.commit()
+    missing = [ticker for ticker in tickers if ticker not in stored]
+    return {
+        "tickers": len(tickers),
+        "priced": len(stored),
+        "sessions_requested": wanted,
+        "stored": stored,
+        # Named rather than hidden: a ticker with no history can never be scored, and that is worth
+        # knowing rather than looking like a run of misses.
+        "unpriced": missing,
+    }
+
+
+@router.get("/insights/quotes")
+async def insights_quotes() -> dict:
+    """Current prices, for showing where a stock is trading now."""
+    try:
+        quotes = await latest_quotes(get_settings().egx_quotes_url)
+    except (httpx.HTTPError, ValueError) as error:
+        logger().warning("quote_feed_unavailable", extra={"error_type": type(error).__name__})
+        raise HTTPException(503, "The quote feed is unavailable. Try again shortly.") from error
+    return {"count": len(quotes), "quotes": quotes}
+
+
+@router.post("/reports/daily")
+async def create_report(payload: DailyReportRequest = DailyReportRequest(), session: AsyncSession = Depends(get_session)) -> dict:
+    report = await ReportService(session, get_settings()).generate_daily(payload.report_mode, payload.report_date)
+    await session.commit()
+    return {"id": report.id, "markdown_path": report.markdown_path, "html_path": report.html_path}
+
+
+@router.get("/reports")
+async def reports(session: AsyncSession = Depends(get_session)) -> list[dict]:
+    return [{"id": item.id, "date": item.report_date, "summary": item.summary, "markdown_path": item.markdown_path,
+             "html_path": item.html_path} for item in (await session.scalars(select(Report).order_by(Report.report_date.desc()))).all()]
+
+
+@router.get("/analysis-results")
+async def analysis_results(
+    session: AsyncSession = Depends(get_session),
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict]:
+    """Return saved batch-analysis outputs for the expandable Results history."""
+    limit = min(max(limit, 1), 100)
+    offset = max(offset, 0)
+    statement = (
+        select(Report)
+        .where(or_(
+            Report.summary["analysis_result"].as_boolean().is_(True),
+            Report.summary["analysis_mode"].as_string() == "consolidated_batch",
+        ))
+        .order_by(Report.report_date.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    result_reports = list((await session.scalars(statement)).all())
+    source_message_ids = {
+        int(str(row.get("source_message_id")))
+        for item in result_reports
+        for row in item.summary.get("stock_source_table", [])
+        if isinstance(row, dict) and str(row.get("source_message_id") or "").isdigit()
+    }
+    image_rows: list[tuple[Image, Message, Channel]] = []
+    if source_message_ids:
+        image_rows = (await session.execute(
+            select(Image, Message, Channel)
+            .join(Message, Image.message_id == Message.id)
+            .join(Channel, Message.channel_id == Channel.id)
+            .where(Message.telegram_message_id.in_(source_message_ids))
+        )).all()
+    compact_image_rows = [(image, message) for image, message, _ in image_rows]
+    channels_by_message_id = {message.id: channel for _, message, channel in image_rows}
+    return [
+        {
+            "id": item.id,
+            # SQLite returns timezone-aware UTC columns as naive values. Treat
+            # those values as UTC and serialize an explicit Cairo offset so the
+            # browser cannot mistake UTC clock time for local clock time.
+            "generated_at": cairo_iso(item.report_date),
+            "target_date": item.summary.get("target_date"),
+            "messages_analyzed": item.summary.get("messages_analyzed", 0),
+            "audio_transcription_pending": item.summary.get("audio_transcription_pending", 0),
+            "content_types": item.summary.get("content_types", ["text", "images", "audio"]),
+            "sources": _analysis_result_sources(item.summary),
+            "stock_source_table": _analysis_table_with_source_images(
+                item.summary.get("stock_source_table", []), compact_image_rows, channels_by_message_id,
+                item.summary.get("target_date"),
+            ),
+            "client_inquiry_responses": _rows_with_clean_sources(
+                item.summary.get("client_inquiry_responses", []),
+            ),
+            "model_validation_warnings": item.summary.get("model_validation_warnings") or [],
+            "model_correction_attempted": item.summary.get("model_correction_attempted", False),
+            "model_retry_audit": item.summary.get("model_retry_audit", {}),
+            "performance": item.summary.get("performance", {}),
+        }
+        for item in result_reports
+    ]
+
+
+def _analysis_result_sources(summary: dict) -> list[str]:
+    """Preserve selected chats even when a model returns no recommendation rows."""
+    candidates = [
+        row.get("channel")
+        for row in summary.get("channel_results", [])
+        if isinstance(row, dict)
+    ]
+    if not any(candidates):
+        candidates.extend(
+            row.get("source")
+            for field in ("stock_source_table", "client_inquiry_responses")
+            for row in summary.get(field, [])
+            if isinstance(row, dict)
+        )
+    return list(dict.fromkeys(
+        clean_channel_name(value)
+        for value in candidates
+        if str(value or "").strip()
+    ))
+
+
+def _analysis_table_with_source_images(
+    rows: object,
+    image_rows: list[tuple[Image, Message]],
+    channels_by_message_id: dict[int, Channel],
+    target_date: object = None,
+) -> list[dict]:
+    table = [dict(row) for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+    for row in table:
+        row["source"] = clean_channel_name(row.get("source"), "Unspecified")
+        if target_date:
+            row["target_date"] = str(target_date)[:10]
+        else:
+            row.setdefault("target_date", None)
+    ensure_stock_notes_summaries(table)
+    _attach_source_images(table, image_rows, channels_by_message_id)
+    return table
+
+def _rows_with_clean_sources(rows: object) -> list[dict]:
+    cleaned = [dict(row) for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+    for row in cleaned:
+        row["source"] = clean_channel_name(row.get("source"), "Unspecified")
+    return cleaned
+
+
+def _delete_managed_artifact(storage_root: Path, value: object, directory: bool = False) -> None:
+    if not isinstance(value, str) or not value:
+        return
+    try:
+        root = storage_root.resolve()
+        candidate = Path(value).resolve()
+        if candidate != root and root not in candidate.parents:
+            return
+        if directory:
+            if candidate.is_dir():
+                shutil.rmtree(candidate)
+        elif candidate.is_file():
+            candidate.unlink()
+    except OSError:
+        return
+
+
+@router.delete("/analysis-results/{report_id}")
+async def delete_analysis_result(report_id: int, session: AsyncSession = Depends(get_session)) -> dict[str, bool]:
+    """Delete one saved batch result and its report/trace artifacts."""
+    report = await session.get(Report, report_id)
+    if report is None or not (report.summary.get("analysis_result") or report.summary.get("analysis_mode") == "consolidated_batch"):
+        raise HTTPException(404, "Analysis result not found")
+
+    settings = get_settings()
+    summary = report.summary
+    for path in (
+        report.markdown_path,
+        report.html_path,
+        summary.get("original_ai_response_text_path"),
+    ):
+        _delete_managed_artifact(settings.storage_root, path)
+    _delete_managed_artifact(settings.storage_root, summary.get("analysis_trace_directory"), directory=True)
+    await session.delete(report)
+    await session.commit()
+    return {"deleted": True}
+
+
+@router.post("/search")
+async def search(payload: SearchRequest, session: AsyncSession = Depends(get_session)) -> list[dict]:
+    settings = get_settings()
+    analyzer = AIAnalysisService(settings) if settings.ai_api_key else None
+    return await SearchService(session, analyzer).search(payload.query, payload.limit)

@@ -1,0 +1,69 @@
+{
+    "$schema":  "https://schema.tauri.app/config/2",
+    "productName":  "EGX Analyzer",
+    "version":  "0.1.126",
+    "identifier":  "com.egx.intelligence",
+    "build":  {
+                  "beforeDevCommand":  "npm run dev",
+                  "beforeBuildCommand":  "npm run build",
+                  "devUrl":  "http://localhost:1420",
+                  "frontendDist":  "../dist"
+              },
+    "app":  {
+                "windows":  [
+                                {
+                                    "label":  "main",
+                                    "title":  "EGX Analyzer",
+                                    "width":  1280,
+                                    "height":  820,
+                                    "minWidth":  960,
+                                    "minHeight":  640,
+                                    "resizable":  true
+                                }
+                            ],
+                "security":  {
+                                 "assetProtocol":  {
+                                                       "enable":  true,
+                                                       "scope":  [
+                                                                     "$RESOURCE/sidecar/storage/images/**",
+                                                                     "$LOCALDATA/EGX Intelligence/storage/images/**"
+                                                                   ]
+                                                   },
+                                 "csp":  "default-src 'self'; connect-src 'self' http://127.0.0.1:8000 http://localhost:8000; img-src 'self' asset: http://asset.localhost data: blob:; style-src 'self' 'unsafe-inline';"
+                             }
+            },
+    "bundle":  {
+                   "active":  true,
+                   "icon": [
+                                "icons/icon.ico"
+                            ],
+                   "targets":  [
+                                   "nsis"
+                               ],
+                   "createUpdaterArtifacts":  true,
+                   "resources":  {
+                                     "sidecar":  "sidecar"
+                                 },
+                   "windows":  {
+                                   "webviewInstallMode":  {
+                                                              "type":  "downloadBootstrapper",
+                                                              "silent":  true
+                                                          },
+                                   "nsis":  {
+                                                "installMode":  "currentUser",
+                                                "displayLanguageSelector":  false
+                                            }
+                               }
+               },
+    "plugins":  {
+                    "updater":  {
+                                    "pubkey":  "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDczNTg3ODExMDVENjg3QTYKUldTbWg5WUZFWGhZY3lVbGJPMzl0bUtJeGtFZDRmWExpZTNZdTJWdTdCZlF6NlFSMUsyZ3htUk8K",
+                                    "endpoints":  [
+                                                      "https://github.com/ikverse/EGX-Analyser/releases/latest/download/latest.json"
+                                                  ],
+                                    "windows":  {
+                                                    "installMode":  "passive"
+                                                }
+                                }
+                }
+}
